@@ -1,0 +1,45 @@
+### Register a new user
+POST http://localhost:8080/register
+Content-Type: application/json
+
+{
+  "username": "newuser",
+  "password": "password123"
+}
+
+### Login with registered user
+POST http://localhost:8080/login
+Content-Type: application/json
+
+{
+  "username": "testuser",
+  "password": "password123"
+}
+
+
+
+### Refresh token
+POST http://localhost:8080/refresh?token=eyJhbGciOiJIUzI1NiJ9.eyJyb2xlcyI6IlJPTEVfQ1VTVE9NRVIiLCJzdWIiOiJ0ZXN0dXNlciIsImlhdCI6MTc0NzY2NTAzOSwiZXhwIjoxNzQ3NzUxNDM5fQ.dLPRc_RDoNdQttYF7pgCuPn0fuPO-_WdW49iF-U9mpU
+
+
+
+### Try registering with an existing username (to test conflict handling)
+POST http://localhost:8080/register
+Content-Type: application/json
+
+{
+  "username": "testuser",
+  "password": "password123"
+}
+
+### Try login with incorrect credentials (to test unauthorized error)
+POST http://localhost:8080/login
+Content-Type: application/json
+
+{
+  "username": "testuser",
+  "password": "wrongpassword"
+}
+
+### Try to validate an invalid token
+GET http://localhost:8080/validate?token=invalid.token.here

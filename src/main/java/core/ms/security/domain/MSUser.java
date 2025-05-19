@@ -2,69 +2,52 @@ package core.ms.security.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.Id;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
-import jakarta.persistence.EnumType;
-
+import lombok.Getter;
+import lombok.Setter;
 
 @Entity
 public class MSUser {
+    @Setter
+    @Getter
     @Id
     @Size(max = 20)
     @Column(name = "username")
     @NotBlank
     private String username;
 
+    @Setter
+    @Getter
     @Size(max = 500)
     @Column(name = "userpassword")
     @NotBlank
     private String userPassword;
 
-    @Column(name = "userrole")
+    @Column(name = "userrole", length = 20)
     @NotNull
-    @Enumerated(EnumType.STRING)
-    private MSUserRole role;
+    private String userRoleStr;
 
+    protected MSUser() { super(); }
 
-    protected MSUser() { super();}
-
-    public MSUser(@Size(max = 20) @NotBlank String username, @NotNull MSUserRole role){
+    public MSUser(@Size(max = 20) @NotBlank String username, @NotNull MSUserRole role) {
         this.username = username;
-        this.role = role;
+        setRole(role);
     }
 
     public MSUser(@Size(max = 20) @NotBlank String username, @NotNull MSUserRole role, @NotBlank String password) {
         this.username = username;
-        this.role = role;
+        setRole(role);
         this.userPassword = password;
     }
 
-    public String getUsername() {
-        return username;
-    }
-
-    public void setUsername(String username) {
-        this.username = username;
-    }
-
-    public String getUserPassword() {
-        return userPassword;
-    }
-
-    public void setUserPassword(String userPassword) {
-        this.userPassword = userPassword;
-    }
-
     public MSUserRole getRole() {
-        return role;
+        return MSUserRole.valueOf(userRoleStr);
     }
 
     public void setRole(MSUserRole role) {
-        this.role = role;
+        this.userRoleStr = role.name();
     }
-
-
 }

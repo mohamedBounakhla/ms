@@ -22,7 +22,7 @@ public class TokenServiceImpl implements TokenService {
     @Value("${jwt.secret:defaultSecretKeyThatShouldBeVeryLongAndSecureForProduction}")
     private String secretKey;
 
-    @Value("${jwt.expiration:86400000")
+    @Value("${jwt.expiration:86400000}")
     private long jwtExpiration;
 
 
