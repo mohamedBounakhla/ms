@@ -91,6 +91,10 @@ public class Symbol {
         return new Symbol("BTC", "Bitcoin", AssetType.CRYPTO, Currency.BTC, Currency.USD);
     }
 
+    public static Symbol btcEur() {
+        return new Symbol("BTC", "Bitcoin", AssetType.CRYPTO, Currency.BTC, Currency.EUR);
+    }
+
     public static Symbol ethUsd() {
         return new Symbol("ETH", "Ethereum", AssetType.CRYPTO, Currency.ETH, Currency.USD);
     }
