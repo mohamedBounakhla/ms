@@ -50,65 +50,54 @@ public class OrderBook {
         this.matchFinder = new MatchFinder();
     }
 
-    public void addOrder(IBuyOrder order) {
-        Objects.requireNonNull(order, "Buy order cannot be null");
+    public void addOrder(IOrder order) {
+        Objects.requireNonNull(order, "Order cannot be null");
         validateOrder(order);
 
         orderIndex.put(order.getId(), order);
 
         Money price = order.getPrice();
-        BidPriceLevel level = bidLevels.computeIfAbsent(price, BidPriceLevel::new);
-        level.addOrder(order);
 
-        updateVolumeMetrics();
-        lastUpdate = LocalDateTime.now();
-    }
-
-    public void addOrder(ISellOrder order) {
-        Objects.requireNonNull(order, "Sell order cannot be null");
-        validateOrder(order);
-
-        orderIndex.put(order.getId(), order);
-
-        Money price = order.getPrice();
-        AskPriceLevel level = askLevels.computeIfAbsent(price, AskPriceLevel::new);
-        level.addOrder(order);
-
-        updateVolumeMetrics();
-        lastUpdate = LocalDateTime.now();
-    }
-
-    public boolean removeOrder(IBuyOrder order) {
-        Objects.requireNonNull(order, "Buy order cannot be null");
-
-        if (orderIndex.remove(order.getId()) != null) {
-            Money price = order.getPrice();
-            BidPriceLevel level = bidLevels.get(price);
-            if (level != null) {
-                level.removeOrder(order);
-                if (level.isEmpty()) {
-                    bidLevels.remove(price);
-                }
-            }
-            updateVolumeMetrics();
-            lastUpdate = LocalDateTime.now();
-            return true;
+        if (order instanceof IBuyOrder) {
+            BidPriceLevel level = bidLevels.computeIfAbsent(price, BidPriceLevel::new);
+            level.addOrder((IBuyOrder) order);
+        } else if (order instanceof ISellOrder) {
+            AskPriceLevel level = askLevels.computeIfAbsent(price, AskPriceLevel::new);
+            level.addOrder((ISellOrder) order);
+        } else {
+            throw new IllegalArgumentException("Unknown order type: " + order.getClass());
         }
-        return false;
+
+        updateVolumeMetrics();
+        lastUpdate = LocalDateTime.now();
     }
 
-    public boolean removeOrder(ISellOrder order) {
-        Objects.requireNonNull(order, "Sell order cannot be null");
+    public boolean removeOrder(IOrder order) {
+        Objects.requireNonNull(order, "Order cannot be null");
 
         if (orderIndex.remove(order.getId()) != null) {
             Money price = order.getPrice();
-            AskPriceLevel level = askLevels.get(price);
-            if (level != null) {
-                level.removeOrder(order);
-                if (level.isEmpty()) {
-                    askLevels.remove(price);
+
+            if (order instanceof IBuyOrder) {
+                BidPriceLevel level = bidLevels.get(price);
+                if (level != null) {
+                    level.removeOrder((IBuyOrder) order);
+                    if (level.isEmpty()) {
+                        bidLevels.remove(price);
+                    }
                 }
+            } else if (order instanceof ISellOrder) {
+                AskPriceLevel level = askLevels.get(price);
+                if (level != null) {
+                    level.removeOrder((ISellOrder) order);
+                    if (level.isEmpty()) {
+                        askLevels.remove(price);
+                    }
+                }
+            } else {
+                throw new IllegalArgumentException("Unknown order type: " + order.getClass());
             }
+
             updateVolumeMetrics();
             lastUpdate = LocalDateTime.now();
             return true;
