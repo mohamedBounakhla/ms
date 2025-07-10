@@ -32,24 +32,20 @@ class OrderDomainIntegrationTest {
         assertTrue(buyOrder.isActive());
         assertTrue(sellOrder.isActive());
 
-        // Partial fill
-        buyOrder.fillPartial();
-        sellOrder.fillPartial();
-        assertEquals(OrderStatusEnum.PARTIAL, buyOrder.getStatus().getStatus());
-        assertEquals(OrderStatusEnum.PARTIAL, sellOrder.getStatus().getStatus());
+        // ===== FIX: CREATE TRANSACTION FIRST (this will update states automatically) =====
+        Transaction transaction = new Transaction("tx-1", btcUsd, buyOrder, sellOrder, price, quantity);
 
-        // Complete fill
-        buyOrder.complete();
-        sellOrder.complete();
+        // ===== NOW orders should be FILLED automatically =====
         assertEquals(OrderStatusEnum.FILLED, buyOrder.getStatus().getStatus());
         assertEquals(OrderStatusEnum.FILLED, sellOrder.getStatus().getStatus());
         assertFalse(buyOrder.isActive());
         assertFalse(sellOrder.isActive());
 
-        // Create transaction
-        Transaction transaction = new Transaction("tx-1", btcUsd, buyOrder, sellOrder, price, quantity);
+        // Verify transaction details
         assertNotNull(transaction);
         assertEquals(Money.of("45000.00", Currency.USD), transaction.getTotalValue());
+        assertEquals(BigDecimal.ZERO, buyOrder.getRemainingQuantity());
+        assertEquals(BigDecimal.ZERO, sellOrder.getRemainingQuantity());
     }
 
     @Test

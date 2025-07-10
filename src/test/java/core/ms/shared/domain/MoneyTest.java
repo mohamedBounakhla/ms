@@ -447,5 +447,21 @@ class MoneyTest {
             // When & Then
             assertNotEquals(money, notMoney);
         }
+        @Test
+        @DisplayName("Should handle BigDecimal scale differences in Money equals")
+        void shouldHandleBigDecimalScaleDifferencesInMoneyEquals() {
+            Money money1 = Money.of("45000", Currency.USD);     // scale 0
+            Money money2 = Money.of("45000.0", Currency.USD);   // scale 1
+            Money money3 = Money.of("45000.00", Currency.USD);  // scale 2
+
+            // All should be equal despite different scales
+            assertEquals(money1, money2);
+            assertEquals(money2, money3);
+            assertEquals(money1, money3);
+
+            // Hash codes should also be equal
+            assertEquals(money1.hashCode(), money2.hashCode());
+            assertEquals(money2.hashCode(), money3.hashCode());
+        }
     }
 }

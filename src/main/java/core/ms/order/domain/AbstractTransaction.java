@@ -41,8 +41,8 @@ public abstract class AbstractTransaction implements ITransaction {
         // Additional validation
         validateTransaction();
 
-        // ===== NEW: UPDATE ORDER STATES AFTER TRANSACTION =====
-        updateOrderStates();
+        // Update orders after transaction
+        updateOrdersAfterTransaction();
     }
 
     private void validateTransaction() {
@@ -51,8 +51,8 @@ public abstract class AbstractTransaction implements ITransaction {
             throw new IllegalArgumentException("All orders must have the same symbol");
         }
 
-        // Validate price consistency
-        validatePriceConsistency();
+        // ===== NEW: ORDER MATCHING VALIDATION (REPLACES STRICT PRICE MATCHING) =====
+        validateOrderMatching();
 
         // Validate quantity constraints
         validateQuantityConstraints();
@@ -68,54 +68,35 @@ public abstract class AbstractTransaction implements ITransaction {
         }
     }
 
-    private void validatePriceConsistency() {
-        if (!buyOrder.getPrice().equals(price)) {
-            throw new IllegalArgumentException("Transaction price must match buy order price");
+    // ===== NEW: ORDER MATCHING LOGIC =====
+    private void validateOrderMatching() {
+        // Check if buy price >= sell price (can match)
+        if (buyOrder.getPrice().isLessThan(sellOrder.getPrice())) {
+            throw new IllegalArgumentException("Orders cannot match: buy price is less than sell price");
         }
-        if (!sellOrder.getPrice().equals(price)) {
-            throw new IllegalArgumentException("Transaction price must match sell order price");
+
+        // Check if execution price is within valid range
+        if (price.isLessThan(sellOrder.getPrice()) || price.isGreaterThan(buyOrder.getPrice())) {
+            throw new IllegalArgumentException("Execution price must be between sell price and buy price");
         }
     }
 
     private void validateQuantityConstraints() {
-        if (quantity.compareTo(buyOrder.getQuantity()) > 0) {
-            throw new IllegalArgumentException("Transaction quantity cannot exceed buy order quantity");
+        if (quantity.compareTo(buyOrder.getRemainingQuantity()) > 0) {
+            throw new IllegalArgumentException("Transaction quantity cannot exceed buy order remaining quantity");
         }
-        if (quantity.compareTo(sellOrder.getQuantity()) > 0) {
-            throw new IllegalArgumentException("Transaction quantity cannot exceed sell order quantity");
-        }
-    }
-
-    /**
-     * Updates order states based on execution quantity
-     * Business Rule: Orders should transition states when executed
-     */
-    private void updateOrderStates() {
-        updateBuyOrderState();
-        updateSellOrderState();
-    }
-
-    private void updateBuyOrderState() {
-        if (quantity.compareTo(buyOrder.getQuantity()) == 0) {
-            // Full execution: PENDING/PARTIAL → FILLED
-            buyOrder.complete();
-        } else if (quantity.compareTo(buyOrder.getQuantity()) < 0) {
-            // Partial execution: PENDING → PARTIAL, PARTIAL → PARTIAL
-            buyOrder.fillPartial();
+        if (quantity.compareTo(sellOrder.getRemainingQuantity()) > 0) {
+            throw new IllegalArgumentException("Transaction quantity cannot exceed sell order remaining quantity");
         }
     }
 
-    private void updateSellOrderState() {
-        if (quantity.compareTo(sellOrder.getQuantity()) == 0) {
-            // Full execution: PENDING/PARTIAL → FILLED
-            sellOrder.complete();
-        } else if (quantity.compareTo(sellOrder.getQuantity()) < 0) {
-            // Partial execution: PENDING → PARTIAL, PARTIAL → PARTIAL
-            sellOrder.fillPartial();
-        }
+    private void updateOrdersAfterTransaction() {
+        // Add this transaction to both orders and update their quantities
+        buyOrder.addTransaction(this, quantity);
+        sellOrder.addTransaction(this, quantity);
     }
 
-    // ... rest of implementation remains same
+    // ===== GETTERS =====
     @Override
     public String getId() { return id; }
 
@@ -141,6 +122,24 @@ public abstract class AbstractTransaction implements ITransaction {
         return price.multiply(quantity);
     }
 
+    // ===== STATIC HELPER METHOD FOR OPTIMAL PRICING =====
+    public static Money determineExecutionPrice(IBuyOrder buyOrder, ISellOrder sellOrder) {
+        if (buyOrder.getPrice().isLessThan(sellOrder.getPrice())) {
+            throw new IllegalArgumentException("Orders cannot match: buy price is less than sell price");
+        }
+
+        // Use mid-point pricing for fair execution
+        Money buyPrice = buyOrder.getPrice();
+        Money sellPrice = sellOrder.getPrice();
+
+        // Calculate mid-point: (buy + sell) / 2
+        Money sum = buyPrice.add(sellPrice);
+        Money midPoint = sum.divide(new BigDecimal("2"));
+
+        return midPoint;
+    }
+
+    // ===== OBJECT METHODS =====
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;

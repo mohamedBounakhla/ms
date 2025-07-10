@@ -1,0 +1,336 @@
+@startuml Order Domain Model
+!theme plain
+skinparam backgroundColor #FFFFFF
+skinparam classBackgroundColor #F8F9FA
+skinparam classBorderColor #6C757D
+skinparam stereotypeCBackgroundColor #E9ECEF
+
+title Order Domain Model
+
+package "Order Domain" {
+    
+    interface IOrder {
+        +getId(): String
+        +getSymbol(): Symbol
+        +getPrice(): Money
+        +getQuantity(): BigDecimal
+        +getStatus(): OrderStatus
+        +getCreatedAt(): LocalDateTime
+        +getUpdatedAt(): LocalDateTime
+        +cancel(): void
+        +cancelPartial(): void
+        +fillPartial(): void
+        +complete(): void
+        +updatePrice(Money): void
+        +getTotalValue(): Money
+        +isActive(): boolean
+        +getExecutedQuantity(): BigDecimal
+        +getRemainingQuantity(): BigDecimal
+        +getTransactions(): List<ITransaction>
+        +getTransactionSequence(ITransaction): int
+        +addTransaction(ITransaction, BigDecimal): void
+    }
+    
+    interface IBuyOrder {
+        +getCostBasis(): Money
+    }
+    
+    interface ISellOrder {
+        +getProceeds(): Money
+    }
+    
+    interface ITransaction {
+        +getId(): String
+        +getSymbol(): Symbol
+        +getBuyOrder(): IBuyOrder
+        +getSellOrder(): ISellOrder
+        +getPrice(): Money
+        +getQuantity(): BigDecimal
+        +getCreatedAt(): LocalDateTime
+    }
+    
+    abstract class AbstractOrder {
+        #id: String
+        #symbol: Symbol
+        #price: Money
+        #quantity: BigDecimal
+        #status: OrderStatus
+        #createdAt: LocalDateTime
+        #updatedAt: LocalDateTime
+        #executedQuantity: BigDecimal
+        #transactions: List<ITransaction>
+        
+        +AbstractOrder(String, Symbol, Money, BigDecimal)
+        +getId(): String
+        +getSymbol(): Symbol
+        +getPrice(): Money
+        +getQuantity(): BigDecimal
+        +getStatus(): OrderStatus
+        +getCreatedAt(): LocalDateTime
+        +getUpdatedAt(): LocalDateTime
+        +getExecutedQuantity(): BigDecimal
+        +getRemainingQuantity(): BigDecimal
+        +getTransactions(): List<ITransaction>
+        +getTransactionSequence(ITransaction): int
+        +addTransaction(ITransaction, BigDecimal): void
+        +cancel(): void
+        +cancelPartial(): void
+        +fillPartial(): void
+        +complete(): void
+        +updatePrice(Money): void
+        +getTotalValue(): Money
+        +isActive(): boolean
+        +getSymbolCode(): String
+        -validatePriceCurrency(Money): void
+        -validateQuantity(BigDecimal): void
+        -updateStatusAfterExecution(): void
+    }
+    
+    class BuyOrder {
+        +BuyOrder(String, Symbol, Money, BigDecimal)
+        +getCostBasis(): Money
+    }
+    
+    class SellOrder {
+        +SellOrder(String, Symbol, Money, BigDecimal)
+        +getProceeds(): Money
+    }
+    
+    abstract class AbstractTransaction {
+        #id: String
+        #symbol: Symbol
+        #buyOrder: IBuyOrder
+        #sellOrder: ISellOrder
+        #price: Money
+        #quantity: BigDecimal
+        #createdAt: LocalDateTime
+        
+        +AbstractTransaction(String, Symbol, IBuyOrder, ISellOrder, Money, BigDecimal)
+        +getId(): String
+        +getSymbol(): Symbol
+        +getBuyOrder(): IBuyOrder
+        +getSellOrder(): ISellOrder
+        +getPrice(): Money
+        +getQuantity(): BigDecimal
+        +getCreatedAt(): LocalDateTime
+        +getTotalValue(): Money
+        +{static} determineExecutionPrice(IBuyOrder, ISellOrder): Money
+        -validateTransaction(): void
+        -validateOrderMatching(): void
+        -validateQuantityConstraints(): void
+        -updateOrdersAfterTransaction(): void
+    }
+    
+    class Transaction {
+        +Transaction(String, Symbol, IBuyOrder, ISellOrder, Money, BigDecimal)
+        +{static} fromMatchingOrders(String, IBuyOrder, ISellOrder, Money, BigDecimal): Transaction
+    }
+}
+
+package "Value Objects" {
+    
+    class OrderStatus {
+        -state: IOrderState
+        +OrderStatus()
+        +getStatus(): OrderStatusEnum
+        +isTerminal(): boolean
+        +canTransition(OrderStatusEnum): boolean
+        +cancelOrder(): void
+        +cancelPartialOrder(): void
+        +fillPartialOrder(): void
+        +completeOrder(): void
+    }
+    
+    enum OrderStatusEnum {
+        PENDING
+        PARTIAL
+        FILLED
+        CANCELLED
+    }
+    
+    interface IOrderState {
+        +getStatus(): OrderStatusEnum
+        +isTerminal(): boolean
+        +canTransition(OrderStatusEnum): boolean
+        +cancelOrder(): IOrderState
+        +cancelPartialOrder(): IOrderState
+        +fillPartialOrder(): IOrderState
+        +completeOrder(): IOrderState
+    }
+    
+    abstract class AbstractOrderState {
+        +isTerminal(): boolean
+        +canTransition(OrderStatusEnum): boolean
+        +cancelOrder(): IOrderState
+        +cancelPartialOrder(): IOrderState
+        +fillPartialOrder(): IOrderState
+        +completeOrder(): IOrderState
+    }
+    
+    class PendingOrder {
+        +getStatus(): OrderStatusEnum
+        +isTerminal(): boolean
+        +cancelOrder(): IOrderState
+        +fillPartialOrder(): IOrderState
+        +completeOrder(): IOrderState
+    }
+    
+    class PartialOrder {
+        +getStatus(): OrderStatusEnum
+        +isTerminal(): boolean
+        +cancelPartialOrder(): IOrderState
+        +fillPartialOrder(): IOrderState
+        +completeOrder(): IOrderState
+    }
+    
+    class FilledOrder {
+        +getStatus(): OrderStatusEnum
+        +isTerminal(): boolean
+    }
+    
+    class CancelledOrder {
+        +getStatus(): OrderStatusEnum
+        +isTerminal(): boolean
+    }
+}
+
+package "Shared Domain" {
+    
+    class Money {
+        -amount: BigDecimal
+        -currency: Currency
+        +Money(BigDecimal, Currency)
+        +Money(String, Currency)
+        +add(Money): Money
+        +subtract(Money): Money
+        +multiply(BigDecimal): Money
+        +divide(BigDecimal): Money
+        +negate(): Money
+        +isGreaterThan(Money): boolean
+        +isLessThan(Money): boolean
+        +isGreaterThanOrEqual(Money): boolean
+        +isLessThanOrEqual(Money): boolean
+        +isZero(): boolean
+        +isPositive(): boolean
+        +isNegative(): boolean
+        +getAmount(): BigDecimal
+        +getCurrency(): Currency
+        +toDisplayString(): String
+        +toPlainString(): String
+        +{static} zero(Currency): Money
+        +{static} of(String, Currency): Money
+        +{static} of(BigDecimal, Currency): Money
+        +{static} usd(String): Money
+        +{static} eur(String): Money
+    }
+    
+    enum Currency {
+        USD("$", 2, "US Dollar", ROUND_TO_CURRENCY_PRECISION)
+        EUR("€", 2, "Euro", ROUND_TO_CURRENCY_PRECISION)
+        GBP("£", 2, "British Pound", ROUND_TO_CURRENCY_PRECISION)
+        JPY("¥", 0, "Japanese Yen", ROUND_TO_WHOLE_NUMBERS)
+        BTC("₿", 8, "Bitcoin", PRESERVE_FULL_PRECISION)
+        ETH("Ξ", 18, "Ethereum", PRESERVE_FULL_PRECISION)
+        
+        -symbol: String
+        -decimalPlaces: int
+        -displayName: String
+        -arithmeticStrategy: ArithmeticStrategy
+        
+        +processArithmeticResult(BigDecimal): BigDecimal
+        +getSymbol(): String
+        +getDecimalPlaces(): int
+        +getDisplayName(): String
+        +isFiat(): boolean
+        +isCrypto(): boolean
+    }
+    
+    class Symbol {
+        -code: String
+        -name: String
+        -type: AssetType
+        -baseCurrency: Currency
+        -quoteCurrency: Currency
+        
+        +Symbol(String, String, AssetType, Currency, Currency)
+        +getCode(): String
+        +getName(): String
+        +getType(): AssetType
+        +getBaseCurrency(): Currency
+        +getQuoteCurrency(): Currency
+        +getFullSymbol(): String
+        +getDisplayName(): String
+        +isCrypto(): boolean
+        +isStock(): boolean
+        +isForex(): boolean
+        +isCommodity(): boolean
+        +isCrossCurrency(): boolean
+        +{static} btcUsd(): Symbol
+        +{static} btcEur(): Symbol
+        +{static} ethUsd(): Symbol
+        +{static} eurUsd(): Symbol
+        +{static} gbpUsd(): Symbol
+    }
+    
+    enum AssetType {
+        CRYPTO
+        STOCK
+        FOREX
+        COMMODITY
+    }
+    
+    enum ArithmeticStrategy {
+        ROUND_TO_CURRENCY_PRECISION
+        ROUND_TO_WHOLE_NUMBERS
+        PRESERVE_FULL_PRECISION
+    }
+}
+
+' Relationships
+IOrder <|-- IBuyOrder
+IOrder <|-- ISellOrder
+IBuyOrder <|.. BuyOrder
+ISellOrder <|.. SellOrder
+IOrder <|.. AbstractOrder
+AbstractOrder <|-- BuyOrder
+AbstractOrder <|-- SellOrder
+
+ITransaction <|.. AbstractTransaction
+AbstractTransaction <|-- Transaction
+
+AbstractOrder --> OrderStatus : contains
+AbstractOrder --> Symbol : uses
+AbstractOrder --> Money : uses
+AbstractOrder --> ITransaction : contains list
+
+AbstractTransaction --> IBuyOrder : references
+AbstractTransaction --> ISellOrder : references
+AbstractTransaction --> Symbol : uses
+AbstractTransaction --> Money : uses
+
+OrderStatus --> IOrderState : contains
+OrderStatus --> OrderStatusEnum : uses
+IOrderState <|.. AbstractOrderState
+AbstractOrderState <|-- PendingOrder
+AbstractOrderState <|-- PartialOrder
+AbstractOrderState <|-- FilledOrder
+AbstractOrderState <|-- CancelledOrder
+
+Money --> Currency : uses
+Symbol --> Currency : uses
+Symbol --> AssetType : uses
+Currency --> ArithmeticStrategy : uses
+
+Transaction --> AbstractTransaction : extends
+BuyOrder --> AbstractOrder : extends
+SellOrder --> AbstractOrder : extends
+
+note top of AbstractTransaction : "Validates order matching rules:\n- Buy price >= Sell price\n- Execution price within range\n- Orders must be active\n- Quantity constraints"
+
+note top of AbstractOrder : "Manages order lifecycle:\n- Tracks executed/remaining quantity\n- Updates status after transactions\n- Validates price currency\n- Maintains transaction history"
+
+note top of OrderStatus : "State Pattern implementation:\n- Manages order state transitions\n- Validates allowed transitions\n- Encapsulates status logic"
+
+note top of Money : "Value Object for monetary amounts:\n- Immutable\n- Currency-aware arithmetic\n- Precision handling\n- Validation"
+
+@enduml

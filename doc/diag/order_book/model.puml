@@ -1,0 +1,344 @@
+@startuml OrderBookDomain
+
+!define AGGREGATE_ROOT #FFE6E6
+!define ENTITY #E6F3FF
+!define VALUE_OBJECT #E6FFE6
+!define DOMAIN_SERVICE #FFF0E6
+!define INTERFACE #F0E6FF
+
+' ==== EXTERNAL DEPENDENCIES ====
+package "External Dependencies" {
+    interface IOrder <<INTERFACE>> {
+        +getId(): String
+        +getSymbol(): Symbol
+        +getPrice(): Money
+        +getCreatedAt(): LocalDateTime
+        +isActive(): boolean
+        +getRemainingQuantity(): BigDecimal
+    }
+
+    interface IBuyOrder <<INTERFACE>> {
+        +getRemainingQuantity(): BigDecimal
+    }
+
+    interface ISellOrder <<INTERFACE>> {
+        +getRemainingQuantity(): BigDecimal
+    }
+
+    class Money <<VALUE_OBJECT>> {
+        -amount: BigDecimal
+        -currency: String
+        +add(Money): Money
+        +subtract(Money): Money
+        +multiply(BigDecimal): Money
+        +divide(BigDecimal): Money
+        +isGreaterThan(Money): boolean
+        +isLessThan(Money): boolean
+        +isGreaterThanOrEqual(Money): boolean
+        +equals(Object): boolean
+        +isNegative(): boolean
+        +negate(): Money
+    }
+
+    class Symbol <<VALUE_OBJECT>> {
+        -value: String
+        +getValue(): String
+        +equals(Object): boolean
+        +hashCode(): int
+    }
+
+    IBuyOrder --|> IOrder
+    ISellOrder --|> IOrder
+}
+
+' ==== CORE DOMAIN ====
+package "Order Book Domain" {
+
+    ' ==== MAIN AGGREGATE ====
+    class OrderBook <<AGGREGATE_ROOT>> {
+        -symbol: Symbol
+        -bidLevels: TreeMap<Money, BidPriceLevel>
+        -askLevels: TreeMap<Money, AskPriceLevel>
+        -orderIndex: Map<String, IOrder>
+        -lastUpdate: LocalDateTime
+        -totalBidVolume: BigDecimal
+        -totalAskVolume: BigDecimal
+        -buyOrderCalculator: BuyOrderPriorityCalculator
+        -sellOrderCalculator: SellOrderPriorityCalculator
+        -matchFinder: MatchFinder
+
+        +OrderBook(Symbol)
+        +addOrder(IOrder): void
+        +removeOrder(IOrder): boolean
+        +getBestBid(): Optional<Money>
+        +getBestAsk(): Optional<Money>
+        +getSpread(): Optional<Money>
+        +getBestBuyOrder(): Optional<IBuyOrder>
+        +getBestSellOrder(): Optional<ISellOrder>
+        +getMarketDepth(int): MarketDepth
+        +findMatches(): List<OrderMatch>
+        +getBidLevels(): Collection<BidPriceLevel>
+        +getAskLevels(): Collection<AskPriceLevel>
+        +getTotalBidVolume(): BigDecimal
+        +getTotalAskVolume(): BigDecimal
+        +isEmpty(): boolean
+        +hasOrders(): boolean
+        +getOrderCount(): int
+        +getSymbol(): Symbol
+        +getLastUpdate(): LocalDateTime
+        -validateOrder(IOrder): void
+        -updateVolumeMetrics(): void
+    }
+
+    ' ==== REPOSITORY/MANAGER ====
+    class OrderBookManager <<DOMAIN_SERVICE>> {
+        -orderBooks: Map<Symbol, OrderBook>
+
+        +OrderBookManager()
+        +getOrderBook(Symbol): OrderBook
+        +createOrderBook(Symbol): OrderBook
+        +removeOrderBook(Symbol): boolean
+        +getAllOrderBooks(): Collection<OrderBook>
+        +getActiveSymbols(): Set<Symbol>
+        +getTotalOrderBooks(): int
+        +addOrderToBook(IOrder): void
+        +removeOrderFromBook(IOrder, Symbol): boolean
+        +findAllMatches(): List<OrderMatch>
+        +getMarketOverview(): MarketOverview
+    }
+
+    ' ==== PRICE LEVEL HIERARCHY ====
+    interface IPriceLevel <<INTERFACE>> {
+        +getPrice(): Money
+        +getTotalQuantity(): BigDecimal
+        +getOrderCount(): int
+        +isEmpty(): boolean
+        +hasQuantity(BigDecimal): boolean
+    }
+
+    abstract class AbstractPriceLevel <<ENTITY>> {
+        #price: Money
+        #totalQuantity: BigDecimal
+        #orderCount: int
+
+        +AbstractPriceLevel(Money)
+        +getPrice(): Money
+        +getTotalQuantity(): BigDecimal
+        +getOrderCount(): int
+        +hasQuantity(BigDecimal): boolean
+        #validateOrderPrice(IOrder): void
+        #recalculateTotals(): void {abstract}
+        +equals(Object): boolean
+        +hashCode(): int
+    }
+
+    class BidPriceLevel <<ENTITY>> {
+        -buyOrders: LinkedList<IBuyOrder>
+
+        +BidPriceLevel(Money)
+        +addOrder(IBuyOrder): void
+        +removeOrder(IBuyOrder): boolean
+        +getOrders(): List<IBuyOrder>
+        +isEmpty(): boolean
+        +getFirstOrder(): Optional<IBuyOrder>
+        #recalculateTotals(): void
+    }
+
+    class AskPriceLevel <<ENTITY>> {
+        -sellOrders: LinkedList<ISellOrder>
+
+        +AskPriceLevel(Money)
+        +addOrder(ISellOrder): void
+        +removeOrder(ISellOrder): boolean
+        +getOrders(): List<ISellOrder>
+        +isEmpty(): boolean
+        +getFirstOrder(): Optional<ISellOrder>
+        #recalculateTotals(): void
+    }
+
+    ' ==== PRIORITY CALCULATORS ====
+    interface IPriorityCalculator <<INTERFACE>> {
+        +isHigherPriority(T, T): boolean
+        +isPriceBetter(Money, Money): boolean
+        +isTimeBetter(LocalDateTime, LocalDateTime): boolean
+        +calculatePriceDifference(Money, Money): Money
+        +hasSamePrice(T, T): boolean
+    }
+
+    abstract class AbstractPriorityCalculator <<DOMAIN_SERVICE>> {
+        +isHigherPriority(T, T): boolean
+        +isTimeBetter(LocalDateTime, LocalDateTime): boolean
+        +calculatePriceDifference(Money, Money): Money
+        +hasSamePrice(T, T): boolean
+        +isPriceBetter(Money, Money): boolean {abstract}
+    }
+
+    class BuyOrderPriorityCalculator <<DOMAIN_SERVICE>> {
+        +isPriceBetter(Money, Money): boolean
+    }
+
+    class SellOrderPriorityCalculator <<DOMAIN_SERVICE>> {
+        +isPriceBetter(Money, Money): boolean
+    }
+
+    ' ==== MATCHING LOGIC ====
+    class MatchFinder <<DOMAIN_SERVICE>> {
+        +findMatches(OrderBook): List<OrderMatch>
+        +canMatch(IBuyOrder, ISellOrder): boolean
+        +calculateMatchPrice(Money, Money): Money
+        +calculateMatchQuantity(BigDecimal, BigDecimal): BigDecimal
+    }
+
+    ' ==== VALUE OBJECTS ====
+    class OrderMatch <<VALUE_OBJECT>> {
+        -buyOrder: IBuyOrder
+        -sellOrder: ISellOrder
+        -matchableQuantity: BigDecimal
+        -suggestedPrice: Money
+        -timestamp: LocalDateTime
+
+        +OrderMatch(IBuyOrder, ISellOrder)
+        +getBuyOrder(): IBuyOrder
+        +getSellOrder(): ISellOrder
+        +getMatchableQuantity(): BigDecimal
+        +getSuggestedPrice(): Money
+        +getTimestamp(): LocalDateTime
+        +isValid(): boolean
+        +getTotalValue(): Money
+        -calculateMatchableQuantity(): BigDecimal
+        -calculateSuggestedPrice(): Money
+        -validateMatchCompatibility(): void
+    }
+
+    class MarketDepth <<VALUE_OBJECT>> {
+        -symbol: Symbol
+        -bidLevels: List<BidPriceLevel>
+        -askLevels: List<AskPriceLevel>
+        -spread: Money
+        -totalBidVolume: BigDecimal
+        -totalAskVolume: BigDecimal
+        -timestamp: LocalDateTime
+
+        +MarketDepth(Symbol, List<BidPriceLevel>, List<AskPriceLevel>)
+        +getSymbol(): Symbol
+        +getBidLevels(): List<BidPriceLevel>
+        +getAskLevels(): List<AskPriceLevel>
+        +getSpread(): Money
+        +getTotalBidVolume(): BigDecimal
+        +getTotalAskVolume(): BigDecimal
+        +getTimestamp(): LocalDateTime
+        +getBestBid(): Optional<BidPriceLevel>
+        +getBestAsk(): Optional<AskPriceLevel>
+        +isEmpty(): boolean
+        +getLevelCount(): int
+        -calculateBidVolume(): BigDecimal
+        -calculateAskVolume(): BigDecimal
+        -calculateSpread(): Money
+    }
+
+    class MarketOverview <<VALUE_OBJECT>> {
+        -activeSymbols: Set<Symbol>
+        -totalOrderBooks: int
+        -totalOrders: int
+        -totalVolume: Map<Symbol, BigDecimal>
+        -timestamp: LocalDateTime
+
+        +MarketOverview(Set<Symbol>, int, int, Map<Symbol, BigDecimal>)
+        +getActiveSymbols(): Set<Symbol>
+        +getTotalOrderBooks(): int
+        +getTotalOrders(): int
+        +getTotalVolume(): Map<Symbol, BigDecimal>
+        +getTimestamp(): LocalDateTime
+        +getVolumeForSymbol(Symbol): BigDecimal
+    }
+}
+
+' ==== RELATIONSHIPS ====
+
+' External Dependencies
+IOrder o-- Money : "has price"
+IOrder o-- Symbol : "has symbol"
+
+' OrderBook Aggregate
+OrderBook *-- BidPriceLevel : "contains"
+OrderBook *-- AskPriceLevel : "contains"
+OrderBook o-- Symbol : "trades"
+OrderBook o-- BuyOrderPriorityCalculator : "uses"
+OrderBook o-- SellOrderPriorityCalculator : "uses"
+OrderBook o-- MatchFinder : "uses"
+OrderBook ..> MarketDepth : "creates"
+OrderBook ..> OrderMatch : "finds"
+
+' OrderBookManager
+OrderBookManager *-- OrderBook : "manages"
+OrderBookManager ..> MarketOverview : "creates"
+
+' Price Level Hierarchy
+IPriceLevel <|-- AbstractPriceLevel
+AbstractPriceLevel <|-- BidPriceLevel
+AbstractPriceLevel <|-- AskPriceLevel
+BidPriceLevel *-- IBuyOrder : "contains"
+AskPriceLevel *-- ISellOrder : "contains"
+
+' Priority Calculators
+IPriorityCalculator <|-- AbstractPriorityCalculator
+AbstractPriorityCalculator <|-- BuyOrderPriorityCalculator
+AbstractPriorityCalculator <|-- SellOrderPriorityCalculator
+
+' Match Finding
+MatchFinder ..> OrderMatch : "creates"
+OrderMatch o-- IBuyOrder : "matches"
+OrderMatch o-- ISellOrder : "matches"
+OrderMatch o-- Money : "at price"
+
+' Market Data
+MarketDepth o-- Symbol : "for symbol"
+MarketDepth o-- BidPriceLevel : "contains"
+MarketDepth o-- AskPriceLevel : "contains"
+MarketDepth o-- Money : "has spread"
+
+MarketOverview o-- Symbol : "tracks"
+
+' TreeMap Custom Comparators (conceptual)
+note right of OrderBook::bidLevels
+  TreeMap sorted by:
+  1. Price (higher first)
+  2. Time (earlier first)
+end note
+
+note right of OrderBook::askLevels
+  TreeMap sorted by:
+  1. Price (lower first)
+  2. Time (earlier first)
+end note
+
+note right of BidPriceLevel::buyOrders
+  LinkedList maintains
+  time priority (FIFO)
+end note
+
+note right of AskPriceLevel::sellOrders
+  LinkedList maintains
+  time priority (FIFO)
+end note
+
+' Key Business Rules
+note top of OrderBook
+  **Key Business Rules:**
+  • Price-Time Priority
+  • Symbol Validation
+  • Active Order Validation
+  • Automatic Level Cleanup
+  • Thread-Safe Operations
+end note
+
+note top of MatchFinder
+  **Matching Rules:**
+  • Bid >= Ask for match
+  • Same symbol required
+  • Both orders active
+  • Mid-point pricing
+  • Minimum quantity
+end note
+
+@enduml

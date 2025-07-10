@@ -49,21 +49,6 @@ class TransactionDomainRulesTest {
     }
 
     @Test
-    @DisplayName("Should validate transaction price matches sell order price")
-    void shouldValidateTransactionPriceMatchesSellOrderPrice() {
-        Money buyOrderPrice = Money.of("45000", Currency.USD);
-        Money sellOrderPrice = Money.of("44000", Currency.USD); // Different price
-        Money transactionPrice = Money.of("45000", Currency.USD);
-
-        IBuyOrder buyOrder = new BuyOrder("buy-1", btcUsd, buyOrderPrice, quantity);
-        ISellOrder sellOrder = new SellOrder("sell-1", btcUsd, sellOrderPrice, quantity);
-
-        // Transaction price must match both order prices
-        assertThrows(IllegalArgumentException.class,
-                () -> new Transaction("tx-1", btcUsd, buyOrder, sellOrder, transactionPrice, quantity));
-    }
-
-    @Test
     @DisplayName("Should create transaction when all prices match")
     void shouldCreateTransactionWhenAllPricesMatch() {
         Money matchingPrice = Money.of("45000", Currency.USD);
@@ -424,4 +409,96 @@ class TransactionDomainRulesTest {
         assertEquals(OrderStatusEnum.PARTIAL, buyOrder.getStatus().getStatus());
         assertEquals(OrderStatusEnum.PARTIAL, sellOrder.getStatus().getStatus());
     }
+    @Test
+    @DisplayName("Should allow valid order matching when prices overlap")
+    void shouldAllowValidOrderMatchingWhenPricesOverlap() {
+        Money buyOrderPrice = Money.of("45000", Currency.USD);   // Willing to pay UP TO $45,000
+        Money sellOrderPrice = Money.of("44000", Currency.USD);  // Willing to sell FOR AT LEAST $44,000
+        Money transactionPrice = Money.of("45000", Currency.USD); // Execution at buy price (valid)
+
+        IBuyOrder buyOrder = new BuyOrder("buy-1", btcUsd, buyOrderPrice, quantity);
+        ISellOrder sellOrder = new SellOrder("sell-1", btcUsd, sellOrderPrice, quantity);
+
+        // This SHOULD succeed - buy price >= sell price and execution price is within range
+        assertDoesNotThrow(
+                () -> new Transaction("tx-1", btcUsd, buyOrder, sellOrder, transactionPrice, quantity));
+    }
+
+    @Test
+    @DisplayName("Should allow execution at sell price when prices overlap")
+    void shouldAllowExecutionAtSellPriceWhenPricesOverlap() {
+        Money buyOrderPrice = Money.of("45000", Currency.USD);   // Willing to pay UP TO $45,000
+        Money sellOrderPrice = Money.of("44000", Currency.USD);  // Willing to sell FOR AT LEAST $44,000
+        Money transactionPrice = Money.of("44000", Currency.USD); // Execution at sell price (valid)
+
+        IBuyOrder buyOrder = new BuyOrder("buy-1", btcUsd, buyOrderPrice, quantity);
+        ISellOrder sellOrder = new SellOrder("sell-1", btcUsd, sellOrderPrice, quantity);
+
+        // This SHOULD succeed - execution price equals sell price (minimum acceptable)
+        assertDoesNotThrow(
+                () -> new Transaction("tx-1", btcUsd, buyOrder, sellOrder, transactionPrice, quantity));
+    }
+
+    @Test
+    @DisplayName("Should allow execution at mid-point when prices overlap")
+    void shouldAllowExecutionAtMidPointWhenPricesOverlap() {
+        Money buyOrderPrice = Money.of("46000", Currency.USD);   // Willing to pay UP TO $46,000
+        Money sellOrderPrice = Money.of("44000", Currency.USD);  // Willing to sell FOR AT LEAST $44,000
+        Money transactionPrice = Money.of("45000", Currency.USD); // Mid-point execution (fair)
+
+        IBuyOrder buyOrder = new BuyOrder("buy-1", btcUsd, buyOrderPrice, quantity);
+        ISellOrder sellOrder = new SellOrder("sell-1", btcUsd, sellOrderPrice, quantity);
+
+        // This SHOULD succeed - execution price is fair mid-point
+        assertDoesNotThrow(
+                () -> new Transaction("tx-1", btcUsd, buyOrder, sellOrder, transactionPrice, quantity));
+    }
+
+    @Test
+    @DisplayName("Should reject orders when buy price is less than sell price")
+    void shouldRejectOrdersWhenBuyPriceIsLessThanSellPrice() {
+        Money buyOrderPrice = Money.of("44000", Currency.USD);   // Willing to pay UP TO $44,000
+        Money sellOrderPrice = Money.of("45000", Currency.USD);  // Willing to sell FOR AT LEAST $45,000
+        Money transactionPrice = Money.of("44500", Currency.USD); // No valid execution possible
+
+        IBuyOrder buyOrder = new BuyOrder("buy-1", btcUsd, buyOrderPrice, quantity);
+        ISellOrder sellOrder = new SellOrder("sell-1", btcUsd, sellOrderPrice, quantity);
+
+        // This SHOULD fail - buy price < sell price (no overlap)
+        assertThrows(IllegalArgumentException.class,
+                () -> new Transaction("tx-1", btcUsd, buyOrder, sellOrder, transactionPrice, quantity));
+    }
+
+    @Test
+    @DisplayName("Should reject execution price below sell price")
+    void shouldRejectExecutionPriceBelowSellPrice() {
+        Money buyOrderPrice = Money.of("46000", Currency.USD);   // Willing to pay UP TO $46,000
+        Money sellOrderPrice = Money.of("44000", Currency.USD);  // Willing to sell FOR AT LEAST $44,000
+        Money transactionPrice = Money.of("43000", Currency.USD); // Below sell price (invalid)
+
+        IBuyOrder buyOrder = new BuyOrder("buy-1", btcUsd, buyOrderPrice, quantity);
+        ISellOrder sellOrder = new SellOrder("sell-1", btcUsd, sellOrderPrice, quantity);
+
+        // This SHOULD fail - execution price below seller's minimum
+        assertThrows(IllegalArgumentException.class,
+                () -> new Transaction("tx-1", btcUsd, buyOrder, sellOrder, transactionPrice, quantity));
+    }
+
+    @Test
+    @DisplayName("Should reject execution price above buy price")
+    void shouldRejectExecutionPriceAboveBuyPrice() {
+        Money buyOrderPrice = Money.of("46000", Currency.USD);   // Willing to pay UP TO $46,000
+        Money sellOrderPrice = Money.of("44000", Currency.USD);  // Willing to sell FOR AT LEAST $44,000
+        Money transactionPrice = Money.of("47000", Currency.USD); // Above buy price (invalid)
+
+        IBuyOrder buyOrder = new BuyOrder("buy-1", btcUsd, buyOrderPrice, quantity);
+        ISellOrder sellOrder = new SellOrder("sell-1", btcUsd, sellOrderPrice, quantity);
+
+        // This SHOULD fail - execution price above buyer's maximum
+        assertThrows(IllegalArgumentException.class,
+                () -> new Transaction("tx-1", btcUsd, buyOrder, sellOrder, transactionPrice, quantity));
+    }
+
+
+
 }

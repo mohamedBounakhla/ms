@@ -1,11 +1,14 @@
 package core.ms.order.domain;
 
 import core.ms.order.domain.value.OrderStatus;
+import core.ms.order.domain.value.OrderStatusEnum;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 public abstract class AbstractOrder implements IOrder {
@@ -13,25 +16,30 @@ public abstract class AbstractOrder implements IOrder {
     protected final Symbol symbol;
     protected Money price;
     protected final BigDecimal quantity;
-    protected OrderStatus status; // State Pattern OrderStatus
+    protected OrderStatus status;
     protected final LocalDateTime createdAt;
     protected LocalDateTime updatedAt;
+
+    protected BigDecimal executedQuantity;
+    protected final List<ITransaction> transactions;
 
     protected AbstractOrder(String id, Symbol symbol, Money price, BigDecimal quantity) {
         this.id = Objects.requireNonNull(id, "ID cannot be null");
         this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");
         this.price = Objects.requireNonNull(price, "Price cannot be null");
         this.quantity = Objects.requireNonNull(quantity, "Quantity cannot be null");
-        this.status = new OrderStatus(); // Initialize state pattern
+        this.status = new OrderStatus();
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
+
+        this.executedQuantity = BigDecimal.ZERO;
+        this.transactions = new ArrayList<>();
 
         validatePriceCurrency(price);
         validateQuantity(quantity);
     }
 
     // ===== GETTERS =====
-
     @Override
     public String getId() { return id; }
 
@@ -53,12 +61,76 @@ public abstract class AbstractOrder implements IOrder {
     @Override
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 
-    public String getSymbolCode() {
-        return symbol.getCode();
+    // ===== QUANTITY TRACKING GETTERS =====
+    @Override
+    public BigDecimal getExecutedQuantity() {
+        return executedQuantity;
     }
 
-    // ===== BUSINESS METHODS - DELEGATING TO STATE PATTERN =====
 
+    @Override
+    public BigDecimal getRemainingQuantity() {
+        BigDecimal remaining = quantity.subtract(executedQuantity);
+
+        if (remaining.compareTo(BigDecimal.ZERO) == 0) {
+            return BigDecimal.ZERO;
+        }
+        return remaining;
+    }
+
+    @Override
+    public List<ITransaction> getTransactions() {
+        return new ArrayList<>(transactions);
+    }
+
+    @Override
+    public int getTransactionSequence(ITransaction transaction) {
+        int index = transactions.indexOf(transaction);
+        return index >= 0 ? index + 1 : -1;
+    }
+
+    // ===== TRANSACTION MANAGEMENT =====
+    @Override
+    public void addTransaction(ITransaction transaction, BigDecimal executedAmount) {
+        Objects.requireNonNull(transaction, "Transaction cannot be null");
+        Objects.requireNonNull(executedAmount, "Executed amount cannot be null");
+
+        if (executedAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Executed amount must be positive");
+        }
+
+        if (executedAmount.compareTo(getRemainingQuantity()) > 0) {
+            throw new IllegalArgumentException("Executed amount exceeds remaining quantity");
+        }
+
+        transactions.add(transaction);
+
+        executedQuantity = executedQuantity.add(executedAmount);
+
+        // If the result is zero, use BigDecimal.ZERO
+        if (executedQuantity.compareTo(BigDecimal.ZERO) == 0) {
+            executedQuantity = BigDecimal.ZERO;
+        }
+
+        updatedAt = LocalDateTime.now();
+        updateStatusAfterExecution();
+    }
+
+    private void updateStatusAfterExecution() {
+        BigDecimal remaining = getRemainingQuantity();
+
+        if (remaining.compareTo(BigDecimal.ZERO) == 0) {
+            if (status.getStatus() != OrderStatusEnum.FILLED) {
+                status.completeOrder();
+            }
+        } else {
+            if (status.getStatus() == OrderStatusEnum.PENDING) {
+                status.fillPartialOrder();
+            }
+        }
+    }
+
+    // ===== BUSINESS METHODS =====
     @Override
     public void cancel() {
         status.cancelOrder();
@@ -69,8 +141,6 @@ public abstract class AbstractOrder implements IOrder {
     public void cancelPartial() {
         status.cancelPartialOrder();
         this.updatedAt = LocalDateTime.now();
-        // Note: For partial cancellation, you'd also need to update quantity
-        // This is simplified for the academic project
     }
 
     @Override
@@ -108,8 +178,11 @@ public abstract class AbstractOrder implements IOrder {
         return !status.isTerminal();
     }
 
-    // ===== PROTECTED METHODS =====
+    public String getSymbolCode() {
+        return symbol.getCode();
+    }
 
+    // ===== PROTECTED METHODS =====
     protected void validatePriceCurrency(Money price) {
         if (!price.getCurrency().equals(symbol.getQuoteCurrency())) {
             throw new IllegalArgumentException(
@@ -125,7 +198,6 @@ public abstract class AbstractOrder implements IOrder {
     }
 
     // ===== OBJECT METHODS =====
-
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
@@ -141,8 +213,8 @@ public abstract class AbstractOrder implements IOrder {
 
     @Override
     public String toString() {
-        return String.format("%s[%s, %s, %s @ %s, %s]",
+        return String.format("%s[%s, %s, %s @ %s, %s, executed: %s, remaining: %s]",
                 getClass().getSimpleName(), id, symbol.getFullSymbol(),
-                quantity, price, status.getStatus());
+                quantity, price, status.getStatus(), executedQuantity, getRemainingQuantity());
     }
 }

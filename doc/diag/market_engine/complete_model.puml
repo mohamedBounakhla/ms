@@ -1,0 +1,562 @@
+@startuml Updated_Market_Engine_Domain
+
+!define AGGREGATE_ROOT #FFE6E6
+!define ENTITY #E6F3FF
+!define VALUE_OBJECT #E6FFE6
+!define DOMAIN_SERVICE #FFF0E6
+!define INTERFACE #F0E6FF
+!define EXTERNAL_DOMAIN #F5F5F5
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+skinparam classFontSize 12
+skinparam classBackgroundColor #F0F8FF
+skinparam classBorderColor #4682B4
+skinparam packageBorderColor #778899
+skinparam packageBackgroundColor transparent
+skinparam ArrowColor #4682B4
+
+title Updated Market Engine Domain - Orchestration & Workflow
+
+' ==== EXTERNAL DOMAINS ====
+package "Order Domain" <<EXTERNAL_DOMAIN>> {
+    interface IOrder <<INTERFACE>> {
+        +getId(): String
+        +getSymbol(): Symbol
+        +getPrice(): Money
+        +getQuantity(): BigDecimal
+        +getStatus(): OrderStatus
+        +isActive(): boolean
+        +getRemainingQuantity(): BigDecimal
+        +getCreatedAt(): LocalDateTime
+        +cancel(): void
+        +fillPartial(BigDecimal): void
+        +complete(): void
+    }
+
+    interface IBuyOrder <<INTERFACE>> {
+        +getCostBasis(): Money
+    }
+
+    interface ISellOrder <<INTERFACE>> {
+        +getProceeds(): Money
+    }
+
+    interface ITransaction <<INTERFACE>> {
+        +getId(): String
+        +getSymbol(): Symbol
+        +getBuyOrder(): IBuyOrder
+        +getSellOrder(): ISellOrder
+        +getPrice(): Money
+        +getQuantity(): BigDecimal
+        +getCreatedAt(): LocalDateTime
+    }
+
+    IBuyOrder --|> IOrder
+    ISellOrder --|> IOrder
+}
+
+package "Order Book Domain" <<EXTERNAL_DOMAIN>> {
+    class OrderBookManager <<DOMAIN_SERVICE>> {
+        +getOrderBook(Symbol): OrderBook
+        +addOrderToBook(IOrder): void
+        +removeOrderFromBook(IOrder, Symbol): boolean
+        +findAllMatches(): List<OrderMatch>
+        +getMarketOverview(): MarketOverview
+    }
+
+    class OrderBook <<AGGREGATE_ROOT>> {
+        +getSymbol(): Symbol
+        +addOrder(IOrder): void
+        +removeOrder(IOrder): boolean
+        +findMatches(): List<OrderMatch>
+        +getMarketDepth(int): MarketDepth
+        +isEmpty(): boolean
+    }
+
+    class OrderMatch <<VALUE_OBJECT>> {
+        +getBuyOrder(): IBuyOrder
+        +getSellOrder(): ISellOrder
+        +getMatchableQuantity(): BigDecimal
+        +getSuggestedPrice(): Money
+        +isValid(): boolean
+    }
+
+    class MarketOverview <<VALUE_OBJECT>> {
+        +getActiveSymbols(): Set<Symbol>
+        +getTotalOrderBooks(): int
+        +getTotalOrders(): int
+        +getTotalVolume(): Map<Symbol, BigDecimal>
+    }
+
+    OrderBookManager *-- OrderBook
+    OrderBook ..> OrderMatch
+    OrderBookManager ..> MarketOverview
+}
+
+package "Shared Domain" <<EXTERNAL_DOMAIN>> {
+    class Money <<VALUE_OBJECT>> {
+        +add(Money): Money
+        +subtract(Money): Money
+        +multiply(BigDecimal): Money
+        +isGreaterThan(Money): boolean
+    }
+
+    class Symbol <<VALUE_OBJECT>> {
+        +getCode(): String
+        +getName(): String
+        +getType(): AssetType
+        +equals(Object): boolean
+    }
+
+    enum AssetType <<VALUE_OBJECT>> {
+        CRYPTO
+        STOCK
+        FOREX
+        COMMODITY
+    }
+
+    Symbol --> AssetType
+}
+
+' ==== MARKET ENGINE DOMAIN ====
+package "Market Engine Domain" {
+
+    ' ==== MAIN AGGREGATE ====
+    class MarketEngine <<AGGREGATE_ROOT>> {
+        -engineId: String
+        -status: EngineStatus
+        -orderBookManager: OrderBookManager
+        -orderValidator: OrderValidator
+        -transactionProcessor: TransactionProcessor
+        -orderTracker: OrderTracker
+        -riskManager: RiskManager
+        -eventPublisher: EventPublisher
+        -lastUpdate: LocalDateTime
+
+        +MarketEngine(String, OrderBookManager)
+        +processOrder(IOrder): OrderResult
+        +cancelOrder(String): CancelResult
+        +modifyOrder(String, Money, BigDecimal): ModifyResult
+        +getOrderStatus(String): Optional<OrderStatusInfo>
+        +getEngineStatus(): EngineStatus
+        +getEngineStatistics(): EngineStatistics
+        +start(): void
+        +stop(): void
+        +pause(): void
+        +resume(): void
+        +isHealthy(): boolean
+        -validateEngineState(): void
+        -processMatches(List<OrderMatch>): List<ITransaction>
+        -updateOrderStatuses(ITransaction): void
+    }
+
+    ' ==== DOMAIN SERVICES ====
+    class OrderValidator <<DOMAIN_SERVICE>> {
+        -minOrderValue: Money
+        -maxOrderValue: Money
+        -supportedSymbols: Set<Symbol>
+        -marketHours: MarketHours
+
+        +validate(IOrder): ValidationResult
+        +validatePrice(IOrder): boolean
+        +validateQuantity(IOrder): boolean
+        +validateSymbol(IOrder): boolean
+        +validateOrderType(IOrder): boolean
+        +validateMarketHours(IOrder): boolean
+        +validateOrderValue(IOrder): boolean
+        -isMarketOpen(Symbol): boolean
+        -isPriceValid(Money, Symbol): boolean
+        -isQuantityValid(BigDecimal, Symbol): boolean
+    }
+
+    class TransactionProcessor <<DOMAIN_SERVICE>> {
+        -transactionIdGenerator: IdGenerator
+        -transactionRepository: TransactionRepository
+
+        +createTransaction(OrderMatch): ITransaction
+        +processTransaction(ITransaction): TransactionResult
+        +updateOrderStatuses(OrderMatch): void
+        +publishTransaction(ITransaction): void
+        +logTransaction(ITransaction): void
+        +rollbackTransaction(String): boolean
+        -generateTransactionId(): String
+        -validateTransaction(ITransaction): boolean
+    }
+
+    class OrderTracker <<DOMAIN_SERVICE>> {
+        -activeOrders: Map<String, IOrder>
+        -orderHistory: Map<String, OrderHistory>
+
+        +trackOrder(IOrder): void
+        +removeOrder(String): void
+        +getOrder(String): Optional<IOrder>
+        +getOrderHistory(String): Optional<OrderHistory>
+        +getActiveOrders(): Collection<IOrder>
+        +getOrdersBySymbol(Symbol): Collection<IOrder>
+        +getOrdersByStatus(OrderStatus): Collection<IOrder>
+        +updateOrderStatus(String, OrderStatus): void
+    }
+
+    class RiskManager <<DOMAIN_SERVICE>> {
+        -positionLimits: Map<Symbol, BigDecimal>
+        -valueLimits: Map<Symbol, Money>
+        -currentPositions: Map<Symbol, BigDecimal>
+
+        +validateRisk(IOrder): RiskResult
+        +checkPositionLimit(IOrder): boolean
+        +checkValueLimit(IOrder): boolean
+        +updatePosition(ITransaction): void
+        +getCurrentPosition(Symbol): BigDecimal
+        +getRiskMetrics(): RiskMetrics
+        -calculateNewPosition(IOrder): BigDecimal
+        -isWithinLimits(BigDecimal, Symbol): boolean
+    }
+
+    class EventPublisher <<DOMAIN_SERVICE>> {
+        -eventBus: EventBus
+        -subscribers: List<EventSubscriber>
+
+        +publishOrderAccepted(OrderAcceptedEvent): void
+        +publishOrderRejected(OrderRejectedEvent): void
+        +publishOrderExecuted(OrderExecutedEvent): void
+        +publishOrderCancelled(OrderCancelledEvent): void
+        +publishTransactionCreated(TransactionCreatedEvent): void
+        +publishEngineStatusChanged(EngineStatusChangedEvent): void
+        +subscribe(EventSubscriber): void
+        +unsubscribe(EventSubscriber): void
+    }
+
+    ' ==== VALUE OBJECTS ====
+    class OrderResult <<VALUE_OBJECT>> {
+        -orderId: String
+        -status: OrderResultStatus
+        -message: String
+        -timestamp: LocalDateTime
+        -transactionId: Optional<String>
+        -rejectionReason: Optional<String>
+
+        +OrderResult(String, OrderResultStatus, String)
+        +getOrderId(): String
+        +getStatus(): OrderResultStatus
+        +getMessage(): String
+        +getTimestamp(): LocalDateTime
+        +getTransactionId(): Optional<String>
+        +getRejectionReason(): Optional<String>
+        +isSuccess(): boolean
+        +isRejected(): boolean
+        +{static} accepted(String): OrderResult
+        +{static} rejected(String, String): OrderResult
+        +{static} executed(String, String): OrderResult
+    }
+
+    class CancelResult <<VALUE_OBJECT>> {
+        -orderId: String
+        -cancelled: boolean
+        -reason: String
+        -timestamp: LocalDateTime
+
+        +CancelResult(String, boolean, String)
+        +getOrderId(): String
+        +isCancelled(): boolean
+        +getReason(): String
+        +getTimestamp(): LocalDateTime
+        +{static} success(String): CancelResult
+        +{static} failure(String, String): CancelResult
+    }
+
+    class ModifyResult <<VALUE_OBJECT>> {
+        -orderId: String
+        -modified: boolean
+        -oldPrice: Money
+        -newPrice: Money
+        -oldQuantity: BigDecimal
+        -newQuantity: BigDecimal
+        -reason: String
+
+        +getOrderId(): String
+        +isModified(): boolean
+        +getReason(): String
+        +getPriceChange(): Money
+        +getQuantityChange(): BigDecimal
+    }
+
+    class ValidationResult <<VALUE_OBJECT>> {
+        -valid: boolean
+        -errors: List<String>
+        -warnings: List<String>
+
+        +ValidationResult(boolean, List<String>, List<String>)
+        +isValid(): boolean
+        +getErrors(): List<String>
+        +getWarnings(): List<String>
+        +hasWarnings(): boolean
+        +{static} valid(): ValidationResult
+        +{static} invalid(List<String>): ValidationResult
+    }
+
+    class TransactionResult <<VALUE_OBJECT>> {
+        -transactionId: String
+        -success: boolean
+        -buyOrderId: String
+        -sellOrderId: String
+        -executedPrice: Money
+        -executedQuantity: BigDecimal
+        -timestamp: LocalDateTime
+
+        +getTransactionId(): String
+        +isSuccess(): boolean
+        +getBuyOrderId(): String
+        +getSellOrderId(): String
+        +getExecutedPrice(): Money
+        +getExecutedQuantity(): BigDecimal
+        +getTotalValue(): Money
+    }
+
+    class RiskResult <<VALUE_OBJECT>> {
+        -approved: boolean
+        -riskLevel: RiskLevel
+        -reasons: List<String>
+        -recommendedAction: String
+
+        +isApproved(): boolean
+        +getRiskLevel(): RiskLevel
+        +getReasons(): List<String>
+        +getRecommendedAction(): String
+    }
+
+    class OrderStatusInfo <<VALUE_OBJECT>> {
+        -orderId: String
+        -currentStatus: OrderStatus
+        -executedQuantity: BigDecimal
+        -remainingQuantity: BigDecimal
+        -averagePrice: Money
+        -lastUpdate: LocalDateTime
+
+        +getOrderId(): String
+        +getCurrentStatus(): OrderStatus
+        +getExecutedQuantity(): BigDecimal
+        +getRemainingQuantity(): BigDecimal
+        +getAveragePrice(): Money
+        +getLastUpdate(): LocalDateTime
+        +getFillPercentage(): BigDecimal
+    }
+
+    class EngineStatistics <<VALUE_OBJECT>> {
+        -totalOrdersProcessed: long
+        -totalTransactions: long
+        -totalVolume: Money
+        -averageProcessingTime: long
+        -successRate: BigDecimal
+        -uptime: Duration
+        -lastReset: LocalDateTime
+
+        +getTotalOrdersProcessed(): long
+        +getTotalTransactions(): long
+        +getTotalVolume(): Money
+        +getAverageProcessingTime(): long
+        +getSuccessRate(): BigDecimal
+        +getUptime(): Duration
+        +getOrdersPerSecond(): BigDecimal
+    }
+
+    class RiskMetrics <<VALUE_OBJECT>> {
+        -totalExposure: Money
+        -positionsBySymbol: Map<Symbol, BigDecimal>
+        -utilizationRates: Map<Symbol, BigDecimal>
+        -riskScore: BigDecimal
+
+        +getTotalExposure(): Money
+        +getPositionsBySymbol(): Map<Symbol, BigDecimal>
+        +getUtilizationRates(): Map<Symbol, BigDecimal>
+        +getRiskScore(): BigDecimal
+        +isWithinLimits(): boolean
+    }
+
+    class OrderHistory <<VALUE_OBJECT>> {
+        -orderId: String
+        -statusChanges: List<StatusChange>
+        -modifications: List<OrderModification>
+        -transactions: List<ITransaction>
+
+        +getOrderId(): String
+        +getStatusChanges(): List<StatusChange>
+        +getModifications(): List<OrderModification>
+        +getTransactions(): List<ITransaction>
+        +getCreatedAt(): LocalDateTime
+        +getLastUpdate(): LocalDateTime
+    }
+
+    ' ==== ENUMS ====
+    enum EngineStatus <<VALUE_OBJECT>> {
+        STOPPED
+        STARTING
+        RUNNING
+        PAUSED
+        STOPPING
+        ERROR
+        MAINTENANCE
+
+        +isActive(): boolean
+        +canAcceptOrders(): boolean
+        +isTransitioning(): boolean
+    }
+
+    enum OrderResultStatus <<VALUE_OBJECT>> {
+        ACCEPTED
+        REJECTED
+        EXECUTED
+        PARTIALLY_EXECUTED
+        CANCELLED
+        EXPIRED
+        ERROR
+
+        +isTerminal(): boolean
+        +isSuccess(): boolean
+    }
+
+    enum RiskLevel <<VALUE_OBJECT>> {
+        LOW
+        MEDIUM
+        HIGH
+        CRITICAL
+
+        +getNumericValue(): int
+        +requiresApproval(): boolean
+    }
+
+    ' ==== EVENTS ====
+    abstract class DomainEvent <<VALUE_OBJECT>> {
+        #eventId: String
+        #timestamp: LocalDateTime
+        #aggregateId: String
+
+        +getEventId(): String
+        +getTimestamp(): LocalDateTime
+        +getAggregateId(): String
+    }
+
+    class OrderAcceptedEvent <<VALUE_OBJECT>> {
+        -order: IOrder
+
+        +getOrder(): IOrder
+    }
+
+    class OrderRejectedEvent <<VALUE_OBJECT>> {
+        -orderId: String
+        -rejectionReason: String
+
+        +getOrderId(): String
+        +getRejectionReason(): String
+    }
+
+    class OrderExecutedEvent <<VALUE_OBJECT>> {
+        -transaction: ITransaction
+
+        +getTransaction(): ITransaction
+    }
+
+    class TransactionCreatedEvent <<VALUE_OBJECT>> {
+        -transaction: ITransaction
+
+        +getTransaction(): ITransaction
+    }
+
+    class EngineStatusChangedEvent <<VALUE_OBJECT>> {
+        -oldStatus: EngineStatus
+        -newStatus: EngineStatus
+
+        +getOldStatus(): EngineStatus
+        +getNewStatus(): EngineStatus
+    }
+}
+
+' ==== RELATIONSHIPS ====
+
+' Market Engine Aggregate
+MarketEngine *-- EngineStatus : "has status"
+MarketEngine o-- OrderBookManager : "uses"
+MarketEngine o-- OrderValidator : "uses"
+MarketEngine o-- TransactionProcessor : "uses"
+MarketEngine o-- OrderTracker : "uses"
+MarketEngine o-- RiskManager : "uses"
+MarketEngine o-- EventPublisher : "uses"
+
+' Results and Value Objects
+MarketEngine ..> OrderResult : "returns"
+MarketEngine ..> CancelResult : "returns"
+MarketEngine ..> ModifyResult : "returns"
+MarketEngine ..> OrderStatusInfo : "provides"
+MarketEngine ..> EngineStatistics : "provides"
+
+' Domain Services
+OrderValidator ..> ValidationResult : "returns"
+TransactionProcessor ..> TransactionResult : "returns"
+TransactionProcessor o-- ITransaction : "creates"
+RiskManager ..> RiskResult : "returns"
+RiskManager ..> RiskMetrics : "provides"
+OrderTracker ..> OrderHistory : "maintains"
+
+' Events
+EventPublisher ..> OrderAcceptedEvent : "publishes"
+EventPublisher ..> OrderRejectedEvent : "publishes"
+EventPublisher ..> OrderExecutedEvent : "publishes"
+EventPublisher ..> TransactionCreatedEvent : "publishes"
+EventPublisher ..> EngineStatusChangedEvent : "publishes"
+
+DomainEvent <|-- OrderAcceptedEvent
+DomainEvent <|-- OrderRejectedEvent
+DomainEvent <|-- OrderExecutedEvent
+DomainEvent <|-- TransactionCreatedEvent
+DomainEvent <|-- EngineStatusChangedEvent
+
+' External Domain Dependencies
+OrderValidator --> IOrder : "validates"
+TransactionProcessor --> OrderMatch : "processes"
+TransactionProcessor --> ITransaction : "creates"
+OrderTracker --> IOrder : "tracks"
+RiskManager --> IOrder : "evaluates"
+
+' Value Object relationships
+OrderResult --> OrderResultStatus : "has"
+RiskResult --> RiskLevel : "has"
+MarketEngine --> EngineStatus : "has"
+
+' Key Notes
+note top of MarketEngine
+  **Market Engine Responsibilities:**
+  • Order lifecycle orchestration
+  • Business rule validation
+  • Transaction processing
+  • Risk management
+  • Event publishing
+  • Engine state management
+end note
+
+note top of OrderBookManager
+  **Order Book Domain:**
+  • Price-time priority
+  • Order matching
+  • Market data
+  • Multi-asset books
+  (External domain)
+end note
+
+note right of TransactionProcessor
+  **Transaction Flow:**
+  1. Create transaction from match
+  2. Update order statuses
+  3. Publish transaction event
+  4. Log for audit trail
+end note
+
+note right of OrderValidator
+  **Validation Rules:**
+  • Price ranges
+  • Quantity limits
+  • Market hours
+  • Symbol support
+  • Order value limits
+end note
+
+@enduml

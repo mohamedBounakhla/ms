@@ -160,19 +160,19 @@ public class Money {
         }
     }
 
-    // ===== OBJECT METHODS =====
 
     @Override
     public boolean equals(Object obj) {
         if (this == obj) return true;
         if (obj == null || getClass() != obj.getClass()) return false;
         Money money = (Money) obj;
-        return Objects.equals(amount, money.amount) && currency == money.currency;
+        return amount.compareTo(money.amount) == 0 && currency == money.currency;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(amount, currency);
+        BigDecimal normalizedAmount = amount.stripTrailingZeros();
+        return Objects.hash(normalizedAmount, currency);
     }
 
     @Override

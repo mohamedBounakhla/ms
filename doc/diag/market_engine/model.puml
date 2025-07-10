@@ -1,0 +1,295 @@
+@startuml Simplified_Market_Engine_Academic
+
+!define AGGREGATE_ROOT #FFE6E6
+!define ENTITY #E6F3FF
+!define VALUE_OBJECT #E6FFE6
+!define DOMAIN_SERVICE #FFF0E6
+!define INTERFACE #F0E6FF
+!define EXTERNAL_DOMAIN #F5F5F5
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+skinparam classFontSize 12
+skinparam classBackgroundColor #F0F8FF
+skinparam classBorderColor #4682B4
+skinparam packageBorderColor #778899
+skinparam packageBackgroundColor transparent
+skinparam ArrowColor #4682B4
+
+title Simplified Market Engine - Academic Focus
+
+' ==== EXTERNAL DOMAINS ====
+package "Order Domain" <<EXTERNAL_DOMAIN>> {
+    interface IOrder <<INTERFACE>> {
+        +getId(): String
+        +getSymbol(): Symbol
+        +getPrice(): Money
+        +getQuantity(): BigDecimal
+        +isActive(): boolean
+        +getRemainingQuantity(): BigDecimal
+        +fillPartial(BigDecimal): void
+        +complete(): void
+    }
+
+    interface IBuyOrder <<INTERFACE>> {
+        +getCostBasis(): Money
+    }
+
+    interface ISellOrder <<INTERFACE>> {
+        +getProceeds(): Money
+    }
+
+    interface ITransaction <<INTERFACE>> {
+        +getId(): String
+        +getSymbol(): Symbol
+        +getBuyOrder(): IBuyOrder
+        +getSellOrder(): ISellOrder
+        +getPrice(): Money
+        +getQuantity(): BigDecimal
+        +getCreatedAt(): LocalDateTime
+        +getTotalValue(): Money
+    }
+
+    IBuyOrder --|> IOrder
+    ISellOrder --|> IOrder
+}
+
+package "Order Book Domain" <<EXTERNAL_DOMAIN>> {
+    class OrderBookManager <<DOMAIN_SERVICE>> {
+        +getOrderBook(Symbol): OrderBook
+        +addOrderToBook(IOrder): void
+        +findAllMatches(): List<OrderMatch>
+        +getMarketOverview(): MarketOverview
+    }
+
+    class OrderMatch <<VALUE_OBJECT>> {
+        +getBuyOrder(): IBuyOrder
+        +getSellOrder(): ISellOrder
+        +getMatchableQuantity(): BigDecimal
+        +getSuggestedPrice(): Money
+        +isValid(): boolean
+        +getTotalValue(): Money
+    }
+
+    OrderBookManager ..> OrderMatch : "finds"
+}
+
+package "Shared Domain" <<EXTERNAL_DOMAIN>> {
+    class Money <<VALUE_OBJECT>> {
+        +add(Money): Money
+        +multiply(BigDecimal): Money
+        +isGreaterThan(Money): boolean
+    }
+
+    class Symbol <<VALUE_OBJECT>> {
+        +getCode(): String
+        +getName(): String
+        +equals(Object): boolean
+    }
+}
+
+' ==== SIMPLIFIED MARKET ENGINE DOMAIN ====
+package "Market Engine Domain" {
+
+    ' ==== MAIN AGGREGATE ====
+    class MarketEngine <<AGGREGATE_ROOT>> {
+        -engineId: String
+        -orderBookManager: OrderBookManager
+        -transactionProcessor: TransactionProcessor
+        -eventPublisher: EventPublisher
+        -createdAt: LocalDateTime
+
+        +MarketEngine(String, OrderBookManager)
+        +processOrder(IOrder): OrderResult
+        +getEngineId(): String
+        +getCreatedAt(): LocalDateTime
+        -processMatches(List<OrderMatch>): List<ITransaction>
+    }
+
+    ' ==== DOMAIN SERVICES ====
+    class TransactionProcessor <<DOMAIN_SERVICE>> {
+        -transactionIdGenerator: IdGenerator
+
+        +createTransaction(OrderMatch): ITransaction
+        +updateOrderStatuses(OrderMatch): void
+        +processMatches(List<OrderMatch>): List<ITransaction>
+        -generateTransactionId(): String
+    }
+
+    class EventPublisher <<DOMAIN_SERVICE>> {
+        +publishOrderAccepted(OrderAcceptedEvent): void
+        +publishTransactionCreated(TransactionCreatedEvent): void
+        +publishOrderExecuted(OrderExecutedEvent): void
+        -logEvent(String): void
+    }
+
+    class IdGenerator <<DOMAIN_SERVICE>> {
+        +generateTransactionId(): String
+        +generateEventId(): String
+        -createUniqueId(): String
+    }
+
+    ' ==== VALUE OBJECTS ====
+    class OrderResult <<VALUE_OBJECT>> {
+        -orderId: String
+        -success: boolean
+        -message: String
+        -timestamp: LocalDateTime
+        -transactionIds: List<String>
+
+        +OrderResult(String, boolean, String)
+        +getOrderId(): String
+        +isSuccess(): boolean
+        +getMessage(): String
+        +getTimestamp(): LocalDateTime
+        +getTransactionIds(): List<String>
+        +{static} accepted(String): OrderResult
+        +{static} acceptedWithTransactions(String, List<String>): OrderResult
+        +{static} rejected(String, String): OrderResult
+    }
+
+    class Transaction <<VALUE_OBJECT>> {
+        -id: String
+        -symbol: Symbol
+        -buyOrder: IBuyOrder
+        -sellOrder: ISellOrder
+        -price: Money
+        -quantity: BigDecimal
+        -createdAt: LocalDateTime
+
+        +Transaction(String, Symbol, IBuyOrder, ISellOrder, Money, BigDecimal)
+        +getId(): String
+        +getSymbol(): Symbol
+        +getBuyOrder(): IBuyOrder
+        +getSellOrder(): ISellOrder
+        +getPrice(): Money
+        +getQuantity(): BigDecimal
+        +getCreatedAt(): LocalDateTime
+        +getTotalValue(): Money
+        +{static} fromMatch(String, OrderMatch): Transaction
+    }
+
+    ' ==== EVENTS ====
+    abstract class DomainEvent <<VALUE_OBJECT>> {
+        #eventId: String
+        #timestamp: LocalDateTime
+        #engineId: String
+
+        +getEventId(): String
+        +getTimestamp(): LocalDateTime
+        +getEngineId(): String
+    }
+
+    class OrderAcceptedEvent <<VALUE_OBJECT>> {
+        -order: IOrder
+
+        +OrderAcceptedEvent(IOrder)
+        +getOrder(): IOrder
+    }
+
+    class TransactionCreatedEvent <<VALUE_OBJECT>> {
+        -transaction: ITransaction
+
+        +TransactionCreatedEvent(ITransaction)
+        +getTransaction(): ITransaction
+    }
+
+    class OrderExecutedEvent <<VALUE_OBJECT>> {
+        -orderId: String
+        -executedQuantity: BigDecimal
+        -remainingQuantity: BigDecimal
+        -executionPrice: Money
+
+        +OrderExecutedEvent(String, BigDecimal, BigDecimal, Money)
+        +getOrderId(): String
+        +getExecutedQuantity(): BigDecimal
+        +getRemainingQuantity(): BigDecimal
+        +getExecutionPrice(): Money
+        +isFullyExecuted(): boolean
+    }
+}
+
+' ==== RELATIONSHIPS ====
+
+' Market Engine Aggregate
+MarketEngine *-- OrderBookManager : "uses"
+MarketEngine *-- TransactionProcessor : "uses"
+MarketEngine *-- EventPublisher : "uses"
+
+' Market Engine Operations
+MarketEngine ..> OrderResult : "returns"
+MarketEngine --> IOrder : "processes"
+
+' Transaction Processing
+TransactionProcessor ..> Transaction : "creates"
+TransactionProcessor --> OrderMatch : "processes"
+TransactionProcessor --> ITransaction : "creates"
+TransactionProcessor o-- IdGenerator : "uses"
+
+' Event Publishing
+EventPublisher ..> OrderAcceptedEvent : "publishes"
+EventPublisher ..> TransactionCreatedEvent : "publishes"
+EventPublisher ..> OrderExecutedEvent : "publishes"
+
+' Events Inheritance
+DomainEvent <|-- OrderAcceptedEvent
+DomainEvent <|-- TransactionCreatedEvent
+DomainEvent <|-- OrderExecutedEvent
+
+' Value Object Relationships
+OrderResult --> IOrder : "references"
+Transaction --> Symbol : "for"
+Transaction --> IBuyOrder : "involves"
+Transaction --> ISellOrder : "involves"
+Transaction --> Money : "at price"
+Transaction --|> ITransaction : "implements"
+
+' Event Relationships
+OrderAcceptedEvent --> IOrder : "contains"
+TransactionCreatedEvent --> ITransaction : "contains"
+OrderExecutedEvent --> Money : "at price"
+
+' External Domain Usage
+TransactionProcessor --> OrderMatch : "uses"
+EventPublisher --> IOrder : "notifies about"
+
+' Simple Flow Notes
+note top of MarketEngine
+  **Academic Focus:**
+  • Order processing workflow
+  • Transaction creation from matches
+  • Simple event publishing
+  • Clean domain separation
+end note
+
+note right of TransactionProcessor
+  **Core Responsibilities:**
+  1. Create transactions from matches
+  2. Update order quantities
+  3. Generate unique transaction IDs
+  4. Process multiple matches
+end note
+
+note right of EventPublisher
+  **Simple Event System:**
+  • Log order acceptance
+  • Log transaction creation
+  • Log order execution
+  • Basic notification system
+end note
+
+note bottom of OrderBookManager
+  **External Domain:**
+  Your existing Order Book implementation
+  handles all matching logic and
+  market data operations
+end note
+
+' Workflow Arrow
+MarketEngine ..> OrderBookManager : "1. Add Order"
+OrderBookManager ..> MarketEngine : "2. Return Matches"
+MarketEngine ..> TransactionProcessor : "3. Create Transactions"
+TransactionProcessor ..> MarketEngine : "4. Return Transactions"
+MarketEngine ..> EventPublisher : "5. Publish Events"
+
+@enduml
