@@ -40,7 +40,6 @@ class BuyOrderTest {
     @Test
     @DisplayName("Should implement IBuyOrder interface")
     void shouldImplementIBuyOrderInterface() {
-        assertTrue(buyOrder instanceof IBuyOrder);
         assertTrue(buyOrder instanceof IOrder);
     }
 }

@@ -7,8 +7,14 @@ import java.math.BigDecimal;
 
 public class Transaction extends AbstractTransaction {
 
-    public Transaction(String id, Symbol symbol, IBuyOrder buyOrder,
-                       ISellOrder sellOrder, Money price, BigDecimal quantity) {
+    public Transaction(
+            String id,
+            Symbol symbol,
+            IBuyOrder buyOrder,
+            ISellOrder sellOrder,
+            Money price,
+            BigDecimal quantity
+    ) {
         super(id, symbol, buyOrder, sellOrder, price, quantity);
     }
 

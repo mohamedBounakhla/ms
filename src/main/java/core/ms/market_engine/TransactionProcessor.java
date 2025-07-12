@@ -45,18 +45,25 @@ public class TransactionProcessor {
     public void updateOrderStatuses(OrderMatch match) {
         Objects.requireNonNull(match, "OrderMatch cannot be null");
 
-        BigDecimal executedQuantity = match.getMatchableQuantity();
+        // The transaction creation process has already updated quantities via addTransaction()
+        // Now we just need to handle the state transitions based on remaining quantities
 
-        // Update buy order
-        match.getBuyOrder().fillPartial(executedQuantity);
+        // Check buy order status
         if (match.getBuyOrder().getRemainingQuantity().compareTo(BigDecimal.ZERO) == 0) {
+            // Order is fully filled
             match.getBuyOrder().complete();
+        } else {
+            // Order is partially filled
+            match.getBuyOrder().fillPartial();
         }
 
-        // Update sell order
-        match.getSellOrder().fillPartial(executedQuantity);
+        // Check sell order status
         if (match.getSellOrder().getRemainingQuantity().compareTo(BigDecimal.ZERO) == 0) {
+            // Order is fully filled
             match.getSellOrder().complete();
+        } else {
+            // Order is partially filled
+            match.getSellOrder().fillPartial();
         }
     }
 
