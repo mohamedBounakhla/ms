@@ -105,6 +105,23 @@ public class OrderBook {
         return false;
     }
 
+    /**
+     * Removes all inactive (filled or cancelled) orders from the order book.
+     * This method should be called after transactions to maintain a clean order book
+     * containing only tradeable orders.
+     */
+    public void removeInactiveOrders() {
+        // Collect inactive orders to avoid concurrent modification
+        List<IOrder> inactiveOrders = orderIndex.values().stream()
+                .filter(order -> !order.isActive())
+                .collect(Collectors.toList());
+
+        // Remove each inactive order
+        for (IOrder inactiveOrder : inactiveOrders) {
+            removeOrder(inactiveOrder);
+        }
+    }
+
     public Optional<Money> getBestBid() {
         return bidLevels.isEmpty() ? Optional.empty() : Optional.of(bidLevels.firstKey());
     }
@@ -124,17 +141,19 @@ public class OrderBook {
     }
 
     public Optional<IBuyOrder> getBestBuyOrder() {
-        if (bidLevels.isEmpty()) return Optional.empty();
-
-        BidPriceLevel bestBidLevel = bidLevels.firstEntry().getValue();
-        return bestBidLevel.getFirstOrder();
+        return bidLevels.values().stream()
+                .map(BidPriceLevel::getFirstActiveOrder)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .findFirst();
     }
 
     public Optional<ISellOrder> getBestSellOrder() {
-        if (askLevels.isEmpty()) return Optional.empty();
-
-        AskPriceLevel bestAskLevel = askLevels.firstEntry().getValue();
-        return bestAskLevel.getFirstOrder();
+        return askLevels.values().stream()
+                .map(AskPriceLevel::getFirstActiveOrder)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .findFirst();
     }
 
     public MarketDepth getMarketDepth(int levels) {
@@ -154,6 +173,8 @@ public class OrderBook {
     }
 
     public List<OrderMatch> findMatches() {
+        // Clean up inactive orders before finding matches
+        removeInactiveOrders();
         return matchFinder.findMatches(this);
     }
 
@@ -217,5 +238,4 @@ public class OrderBook {
                 .map(AskPriceLevel::getTotalQuantity)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
-
 }

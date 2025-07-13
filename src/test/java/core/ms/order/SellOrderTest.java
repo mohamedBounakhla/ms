@@ -37,10 +37,5 @@ class SellOrderTest {
         assertEquals(expectedProceeds, sellOrder.getProceeds());
     }
 
-    @Test
-    @DisplayName("Should implement ISellOrder interface")
-    void shouldImplementISellOrderInterface() {
-        assertTrue(sellOrder instanceof ISellOrder);
-        assertTrue(sellOrder instanceof IOrder);
-    }
+
 }

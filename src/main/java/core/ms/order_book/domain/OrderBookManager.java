@@ -53,13 +53,13 @@ public class OrderBookManager {
         return orderBooks.size();
     }
 
-    public void addOrderToBook(IOrder order) {
+    public synchronized void addOrderToBook(IOrder order) {
         Objects.requireNonNull(order, "Order cannot be null");
         OrderBook orderBook = getOrderBook(order.getSymbol());
         orderBook.addOrder(order);
     }
 
-    public boolean removeOrderFromBook(IOrder order, Symbol symbol) {
+    public synchronized boolean removeOrderFromBook(IOrder order, Symbol symbol) {
         Objects.requireNonNull(order, "Order ID cannot be null");
         Objects.requireNonNull(symbol, "Symbol cannot be null");
 

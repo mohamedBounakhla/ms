@@ -67,6 +67,8 @@ public class MarketEngine {
 
     /**
      * Processes a list of order matches into transactions.
+     * Note: Order status updates and quantity management are automatically
+     * handled by the Order domain when transactions are created.
      */
     private List<ITransaction> processMatches(List<OrderMatch> matches) {
         List<ITransaction> transactions = new ArrayList<>();
@@ -74,12 +76,9 @@ public class MarketEngine {
         for (OrderMatch match : matches) {
             if (match.isValid()) {
                 try {
-                    // Create transaction from match
+                    // Create transaction - this automatically updates orders via Order domain
                     ITransaction transaction = transactionProcessor.createTransaction(match);
                     transactions.add(transaction);
-
-                    // Update order statuses
-                    transactionProcessor.updateOrderStatuses(match);
 
                     // Publish transaction created event
                     eventPublisher.publishTransactionCreated(new TransactionCreatedEvent(transaction, engineId));

@@ -28,24 +28,29 @@ class BidPriceLevelTest {
 
     @BeforeEach
     void setUp() {
+        // Initialize test data
         testPrice = Money.of("100.00", Currency.USD);
         bidLevel = new BidPriceLevel(testPrice);
         earlierTime = LocalDateTime.of(2024, 1, 1, 10, 0);
         laterTime = LocalDateTime.of(2024, 1, 1, 10, 5);
 
+        // Create mocks
         buyOrder1 = mock(IBuyOrder.class);
         buyOrder2 = mock(IBuyOrder.class);
 
-        // Setup common mock behavior
+        // Setup buyOrder1 mock behavior
+        when(buyOrder1.getId()).thenReturn("order1");
         when(buyOrder1.getPrice()).thenReturn(testPrice);
         when(buyOrder1.getRemainingQuantity()).thenReturn(new BigDecimal("10"));
         when(buyOrder1.getCreatedAt()).thenReturn(earlierTime);
-        when(buyOrder1.getId()).thenReturn("order1");
+        when(buyOrder1.isActive()).thenReturn(true);
 
+        // Setup buyOrder2 mock behavior
+        when(buyOrder2.getId()).thenReturn("order2");
         when(buyOrder2.getPrice()).thenReturn(testPrice);
         when(buyOrder2.getRemainingQuantity()).thenReturn(new BigDecimal("5"));
         when(buyOrder2.getCreatedAt()).thenReturn(laterTime);
-        when(buyOrder2.getId()).thenReturn("order2");
+        when(buyOrder2.isActive()).thenReturn(true);
     }
 
     @Nested

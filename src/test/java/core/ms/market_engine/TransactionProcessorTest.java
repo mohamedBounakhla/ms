@@ -54,8 +54,8 @@ class TransactionProcessorTest {
     @DisplayName("Should throw exception when creating transaction from null match")
     void shouldThrowExceptionWhenCreatingTransactionFromNullMatch() {
         // When & Then
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
+        NullPointerException exception = assertThrows(
+                NullPointerException.class,
                 () -> transactionProcessor.createTransaction(null)
         );
         assertEquals("OrderMatch cannot be null", exception.getMessage());
@@ -84,20 +84,18 @@ class TransactionProcessorTest {
     }
 
     @Test
-    @DisplayName("Should update order statuses when both orders are fully filled")
-    void shouldUpdateOrderStatusesWhenBothOrdersFullyFilled() {
+    @DisplayName("Should automatically update order statuses when both orders are fully filled")
+    void shouldAutomaticallyUpdateOrderStatusesWhenBothOrdersFullyFilled() {
         // Given
         IBuyOrder buyOrder = new BuyOrder("buy-1", testSymbol, testPrice, new BigDecimal("50"));
         ISellOrder sellOrder = new SellOrder("sell-1", testSymbol, testPrice, new BigDecimal("50"));
-
-        // Create transaction first to update quantities
         OrderMatch match = new OrderMatch(buyOrder, sellOrder);
-        transactionProcessor.createTransaction(match); // This updates quantities
 
-        // When
-        transactionProcessor.updateOrderStatuses(match);
+        // When - Creating transaction automatically updates orders via Order domain
+        ITransaction transaction = transactionProcessor.createTransaction(match);
 
-        // Then
+        // Then - Order domain automatically handled status transitions
+        assertNotNull(transaction);
         assertEquals(OrderStatusEnum.FILLED, buyOrder.getStatus().getStatus());
         assertEquals(OrderStatusEnum.FILLED, sellOrder.getStatus().getStatus());
         assertEquals(BigDecimal.ZERO, buyOrder.getRemainingQuantity());
@@ -105,20 +103,18 @@ class TransactionProcessorTest {
     }
 
     @Test
-    @DisplayName("Should update order statuses when buy order is partially filled")
-    void shouldUpdateOrderStatusesWhenBuyOrderPartiallyFilled() {
+    @DisplayName("Should automatically update order statuses when buy order is partially filled")
+    void shouldAutomaticallyUpdateOrderStatusesWhenBuyOrderPartiallyFilled() {
         // Given
         IBuyOrder buyOrder = new BuyOrder("buy-1", testSymbol, testPrice, new BigDecimal("100"));
         ISellOrder sellOrder = new SellOrder("sell-1", testSymbol, testPrice, new BigDecimal("30"));
-
-        // Create transaction first to update quantities
         OrderMatch match = new OrderMatch(buyOrder, sellOrder);
-        transactionProcessor.createTransaction(match); // This updates quantities
 
-        // When
-        transactionProcessor.updateOrderStatuses(match);
+        // When - Creating transaction automatically updates orders via Order domain
+        ITransaction transaction = transactionProcessor.createTransaction(match);
 
-        // Then
+        // Then - Order domain automatically handled status transitions
+        assertNotNull(transaction);
         assertEquals(OrderStatusEnum.PARTIAL, buyOrder.getStatus().getStatus());
         assertEquals(OrderStatusEnum.FILLED, sellOrder.getStatus().getStatus());
         assertEquals(new BigDecimal("70"), buyOrder.getRemainingQuantity());
@@ -126,20 +122,18 @@ class TransactionProcessorTest {
     }
 
     @Test
-    @DisplayName("Should update order statuses when sell order is partially filled")
-    void shouldUpdateOrderStatusesWhenSellOrderPartiallyFilled() {
+    @DisplayName("Should automatically update order statuses when sell order is partially filled")
+    void shouldAutomaticallyUpdateOrderStatusesWhenSellOrderPartiallyFilled() {
         // Given
         IBuyOrder buyOrder = new BuyOrder("buy-1", testSymbol, testPrice, new BigDecimal("30"));
         ISellOrder sellOrder = new SellOrder("sell-1", testSymbol, testPrice, new BigDecimal("100"));
-
-        // Create transaction first to update quantities
         OrderMatch match = new OrderMatch(buyOrder, sellOrder);
-        transactionProcessor.createTransaction(match); // This updates quantities
 
-        // When
-        transactionProcessor.updateOrderStatuses(match);
+        // When - Creating transaction automatically updates orders via Order domain
+        ITransaction transaction = transactionProcessor.createTransaction(match);
 
-        // Then
+        // Then - Order domain automatically handled status transitions
+        assertNotNull(transaction);
         assertEquals(OrderStatusEnum.FILLED, buyOrder.getStatus().getStatus());
         assertEquals(OrderStatusEnum.PARTIAL, sellOrder.getStatus().getStatus());
         assertEquals(BigDecimal.ZERO, buyOrder.getRemainingQuantity());
@@ -187,8 +181,6 @@ class TransactionProcessorTest {
         ISellOrder validSellOrder = new SellOrder("sell-1", testSymbol, testPrice, new BigDecimal("50"));
         OrderMatch validMatch = new OrderMatch(validBuyOrder, validSellOrder);
 
-        // Create a scenario that might produce invalid matches
-        // (This test assumes OrderMatch.isValid() might return false in some cases)
         List<OrderMatch> matches = Arrays.asList(validMatch);
 
         // When
@@ -214,13 +206,35 @@ class TransactionProcessorTest {
     }
 
     @Test
-    @DisplayName("Should throw exception when updating order statuses with null match")
-    void shouldThrowExceptionWhenUpdatingOrderStatusesWithNullMatch() {
-        // When & Then
-        IllegalArgumentException exception = assertThrows(
-                IllegalArgumentException.class,
-                () -> transactionProcessor.updateOrderStatuses(null)
-        );
-        assertEquals("OrderMatch cannot be null", exception.getMessage());
+    @DisplayName("Should create transactions that automatically update order quantities and statuses")
+    void shouldCreateTransactionsThatAutomaticallyUpdateOrderQuantitiesAndStatuses() {
+        // Given - Mixed scenario with different fill levels
+        IBuyOrder largeBuyOrder = new BuyOrder("large-buy", testSymbol, testPrice, new BigDecimal("200"));
+        ISellOrder smallSellOrder = new SellOrder("small-sell", testSymbol, testPrice, new BigDecimal("75"));
+        OrderMatch partialMatch = new OrderMatch(largeBuyOrder, smallSellOrder);
+
+        IBuyOrder exactBuyOrder = new BuyOrder("exact-buy", testSymbol, testPrice, new BigDecimal("50"));
+        ISellOrder exactSellOrder = new SellOrder("exact-sell", testSymbol, testPrice, new BigDecimal("50"));
+        OrderMatch exactMatch = new OrderMatch(exactBuyOrder, exactSellOrder);
+
+        // When - Processing both matches
+        ITransaction partialTransaction = transactionProcessor.createTransaction(partialMatch);
+        ITransaction exactTransaction = transactionProcessor.createTransaction(exactMatch);
+
+        // Then - Verify partial fill scenario
+        assertNotNull(partialTransaction);
+        assertEquals(new BigDecimal("75"), partialTransaction.getQuantity());
+        assertEquals(OrderStatusEnum.PARTIAL, largeBuyOrder.getStatus().getStatus());
+        assertEquals(OrderStatusEnum.FILLED, smallSellOrder.getStatus().getStatus());
+        assertEquals(new BigDecimal("125"), largeBuyOrder.getRemainingQuantity());
+        assertEquals(BigDecimal.ZERO, smallSellOrder.getRemainingQuantity());
+
+        // And - Verify exact fill scenario
+        assertNotNull(exactTransaction);
+        assertEquals(new BigDecimal("50"), exactTransaction.getQuantity());
+        assertEquals(OrderStatusEnum.FILLED, exactBuyOrder.getStatus().getStatus());
+        assertEquals(OrderStatusEnum.FILLED, exactSellOrder.getStatus().getStatus());
+        assertEquals(BigDecimal.ZERO, exactBuyOrder.getRemainingQuantity());
+        assertEquals(BigDecimal.ZERO, exactSellOrder.getRemainingQuantity());
     }
 }

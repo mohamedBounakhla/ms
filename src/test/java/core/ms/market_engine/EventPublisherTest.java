@@ -155,7 +155,7 @@ class EventPublisherTest {
 
         // Then
         String output = outputCapture.toString();
-        assertTrue(output.matches(".*\\[\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*\\].*"));
+        assertTrue(output.matches(".*\\[\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?\\].*"));
     }
 
     @Test

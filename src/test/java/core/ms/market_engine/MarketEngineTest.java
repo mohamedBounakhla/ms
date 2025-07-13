@@ -5,7 +5,11 @@ import core.ms.order.domain.IBuyOrder;
 import core.ms.order.domain.ISellOrder;
 import core.ms.order.domain.SellOrder;
 import core.ms.order.domain.value.OrderStatusEnum;
+import core.ms.order_book.domain.OrderBook;
 import core.ms.order_book.domain.OrderBookManager;
+import core.ms.order_book.domain.value_object.AskPriceLevel;
+import core.ms.order_book.domain.value_object.BidPriceLevel;
+import core.ms.order_book.domain.value_object.OrderMatch;
 import core.ms.shared.domain.Currency;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
@@ -14,6 +18,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -195,19 +200,110 @@ class MarketEngineTest {
     @Test
     @DisplayName("Should handle sequential order processing correctly")
     void shouldHandleSequentialOrderProcessingCorrectly() {
-        // Given - Process orders sequentially
+        // Given - Create orders
         ISellOrder sellOrder1 = new SellOrder("sell-1", testSymbol, testPrice, new BigDecimal("30"));
         ISellOrder sellOrder2 = new SellOrder("sell-2", testSymbol, testPrice, new BigDecimal("40"));
         IBuyOrder buyOrder1 = new BuyOrder("buy-1", testSymbol, testPrice, new BigDecimal("20"));
         IBuyOrder buyOrder2 = new BuyOrder("buy-2", testSymbol, testPrice, new BigDecimal("35"));
 
-        // When
+        // When - Process orders sequentially
+        System.out.println("=== INITIAL STATE ===");
+        OrderBook orderBook = orderBookManager.getOrderBook(testSymbol);
+        System.out.println("Initial matches: " + orderBookManager.findAllMatches().size());
+
+        // Add sell orders
         OrderResult sellResult1 = marketEngine.processOrder(sellOrder1);
         OrderResult sellResult2 = marketEngine.processOrder(sellOrder2);
-        OrderResult buyResult1 = marketEngine.processOrder(buyOrder1);  // Should match with sell-1
-        OrderResult buyResult2 = marketEngine.processOrder(buyOrder2);  // Should match with remaining sell-1 and sell-2
 
-        // Then
+        System.out.println("=== AFTER ADDING SELL ORDERS ===");
+        System.out.println("Best ask: " + orderBook.getBestAsk());
+        System.out.println("Ask levels count: " + orderBook.getAskLevels().size());
+        for (AskPriceLevel askLevel : orderBook.getAskLevels()) {
+            System.out.println("Ask level at " + askLevel.getPrice() + ": " + askLevel.getTotalQuantity() + " total");
+            for (ISellOrder order : askLevel.getOrders()) {
+                System.out.println("  Order " + order.getId() + ": " + order.getRemainingQuantity() + " remaining");
+            }
+        }
+
+        // Add first buy order
+        OrderResult buyResult1 = marketEngine.processOrder(buyOrder1);
+
+        System.out.println("=== AFTER FIRST BUY ORDER ===");
+        System.out.println("sellOrder1 remaining: " + sellOrder1.getRemainingQuantity());
+        System.out.println("sellOrder1 active: " + sellOrder1.isActive());
+        System.out.println("sellOrder2 remaining: " + sellOrder2.getRemainingQuantity());
+        System.out.println("Best ask: " + orderBook.getBestAsk());
+        System.out.println("Ask levels count: " + orderBook.getAskLevels().size());
+
+        for (AskPriceLevel askLevel : orderBook.getAskLevels()) {
+            System.out.println("Ask level at " + askLevel.getPrice() + ": " + askLevel.getTotalQuantity() + " total");
+            for (ISellOrder order : askLevel.getOrders()) {
+                System.out.println("  Order " + order.getId() + ": " + order.getRemainingQuantity() + " remaining");
+            }
+        }
+
+        // Check object references
+        if (!orderBook.getAskLevels().isEmpty()) {
+            AskPriceLevel askLevel = orderBook.getAskLevels().iterator().next();
+            if (!askLevel.getOrders().isEmpty()) {
+                ISellOrder orderBookOrder = askLevel.getOrders().get(0);
+                System.out.println("sellOrder1 object ID: " + System.identityHashCode(sellOrder1));
+                System.out.println("OrderBook order ID: " + System.identityHashCode(orderBookOrder));
+                System.out.println("OrderBook order remaining: " + orderBookOrder.getRemainingQuantity());
+            }
+        }
+
+        System.out.println("=== BEFORE SECOND BUY ORDER ===");
+
+        // Debug the MatchFinder logic
+        System.out.println("OrderBook best bid: " + orderBook.getBestBid());
+        System.out.println("OrderBook best ask: " + orderBook.getBestAsk());
+        System.out.println("OrderBook best buy order: " + orderBook.getBestBuyOrder());
+        System.out.println("OrderBook best sell order: " + orderBook.getBestSellOrder());
+
+        // Check if there are any buy orders in the book at all
+        System.out.println("Bid levels count: " + orderBook.getBidLevels().size());
+        for (BidPriceLevel bidLevel : orderBook.getBidLevels()) {
+            System.out.println("Bid level at " + bidLevel.getPrice() + ": " + bidLevel.getTotalQuantity() + " total");
+            for (IBuyOrder order : bidLevel.getOrders()) {
+                System.out.println("  Order " + order.getId() + ": " + order.getRemainingQuantity() + " remaining");
+            }
+        }
+
+        List<OrderMatch> matchesBeforeBuy2 = orderBookManager.findAllMatches();
+        System.out.println("Matches found for buyOrder2: " + matchesBeforeBuy2.size());
+
+        // Add second buy order
+        OrderResult buyResult2 = marketEngine.processOrder(buyOrder2);
+
+        System.out.println("=== AFTER ADDING SECOND BUY ORDER ===");
+        System.out.println("OrderBook best bid: " + orderBook.getBestBid());
+        System.out.println("OrderBook best ask: " + orderBook.getBestAsk());
+        System.out.println("OrderBook best buy order: " + orderBook.getBestBuyOrder());
+        System.out.println("OrderBook best sell order: " + orderBook.getBestSellOrder());
+
+        // Check bid levels after adding buyOrder2
+        System.out.println("Bid levels count after buyOrder2: " + orderBook.getBidLevels().size());
+        for (BidPriceLevel bidLevel : orderBook.getBidLevels()) {
+            System.out.println("Bid level at " + bidLevel.getPrice() + ": " + bidLevel.getTotalQuantity() + " total");
+            for (IBuyOrder order : bidLevel.getOrders()) {
+                System.out.println("  Order " + order.getId() + ": " + order.getRemainingQuantity() + " remaining");
+            }
+        }
+
+        // Check ask levels after buyOrder2
+        System.out.println("Ask levels count after buyOrder2: " + orderBook.getAskLevels().size());
+        for (AskPriceLevel askLevel : orderBook.getAskLevels()) {
+            System.out.println("Ask level at " + askLevel.getPrice() + ": " + askLevel.getTotalQuantity() + " total");
+            for (ISellOrder order : askLevel.getOrders()) {
+                System.out.println("  Order " + order.getId() + ": " + order.getRemainingQuantity() + " remaining");
+            }
+        }
+
+        System.out.println("=== FINAL STATE ===");
+        System.out.println("buyResult2: " + buyResult2);
+
+        // Then - Assertions
         assertTrue(sellResult1.isSuccess());
         assertTrue(sellResult2.isSuccess());
         assertTrue(buyResult1.isSuccess());

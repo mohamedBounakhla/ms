@@ -5,8 +5,10 @@ import core.ms.shared.domain.Money;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
-public class AskPriceLevel extends AbstractPriceLevel {
+public class AskPriceLevel extends AbstractPriceLevel<ISellOrder> {
     private final LinkedList<ISellOrder> sellOrders; // Time-ordered queue
 
     public AskPriceLevel(Money price) {
@@ -31,8 +33,22 @@ public class AskPriceLevel extends AbstractPriceLevel {
         return removed;
     }
 
+    @Override
+    protected Stream<ISellOrder> getOrdersStream() {
+        return sellOrders.stream();
+    }
     public List<ISellOrder> getOrders() {
         return new ArrayList<>(sellOrders); // Defensive copy
+    }
+
+    /**
+     * Returns only active orders with remaining quantity > 0.
+     * This ensures that inactive or fully filled orders don't appear in order lists.
+     */
+    public List<ISellOrder> getActiveOrders() {
+        return sellOrders.stream()
+                .filter(order -> order.isActive() && order.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -44,11 +60,18 @@ public class AskPriceLevel extends AbstractPriceLevel {
         return sellOrders.isEmpty() ? Optional.empty() : Optional.of(sellOrders.getFirst());
     }
 
+
     @Override
     protected void recalculateTotals() {
-        totalQuantity = sellOrders.stream()
-                .map(ISellOrder::getRemainingQuantity)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
         orderCount = sellOrders.size();
+    }
+
+    /**
+     * Removes all inactive orders from this price level.
+     * Should be called periodically to keep the order book clean.
+     */
+    public void removeInactiveOrders() {
+        sellOrders.removeIf(order -> !order.isActive());
+        recalculateTotals();
     }
 }
