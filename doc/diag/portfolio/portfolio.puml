@@ -1,0 +1,260 @@
+@startuml Portfolio_Domain_Updated
+
+!define AGGREGATE_ROOT #FFE6E6
+!define ENTITY #E6F3FF
+!define VALUE_OBJECT #E6FFE6
+!define DOMAIN_SERVICE #FFF0E6
+!define INTERFACE #F0E6FF
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+skinparam classFontSize 12
+skinparam classBackgroundColor #F0F8FF
+skinparam classBorderColor #4682B4
+skinparam packageBorderColor #778899
+skinparam packageBackgroundColor transparent
+skinparam ArrowColor #4682B4
+
+title Portfolio Domain - Aligned with Existing Architecture
+
+package "External Dependencies" {
+    class MSUser <<EXTERNAL>> {
+        -id: String
+        -username: String
+        -email: String
+        -role: MSUserRole
+        +getId(): String
+        +getUsername(): String
+        +getEmail(): String
+    }
+
+    class Symbol <<VALUE_OBJECT>> {
+        -code: String
+        -name: String
+        -type: AssetType
+        -baseCurrency: Currency
+        -quoteCurrency: Currency
+        +getCode(): String
+        +getName(): String
+        +getType(): AssetType
+        +getBaseCurrency(): Currency
+        +getQuoteCurrency(): Currency
+        +getFullSymbol(): String
+        +equals(Object): boolean
+        +hashCode(): int
+    }
+
+    class Money <<VALUE_OBJECT>> {
+        -amount: BigDecimal
+        -currency: Currency
+        +getAmount(): BigDecimal
+        +getCurrency(): Currency
+        +add(Money): Money
+        +subtract(Money): Money
+        +multiply(BigDecimal): Money
+        +isGreaterThan(Money): boolean
+        +isZero(): boolean
+        +toDisplayString(): String
+    }
+
+    enum Currency <<VALUE_OBJECT>> {
+        USD, EUR, GBP, JPY, BTC, ETH
+        +getSymbol(): String
+        +getDecimalPlaces(): int
+        +getDisplayName(): String
+        +isFiat(): boolean
+        +isCrypto(): boolean
+    }
+
+    enum AssetType <<VALUE_OBJECT>> {
+        CRYPTO, STOCK, FOREX, COMMODITY
+        +getDisplayName(): String
+    }
+}
+
+package "Portfolio Domain" {
+
+    class Portfolio <<AGGREGATE_ROOT>> {
+        -id: String
+        -name: String
+        -userId: String
+        -cashBalance: Money
+        -createdAt: LocalDateTime
+        -updatedAt: LocalDateTime
+        -positions: Map<Symbol, Position>
+        -transactions: List<PortfolioTransaction>
+
+        +Portfolio(String, String, String, Money)
+        +getId(): String
+        +getName(): String
+        +getUserId(): String
+        +getCashBalance(): Money
+        +getBaseCurrency(): Currency
+        +getCreatedAt(): LocalDateTime
+        +getUpdatedAt(): LocalDateTime
+        +getPositions(): Collection<Position>
+        +getTransactions(): List<PortfolioTransaction>
+
+        +depositCash(Money): PortfolioTransaction
+        +withdrawCash(Money): PortfolioTransaction
+        +buyAsset(Symbol, BigDecimal, Money): PortfolioTransaction
+        +sellAsset(Symbol, BigDecimal, Money): PortfolioTransaction
+
+        +getPosition(Symbol): Optional<Position>
+        +getTotalValue(Map<Symbol, Money>): Money
+        +getProfitLoss(Map<Symbol, Money>): Money
+        +canAfford(Money): boolean
+
+        -validateSufficientCash(Money): void
+        -validateSufficientPosition(Symbol, BigDecimal): void
+        -updateCashBalance(Money): void
+        -updatePosition(Symbol, BigDecimal, Money, TransactionType): void
+        -addTransaction(PortfolioTransaction): void
+    }
+
+    class Position <<ENTITY>> {
+        -id: String
+        -portfolioId: String
+        -symbol: Symbol
+        -quantity: BigDecimal
+        -averagePrice: Money
+        -createdAt: LocalDateTime
+        -updatedAt: LocalDateTime
+
+        +Position(String, String, Symbol, BigDecimal, Money)
+        +getId(): String
+        +getPortfolioId(): String
+        +getSymbol(): Symbol
+        +getQuantity(): BigDecimal
+        +getAveragePrice(): Money
+        +getCreatedAt(): LocalDateTime
+        +getUpdatedAt(): LocalDateTime
+
+        +getCurrentValue(Money): Money
+        +getProfitLoss(Money): Money
+        +getProfitLossPercentage(Money): BigDecimal
+        +addQuantity(BigDecimal, Money): void
+        +removeQuantity(BigDecimal): void
+        +isEmpty(): boolean
+
+        -calculateNewAveragePrice(BigDecimal, Money): Money
+        -validateQuantityRemoval(BigDecimal): void
+    }
+
+    class PortfolioTransaction <<ENTITY>> {
+        -id: String
+        -portfolioId: String
+        -type: TransactionType
+        -symbol: Symbol
+        -quantity: BigDecimal
+        -price: Money
+        -totalAmount: Money
+        -timestamp: LocalDateTime
+        -relatedOrderId: String
+
+        +PortfolioTransaction(String, String, TransactionType, Symbol, BigDecimal, Money, String)
+        +getId(): String
+        +getPortfolioId(): String
+        +getType(): TransactionType
+        +getSymbol(): Symbol
+        +getQuantity(): BigDecimal
+        +getPrice(): Money
+        +getTotalAmount(): Money
+        +getTimestamp(): LocalDateTime
+        +getRelatedOrderId(): String
+
+        +isCashTransaction(): boolean
+        +isAssetTransaction(): boolean
+        +affectsCashBalance(): boolean
+        +affectsPosition(): boolean
+
+        +{static} createBuyTransaction(String, String, Symbol, BigDecimal, Money, String): PortfolioTransaction
+        +{static} createSellTransaction(String, String, Symbol, BigDecimal, Money, String): PortfolioTransaction
+        +{static} createDepositTransaction(String, String, Money): PortfolioTransaction
+        +{static} createWithdrawalTransaction(String, String, Money): PortfolioTransaction
+    }
+
+    enum TransactionType <<VALUE_OBJECT>> {
+        BUY
+        SELL
+        DEPOSIT
+        WITHDRAWAL
+
+        +affectsCash(): boolean
+        +affectsPosition(): boolean
+        +isAssetTransaction(): boolean
+        +isCashTransaction(): boolean
+    }
+
+    class PortfolioManager <<DOMAIN_SERVICE>> {
+        -portfolios: Map<String, Portfolio>
+
+        +createPortfolio(String, String, Currency): Portfolio
+        +getPortfolio(String): Portfolio
+        +getUserPortfolios(String): List<Portfolio>
+        +deletePortfolio(String): boolean
+        +calculateTotalValue(Portfolio, Map<Symbol, Money>): Money
+        +generatePortfolioSummary(Portfolio, Map<Symbol, Money>): PortfolioSummary
+    }
+
+    class PortfolioSummary <<VALUE_OBJECT>> {
+        -portfolioId: String
+        -totalValue: Money
+        -cashBalance: Money
+        -totalInvested: Money
+        -totalProfitLoss: Money
+        -profitLossPercentage: BigDecimal
+        -positionCount: int
+        -transactionCount: int
+        -createdAt: LocalDateTime
+
+        +PortfolioSummary(String, Money, Money, Money, Money, BigDecimal, int, int)
+        +getPortfolioId(): String
+        +getTotalValue(): Money
+        +getCashBalance(): Money
+        +getTotalInvested(): Money
+        +getTotalProfitLoss(): Money
+        +getProfitLossPercentage(): BigDecimal
+        +getPositionCount(): int
+        +getTransactionCount(): int
+        +getCreatedAt(): LocalDateTime
+        +isPositive(): boolean
+    }
+}
+
+' Relationships
+Portfolio *-- Position : contains
+Portfolio *-- PortfolioTransaction : records
+Portfolio --> Money : has cash balance
+Portfolio --> MSUser : belongs to (via userId)
+
+Position --> Symbol : for
+Position --> Money : has average price
+
+PortfolioTransaction --> TransactionType : has
+PortfolioTransaction --> Symbol : involves
+PortfolioTransaction --> Money : has price/amount
+
+PortfolioManager --> Portfolio : manages
+PortfolioManager ..> PortfolioSummary : creates
+
+Symbol --> AssetType : has
+Symbol --> Currency : base/quote
+Money --> Currency : denominated in
+
+note top of Portfolio
+  **Aggregate Root:**
+  • Manages cash and positions
+  • Enforces business rules
+  • Records all transactions
+  • Linked to user via userId
+end note
+
+note top of PortfolioTransaction
+  **Immutable Transaction Record:**
+  • Records all portfolio changes
+  • Links to order executions
+  • Supports audit trail
+end note
+
+@enduml

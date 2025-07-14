@@ -1,4 +1,4 @@
-package core.ms.shared.utils;
+package core.ms.utils;
 
 public class IdGenerator {
     private static final String TRANSACTION_PREFIX = "TX-";

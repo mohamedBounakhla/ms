@@ -3,7 +3,7 @@ package core.ms.market_engine;
 import core.ms.order.domain.ITransaction;
 import core.ms.order.domain.Transaction;
 import core.ms.order_book.domain.value_object.OrderMatch;
-import core.ms.shared.utils.IdGenerator;
+import core.ms.utils.IdGenerator;
 
 import java.util.List;
 import java.util.Objects;

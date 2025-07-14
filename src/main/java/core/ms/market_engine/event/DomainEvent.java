@@ -1,6 +1,6 @@
 package core.ms.market_engine.event;
 
-import core.ms.shared.utils.IdGenerator;
+import core.ms.utils.IdGenerator;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
