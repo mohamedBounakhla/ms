@@ -1,0 +1,283 @@
+@startuml OHLC_Architecture_with_Chart_Abstraction
+
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+skinparam classFontSize 12
+skinparam classBackgroundColor #F0F8FF
+skinparam classBorderColor #4682B4
+skinparam packageBorderColor #778899
+skinparam packageBackgroundColor transparent
+skinparam ArrowColor #4682B4
+
+title OHLC Domain Architecture with Chart Abstraction
+
+' ===== DOMAIN LAYER =====
+package "OHLC Domain (Core)" #LightBlue {
+
+    class "Candlestick" as Candlestick {
+        -id: String
+        -symbol: Symbol
+        -timestamp: Instant
+        -interval: TimeInterval
+        -open: BigDecimal
+        -high: BigDecimal
+        -low: BigDecimal
+        -close: BigDecimal
+        -volume: BigDecimal
+        -tradeCount: long
+        --
+        +isBullish(): boolean
+        +isBearish(): boolean
+        +getBodySize(): BigDecimal
+        +getRange(): BigDecimal
+        +getUpperShadow(): BigDecimal
+        +getLowerShadow(): BigDecimal
+        +validate(): void
+    }
+
+    class "OHLCData" as OHLCData {
+        -id: String
+        -symbol: Symbol
+        -interval: TimeInterval
+        -candles: List<Candlestick>
+        -lastUpdated: Instant
+        --
+        +addCandle(candle: Candlestick): void
+        +getAllCandles(): List<Candlestick>
+        +getCandlesByTimeRange(start: Instant, end: Instant): List<Candlestick>
+        +getLatestCandle(): Optional<Candlestick>
+        +isEmpty(): boolean
+        +size(): int
+    }
+
+    enum "TimeInterval" as TimeInterval {
+        ONE_MINUTE("1m", 60_000L)
+        FIVE_MINUTES("5m", 300_000L)
+        FIFTEEN_MINUTES("15m", 900_000L)
+        THIRTY_MINUTES("30m", 1_800_000L)
+        ONE_HOUR("1h", 3_600_000L)
+        FOUR_HOURS("4h", 14_400_000L)
+        ONE_DAY("1d", 86_400_000L)
+        ONE_WEEK("1w", 604_800_000L)
+        ONE_MONTH("1M", 2_592_000_000L)
+        --
+        +getCode(): String
+        +getMilliseconds(): long
+        +isHigherThan(other: TimeInterval): boolean
+        +isLowerThan(other: TimeInterval): boolean
+    }
+
+    ' Reuse Symbol from shared domain
+    class "Symbol" as Symbol {
+        -code: String
+        -name: String
+        -type: AssetType
+        -baseCurrency: Currency
+        -quoteCurrency: Currency
+        --
+        +getCode(): String
+        +getFullSymbol(): String
+    }
+}
+
+' ===== CHART ABSTRACTION LAYER =====
+package "Chart Abstraction" #LightGreen {
+
+    interface "ChartDataPoint" as ChartDataPoint {
+        +getTime(): long
+        +getValue(): Object
+    }
+
+    interface "OHLCChartDataPoint" as OHLCChartDataPoint {
+        +getOpen(): double
+        +getHigh(): double
+        +getLow(): double
+        +getClose(): double
+        +getVolume(): double
+    }
+
+    interface "ChartSeries<T>" as ChartSeries {
+        +getId(): String
+        +getName(): String
+        +getData(): List<T>
+        +getType(): ChartSeriesType
+    }
+
+    enum "ChartSeriesType" as ChartSeriesType {
+        CANDLESTICK
+        LINE
+        AREA
+        HISTOGRAM
+        VOLUME
+    }
+
+    interface "ChartAdapter<T>" as ChartAdapter {
+        +convertCandlestick(candlestick: Candlestick): T
+        +convertOHLCData(ohlcData: OHLCData): T
+        +convertCandlestickList(candles: List<Candlestick>): List<T>
+        +convertToSeries(ohlcData: OHLCData): ChartSeries<T>
+    }
+}
+
+' ===== CHART IMPLEMENTATIONS =====
+package "Chart Implementations" #LightYellow {
+
+    ' Lightweight Charts
+    package "Lightweight Charts" {
+        class "LightweightChartsOHLC" as LWChartsOHLC {
+            -time: long
+            -open: double
+            -high: double
+            -low: double
+            -close: double
+            -volume: double
+            --
+            +toJSON(): String
+        }
+
+        class "LightweightChartsSeries" as LWChartsSeries {
+            -id: String
+            -name: String
+            -data: List<LightweightChartsOHLC>
+            -type: ChartSeriesType
+        }
+
+        class "LightweightChartsAdapter" as LWChartsAdapter {
+            +convertCandlestick(candlestick: Candlestick): LightweightChartsOHLC
+            +convertOHLCData(ohlcData: OHLCData): LightweightChartsOHLC
+            +convertCandlestickList(candles: List<Candlestick>): List<LightweightChartsOHLC>
+            +convertToSeries(ohlcData: OHLCData): LightweightChartsSeries
+        }
+    }
+
+    ' Future Chart Libraries (placeholders)
+    package "Chart.js (Future)" #LightGray {
+        class "ChartJSOHLC" as ChartJSOHLC {
+            -x: long
+            -o: double
+            -h: double
+            -l: double
+            -c: double
+        }
+
+        class "ChartJSAdapter" as ChartJSAdapter {
+            +convertCandlestick(candlestick: Candlestick): ChartJSOHLC
+        }
+    }
+
+    package "D3.js (Future)" #LightGray {
+        class "D3DataPoint" as D3DataPoint {
+            -date: Date
+            -open: number
+            -high: number
+            -low: number
+            -close: number
+        }
+
+        class "D3Adapter" as D3Adapter {
+            +convertCandlestick(candlestick: Candlestick): D3DataPoint
+        }
+    }
+}
+
+' ===== SERVICE LAYER =====
+package "Service Layer" #LightCoral {
+
+    class "ChartDataService" as ChartDataService {
+        -adapters: Map<String, ChartAdapter<?>>
+        --
+        +getChartData<T>(ohlcData: OHLCData, chartLibrary: String): List<T>
+        +getLatestChartData<T>(ohlcData: OHLCData, chartLibrary: String): T
+        +getSeries<T>(ohlcData: OHLCData, chartLibrary: String): ChartSeries<T>
+        +getSupportedLibraries(): Set<String>
+        +registerAdapter(name: String, adapter: ChartAdapter<?>): void
+    }
+
+    class "OHLCDataService" as OHLCDataService {
+        -repository: OHLCDataRepository
+        --
+        +getOHLCData(symbol: Symbol, interval: TimeInterval): Optional<OHLCData>
+        +getOHLCDataInRange(symbol: Symbol, interval: TimeInterval, start: Instant, end: Instant): List<Candlestick>
+        +createOHLCData(symbol: Symbol, interval: TimeInterval): OHLCData
+        +addCandlestick(ohlcDataId: String, candlestick: Candlestick): void
+        +getLatestPrice(symbol: Symbol): Optional<BigDecimal>
+    }
+}
+
+' ===== REPOSITORY LAYER =====
+package "Repository Layer" #Lavender {
+
+    interface "OHLCDataRepository" as OHLCDataRepository {
+        +findBySymbolAndInterval(symbol: Symbol, interval: TimeInterval): Optional<OHLCData>
+        +findBySymbolAndIntervalAndTimeRange(symbol: Symbol, interval: TimeInterval, start: Instant, end: Instant): List<Candlestick>
+        +save(ohlcData: OHLCData): OHLCData
+        +existsBySymbolAndInterval(symbol: Symbol, interval: TimeInterval): boolean
+    }
+}
+
+' ===== REST LAYER =====
+package "REST API" #MistyRose {
+
+    class "ChartController" as ChartController {
+        -chartDataService: ChartDataService
+        -ohlcDataService: OHLCDataService
+        --
+        +getLightweightChartsData(symbol: String, interval: String): List<LightweightChartsOHLC>
+        +getChartData(library: String, symbol: String, interval: String): List<?>
+        +getChartDataInRange(library: String, symbol: String, interval: String, start: long, end: long): List<?>
+        +getSupportedChartLibraries(): Set<String>
+        +getAvailableSymbols(): List<String>
+        +getAvailableIntervals(): List<TimeInterval>
+    }
+}
+
+' ===== RELATIONSHIPS =====
+
+' Domain relationships
+OHLCData "1" *--> "many" Candlestick : contains
+OHLCData --> "1" Symbol : represents
+OHLCData --> "1" TimeInterval : uses
+Candlestick --> "1" Symbol : for
+Candlestick --> "1" TimeInterval : interval
+
+' Chart abstraction relationships
+OHLCChartDataPoint --|> ChartDataPoint : extends
+ChartSeries --> ChartSeriesType : uses
+
+' Implementation relationships
+LWChartsOHLC ..|> OHLCChartDataPoint : implements
+LWChartsSeries ..|> ChartSeries : implements
+LWChartsAdapter ..|> ChartAdapter : implements
+
+ChartJSOHLC ..|> OHLCChartDataPoint : implements
+ChartJSAdapter ..|> ChartAdapter : implements
+
+D3DataPoint ..|> ChartDataPoint : implements
+D3Adapter ..|> ChartAdapter : implements
+
+' Service relationships
+ChartDataService --> ChartAdapter : uses
+ChartDataService ..> LWChartsAdapter : creates
+ChartDataService ..> ChartJSAdapter : creates
+ChartDataService ..> D3Adapter : creates
+
+OHLCDataService --> OHLCDataRepository : uses
+OHLCDataService --> OHLCData : manages
+
+' Controller relationships
+ChartController --> ChartDataService : uses
+ChartController --> OHLCDataService : uses
+ChartController ..> LWChartsOHLC : returns
+
+' Dependencies (domain to chart)
+LWChartsAdapter ..> Candlestick : converts
+ChartJSAdapter ..> Candlestick : converts
+D3Adapter ..> Candlestick : converts
+
+note top of ChartAdapter : "Adapter Pattern:\nConverts domain objects\nto chart-specific formats"
+
+note top of ChartDataService : "Strategy Pattern:\nDynamically selects\nappropriate adapter"
+
+note bottom of OHLCData : "Aggregate Root:\nManages candlestick\ncollection integrity"
+
+@enduml

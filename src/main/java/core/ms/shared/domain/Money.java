@@ -179,4 +179,11 @@ public class Money {
     public String toString() {
         return toDisplayString();
     }
+
+    public Money abs() {
+        if (amount.compareTo(BigDecimal.ZERO) >= 0) {
+            return this;
+        }
+        return new Money(amount.abs(), currency);
+    }
 }
