@@ -113,3 +113,31 @@ Candlestick candle = convertTransactionToCandlestick(event.getTransaction());
 updateCandlestickData(candle);
 }
 }
+
+HEXAGONAL
+
+├── domain/
+│   ├── entities/           # Pure business entities (Candlestick, OHLCData)
+│   ├── value_objects/      # Pure value objects (Money, Symbol, TimeInterval)
+│   ├── factories/          # Domain factories (OHLCDataFactory)
+│   └── ports/              # Interfaces the domain defines
+│       ├── inbound/        # What domain provides (services)
+│       └── outbound/       # What domain needs (repositories)
+├── application/
+│   ├── services/           # Use case orchestration (@Service)
+│   └── dto/
+│       └── command/        # Input DTOs for application services
+│       └── query/          # Output DTOs for application services
+├── infrastructure/
+│   ├── persistence/
+│   │   ├── entities/       # JPA entities (@Entity)
+│   │   ├── repositories/   # JPA repositories (@Repository)
+│   │   └── mappers/        # Entity ↔ Domain mappers
+│   ├── web/
+│   │   ├── controllers/    # REST controllers (@RestController)
+│   │   ├── dto/            # API DTOs (request/response)
+│   │   └── mappers/        # API DTO ↔ Application DTO mappers
+│   └── events/
+│       ├── publishers/     # Event publishers
+│       ├── dto/            # Event DTOs
+│       └── mappers/        # Event DTO ↔ Domain mappers
