@@ -1,6 +1,6 @@
 package core.ms.order;
 
-import core.ms.order.domain.*;
+import core.ms.order.domain.entities.*;
 import core.ms.shared.domain.Currency;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;

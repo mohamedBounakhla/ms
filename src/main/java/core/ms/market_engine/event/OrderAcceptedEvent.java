@@ -1,6 +1,6 @@
 package core.ms.market_engine.event;
 
-import core.ms.order.domain.IOrder;
+import core.ms.order.domain.entities.IOrder;
 
 import java.util.Objects;
 

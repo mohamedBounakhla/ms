@@ -1,6 +1,6 @@
 package core.ms.market_engine.event;
 
-import core.ms.order.domain.ITransaction;
+import core.ms.order.domain.entities.ITransaction;
 
 import java.util.Objects;
 

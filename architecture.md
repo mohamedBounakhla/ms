@@ -141,3 +141,77 @@ HEXAGONAL
 │       ├── publishers/     # Event publishers
 │       ├── dto/            # Event DTOs
 │       └── mappers/        # Event DTO ↔ Domain mappers
+
+
+📋 Complete System Architecture - All Domains
+🏗️ Global Structure
+core.ms/
+├── order/
+│   ├── domain/             # Your existing pure domain (UNTOUCHED)
+│   ├── application/        # NEW - Use case orchestration
+│   └── infrastructure/     # NEW - Adapters layer
+├── order_book/
+│   ├── domain/             # Your existing pure domain (UNTOUCHED)
+│   ├── application/        # NEW - Use case orchestration
+│   └── infrastructure/     # NEW - Adapters layer
+├── market_engine/
+│   ├── domain/             # Your existing pure domain (UNTOUCHED)
+│   ├── application/        # NEW - Use case orchestration
+│   └── infrastructure/     # NEW - Adapters layer
+├── portfolio/
+│   ├── domain/             # Your existing pure domain (UNTOUCHED)
+│   ├── application/        # NEW - Use case orchestration
+│   └── infrastructure/     # NEW - Adapters layer
+├── OHLC/
+│   ├── domain/             # Your existing pure domain (UNTOUCHED)
+│   ├── application/        # NEW - Use case orchestration
+│   └── infrastructure/     # NEW - Adapters layer
+└── security/
+├── domain/             # Your existing pure domain (UNTOUCHED)
+├── application/        # NEW - Use case orchestration
+└── infrastructure/     # NEW - Adapters layer
+🔄 Each Domain Gets Same Structure
+<domain>/
+├── domain/
+│   ├── entities/           # Pure business entities
+│   ├── value_objects/      # Pure value objects
+│   ├── factories/          # Domain factories
+│   └── ports/              # Interface contracts
+│       ├── inbound/        # Service interfaces
+│       └── outbound/       # Repository interfaces
+├── application/
+│   ├── services/           # Use case orchestration
+│   └── dto/
+│       ├── command/        # Input DTOs
+│       └── query/          # Output DTOs
+└── infrastructure/
+├── persistence/
+│   ├── entities/       # JPA entities
+│   ├── repositories/   # JPA repositories
+│   └── mappers/        # Entity ↔ Domain mappers
+├── web/
+│   ├── controllers/    # REST controllers
+│   ├── dto/            # API DTOs
+│   └── mappers/        # API DTO mappers
+└── events/
+├── publishers/     # Event publishers
+├── dto/            # Event DTOs
+└── mappers/        # Event mappers
+🎯 Benefits Across All Domains
+
+Order Domain - Pure transaction logic, JPA adapters
+Order Book Domain - Pure matching logic, JPA adapters
+Market Engine Domain - Pure engine logic, JPA adapters
+Portfolio Domain - Pure portfolio logic, JPA adapters
+OHLC Domain - Pure chart logic, JPA adapters
+Security Domain - Pure auth logic, JPA adapters
+
+🔗 Cross-Domain Communication
+Domains communicate through:
+
+Events (infrastructure layer)
+Application services calling other application services
+Shared value objects (Money, Symbol, etc.)
+
+
+find . -name "*.java" -exec echo "=== {} ===" \; -exec cat {} \; > all_java_files.txt

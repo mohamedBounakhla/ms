@@ -1,6 +1,6 @@
 package core.ms.order_book.domain.value_object;
 
-import core.ms.order.domain.IBuyOrder;
+import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.shared.domain.Money;
 
 import java.util.Objects;

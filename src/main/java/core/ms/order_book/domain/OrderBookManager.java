@@ -1,6 +1,6 @@
 package core.ms.order_book.domain;
 
-import core.ms.order.domain.IOrder;
+import core.ms.order.domain.entities.IOrder;
 import core.ms.order_book.domain.value_object.MarketOverview;
 import core.ms.order_book.domain.value_object.OrderMatch;
 import core.ms.shared.domain.Symbol;

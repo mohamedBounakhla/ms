@@ -3,7 +3,7 @@ package core.ms.market_engine;
 import core.ms.market_engine.event.OrderAcceptedEvent;
 import core.ms.market_engine.event.OrderExecutedEvent;
 import core.ms.market_engine.event.TransactionCreatedEvent;
-import core.ms.order.domain.*;
+import core.ms.order.domain.entities.*;
 import core.ms.shared.domain.Currency;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;

@@ -1,13 +1,9 @@
 package core.ms.order;
 
-import core.ms.order.domain.value.OrderStatus;
-import core.ms.order.domain.value.OrderStatusEnum;
-import core.ms.shared.domain.*;
-import core.ms.order.domain.value.*;
+import core.ms.order.domain.value_objects.OrderStatus;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.Test;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.*;
 

@@ -1,8 +1,7 @@
 package core.ms.order;
 
-import core.ms.order.domain.BuyOrder;
-import core.ms.order.domain.IBuyOrder;
-import core.ms.order.domain.IOrder;
+import core.ms.order.domain.entities.BuyOrder;
+import core.ms.order.domain.entities.IOrder;
 import core.ms.shared.domain.Currency;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;

@@ -1,10 +1,10 @@
 package core.ms.market_engine;
 
-import core.ms.order.domain.BuyOrder;
-import core.ms.order.domain.IBuyOrder;
-import core.ms.order.domain.ISellOrder;
-import core.ms.order.domain.SellOrder;
-import core.ms.order.domain.value.OrderStatusEnum;
+import core.ms.order.domain.entities.BuyOrder;
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order.domain.entities.SellOrder;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
 import core.ms.order_book.domain.OrderBook;
 import core.ms.order_book.domain.OrderBookManager;
 import core.ms.order_book.domain.value_object.AskPriceLevel;

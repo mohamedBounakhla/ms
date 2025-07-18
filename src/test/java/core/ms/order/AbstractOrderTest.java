@@ -1,8 +1,8 @@
 package core.ms.order;
 
-import core.ms.order.domain.BuyOrder;
+import core.ms.order.domain.entities.BuyOrder;
 import core.ms.shared.domain.*;
-import core.ms.order.domain.value.*;
+import core.ms.order.domain.value_objects.*;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.Test;
 import java.math.BigDecimal;

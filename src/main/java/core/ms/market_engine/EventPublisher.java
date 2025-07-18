@@ -3,7 +3,7 @@ package core.ms.market_engine;
 import core.ms.market_engine.event.OrderAcceptedEvent;
 import core.ms.market_engine.event.OrderExecutedEvent;
 import core.ms.market_engine.event.TransactionCreatedEvent;
-import core.ms.order.domain.ITransaction;
+import core.ms.order.domain.entities.ITransaction;
 
 import java.time.LocalDateTime;
 import java.util.Objects;

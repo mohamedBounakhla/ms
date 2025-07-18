@@ -1,6 +1,6 @@
 package core.ms.order_book;
 
-import core.ms.order.domain.ISellOrder;
+import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order_book.domain.value_object.AskPriceLevel;
 import core.ms.shared.domain.Currency;
 import core.ms.shared.domain.Money;

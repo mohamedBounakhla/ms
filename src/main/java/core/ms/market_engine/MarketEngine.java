@@ -3,8 +3,8 @@ package core.ms.market_engine;
 import core.ms.market_engine.event.OrderAcceptedEvent;
 import core.ms.market_engine.event.OrderExecutedEvent;
 import core.ms.market_engine.event.TransactionCreatedEvent;
-import core.ms.order.domain.IOrder;
-import core.ms.order.domain.ITransaction;
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.entities.ITransaction;
 import core.ms.order_book.domain.OrderBookManager;
 import core.ms.order_book.domain.value_object.OrderMatch;
 

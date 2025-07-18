@@ -1,7 +1,7 @@
 package core.ms.order_book.domain.value_object;
 
-import core.ms.order.domain.IBuyOrder;
-import core.ms.order.domain.IOrder;
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.IOrder;
 import core.ms.shared.domain.Money;
 
 import java.math.BigDecimal;

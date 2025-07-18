@@ -1,7 +1,7 @@
 package core.ms.market_engine;
 
-import core.ms.order.domain.*;
-import core.ms.order.domain.value.OrderStatusEnum;
+import core.ms.order.domain.entities.*;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
 import core.ms.order_book.domain.value_object.OrderMatch;
 import core.ms.shared.domain.Currency;
 import core.ms.shared.domain.Money;
