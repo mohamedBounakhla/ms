@@ -10,7 +10,7 @@ import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Service;
 import org.springframework.beans.factory.annotation.Value;
 
-import java.security.Key;
+import javax.crypto.SecretKey;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -25,11 +25,10 @@ public class TokenServiceImpl implements TokenService {
     @Value("${jwt.expiration:86400000}")
     private long jwtExpiration;
 
-
     @Override
     public String generateToken(UserDetails userDetails) {
         Map<String, Object> claims = new HashMap<>();
-       //Extraire les rôles des autorités
+        // Extraire les rôles des autorités
         String roles = userDetails.getAuthorities()
                 .stream()
                 .map(GrantedAuthority::getAuthority)
@@ -39,34 +38,37 @@ public class TokenServiceImpl implements TokenService {
     }
 
     @Override
-    public String generateToken(Map<String,Object> claims, String subject){
+    public String generateToken(Map<String, Object> claims, String subject) {
         Date now = new Date();
         Date expiration = new Date(now.getTime() + this.jwtExpiration);
 
-        //Utilisation de Keys pour générer pour une clé sécurisée
-        Key key = Keys.hmacShaKeyFor(secretKey.getBytes());
+        // Utilisation de Keys pour générer une clé sécurisée
+        SecretKey key = Keys.hmacShaKeyFor(secretKey.getBytes());
 
         return Jwts.builder()
-                .setClaims(claims)
-                .setSubject(subject)
-                .setIssuedAt(now)
-                .setExpiration(expiration)
+                .claims(claims)
+                .subject(subject)
+                .issuedAt(now)
+                .expiration(expiration)
                 .signWith(key, SignatureAlgorithm.HS256)
                 .compact();
     }
-    private Claims extractAllClaims(String token){
-        Key key = Keys.hmacShaKeyFor(secretKey.getBytes());
 
-        return Jwts.parserBuilder()
-                .setSigningKey(key)
+    private Claims extractAllClaims(String token) {
+        SecretKey key = Keys.hmacShaKeyFor(secretKey.getBytes());
+
+        return Jwts.parser()
+                .verifyWith(key)
                 .build()
-                .parseClaimsJws(token)
-                .getBody();
+                .parseSignedClaims(token)
+                .getPayload();
     }
-    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver){
+
+    public <T> T extractClaim(String token, Function<Claims, T> claimsResolver) {
         final Claims claims = extractAllClaims(token);
         return claimsResolver.apply(claims);
     }
+
     @Override
     public String extractUsername(String token) {
         return extractClaim(token, Claims::getSubject);
@@ -91,17 +93,18 @@ public class TokenServiceImpl implements TokenService {
 
     @Override
     public String refreshToken(String token) {
-        if(isTokenExpired(token)) {
+        if (isTokenExpired(token)) {
             throw new IllegalArgumentException("Le token est expiré");
         }
 
         Claims claims = extractAllClaims(token);
         String subject = claims.getSubject();
 
-        claims.remove(Claims.EXPIRATION);
-        claims.remove(Claims.ISSUED_AT);
+        // Create new claims map without expiration and issued at
+        Map<String, Object> newClaims = new HashMap<>(claims);
+        newClaims.remove(Claims.EXPIRATION);
+        newClaims.remove(Claims.ISSUED_AT);
 
-        return generateToken(claims,subject);
+        return generateToken(newClaims, subject);
     }
-
 }

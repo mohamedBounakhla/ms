@@ -1,0 +1,4994 @@
+=== ./domain/factories/OrderFactory.java ===
+package core.ms.order.domain.factories;
+
+import core.ms.order.domain.entities.BuyOrder;
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.entities.SellOrder;
+import core.ms.order.domain.validators.OrderBuilderValidation;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+
+/**
+ * Domain factory for creating validated orders.
+ * Encapsulates all business rules and validation logic within the domain.
+ */
+public class OrderFactory {
+
+    private OrderFactory() {
+        // Static factory - no instantiation
+    }
+
+    /**
+     * Creates a validated buy order.
+     * All business rules are validated within the domain validation builder.
+     *
+     * @param symbol The trading symbol
+     * @param price The order price
+     * @param quantity The order quantity
+     * @return A valid buy order
+     * @throws OrderCreationException if validation fails
+     */
+    public static BuyOrder createBuyOrder(Symbol symbol, Money price, BigDecimal quantity) {
+
+        try {
+            // All validation happens in the builder
+            OrderBuilderValidation.OrderValidationResult validation =
+                    OrderBuilderValidation
+                            .builderWithGeneratedId()           // Auto-generates ID
+                            .withSymbol(symbol)                 // Progressive validation
+                            .withPrice(price)                   // Progressive validation
+                            .withQuantity(quantity)             // Progressive validation
+                            .build();                           // Final state
+
+            // Pure entity creation using builder constructor
+            return new BuyOrder(
+                    validation.getId(),
+                    validation.getSymbol(),
+                    validation.getPrice(),
+                    validation.getQuantity(),
+                    validation.getStatus(),
+                    validation.getCreatedAt(),
+                    validation.getUpdatedAt(),
+                    validation.getExecutedQuantity()
+            );
+
+        } catch (OrderBuilderValidation.ValidationOrderException e) {
+            throw new OrderCreationException("Buy order creation failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Creates a validated sell order.
+     * All business rules are validated within the domain validation builder.
+     *
+     * @param symbol The trading symbol
+     * @param price The order price
+     * @param quantity The order quantity
+     * @return A valid sell order
+     * @throws OrderCreationException if validation fails
+     */
+    public static SellOrder createSellOrder(Symbol symbol, Money price, BigDecimal quantity) {
+
+        try {
+            // All validation happens in the builder
+            OrderBuilderValidation.OrderValidationResult validation =
+                    OrderBuilderValidation
+                            .builderWithGeneratedId()           // Auto-generates ID
+                            .withSymbol(symbol)                 // Progressive validation
+                            .withPrice(price)                   // Progressive validation
+                            .withQuantity(quantity)             // Progressive validation
+                            .build();                           // Final state
+
+            // Pure entity creation using builder constructor
+            return new SellOrder(
+                    validation.getId(),
+                    validation.getSymbol(),
+                    validation.getPrice(),
+                    validation.getQuantity(),
+                    validation.getStatus(),
+                    validation.getCreatedAt(),
+                    validation.getUpdatedAt(),
+                    validation.getExecutedQuantity()
+            );
+
+        } catch (OrderBuilderValidation.ValidationOrderException e) {
+            throw new OrderCreationException("Sell order creation failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Creates a buy order with custom ID (for testing or special cases).
+     */
+    public static BuyOrder createBuyOrderWithId(String id, Symbol symbol, Money price, BigDecimal quantity) {
+
+        try {
+            OrderBuilderValidation.OrderValidationResult validation =
+                    OrderBuilderValidation
+                            .builder()
+                            .withId(id)                         // Custom ID
+                            .withSymbol(symbol)
+                            .withPrice(price)
+                            .withQuantity(quantity)
+                            .build();
+
+            return new BuyOrder(
+                    validation.getId(),
+                    validation.getSymbol(),
+                    validation.getPrice(),
+                    validation.getQuantity(),
+                    validation.getStatus(),
+                    validation.getCreatedAt(),
+                    validation.getUpdatedAt(),
+                    validation.getExecutedQuantity()
+            );
+
+        } catch (OrderBuilderValidation.ValidationOrderException e) {
+            throw new OrderCreationException("Buy order creation failed: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Creates a sell order with custom ID (for testing or special cases).
+     */
+    public static SellOrder createSellOrderWithId(String id, Symbol symbol, Money price, BigDecimal quantity) {
+
+        try {
+            OrderBuilderValidation.OrderValidationResult validation =
+                    OrderBuilderValidation
+                            .builder()
+                            .withId(id)                         // Custom ID
+                            .withSymbol(symbol)
+                            .withPrice(price)
+                            .withQuantity(quantity)
+                            .build();
+
+            return new SellOrder(
+                    validation.getId(),
+                    validation.getSymbol(),
+                    validation.getPrice(),
+                    validation.getQuantity(),
+                    validation.getStatus(),
+                    validation.getCreatedAt(),
+                    validation.getUpdatedAt(),
+                    validation.getExecutedQuantity()
+            );
+
+        } catch (OrderBuilderValidation.ValidationOrderException e) {
+            throw new OrderCreationException("Sell order creation failed: " + e.getMessage(), e);
+        }
+    }
+
+    // ===== DOMAIN EXCEPTION =====
+
+    /**
+     * Domain exception for order creation failures.
+     */
+    public static class OrderCreationException extends RuntimeException {
+
+        public OrderCreationException(String message) {
+            super(message);
+        }
+
+        public OrderCreationException(String message, Throwable cause) {
+            super(message, cause);
+        }
+    }
+}=== ./domain/factories/TransactionFactory.java ===
+package core.ms.order.domain.factories;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order.domain.entities.Transaction;
+import core.ms.order.domain.validators.TransactionBuilderValidation;
+import core.ms.order.domain.validators.ValidationErrorMessage;
+import core.ms.shared.domain.Money;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * Domain factory for creating validated transactions.
+ * Encapsulates all business rules and validation logic within the domain.
+ */
+public class TransactionFactory {
+
+    private TransactionFactory() {
+        // Static factory - no instantiation
+    }
+
+    /**
+     * Creates a validated transaction from matching orders.
+     * All business rules are validated within the domain validation builder.
+     *
+     * @param buyOrder The buy order
+     * @param sellOrder The sell order
+     * @param executionPrice The agreed execution price
+     * @param quantity The transaction quantity
+     * @return A valid transaction
+     * @throws TransactionCreationException if validation fails
+     */
+    public static Transaction create(IBuyOrder buyOrder, ISellOrder sellOrder,
+                                     Money executionPrice, BigDecimal quantity) {
+
+        try {
+            // All validation happens in the builder - factory just orchestrates
+            TransactionBuilderValidation.TransactionValidationResult validation =
+                    TransactionBuilderValidation
+                            .builderWithGeneratedId()                   // Auto-generates ID
+                            .withSymbol(buyOrder.getSymbol()) // Derive symbol from buy order
+                            .withBuyOrder(buyOrder)         // Progressive validation
+                            .withSellOrder(sellOrder)      // Progressive validation
+                            .withQuantity(quantity)                     // Progressive validation
+                            .build();                                   // Final state
+
+            // Pure entity creation - NO validation needed here
+            Transaction transaction = new Transaction(
+                    validation.getId(),
+                    validation.getSymbol(),
+                    validation.getBuyOrder(),
+                    validation.getSellOrder(),
+                    validation.getQuantity()
+            );
+
+            // Domain logic: Update order execution quantities
+            updateOrderExecution(validation.getBuyOrder(), validation.getQuantity());
+            updateOrderExecution(validation.getSellOrder(), validation.getQuantity());
+
+            return transaction;
+
+        } catch (TransactionBuilderValidation.ValidationTransactionException e) {
+            throw new TransactionCreationException("Transaction creation failed: " + e.getMessage(), e);
+        } catch (ClassCastException e) {
+            throw new TransactionCreationException("Invalid order types: orders must be IBuyOrder and ISellOrder", e);
+        }
+    }
+
+    /**
+     * Creates a transaction with optimal pricing determined by domain validation logic.
+     */
+
+
+    /**
+     * Updates order execution quantity as part of transaction creation.
+     * This is domain logic that belongs in the factory.
+     */
+    private static void updateOrderExecution(IOrder order, BigDecimal executedQuantity) {
+        try {
+            order.updateExecution(executedQuantity);
+        } catch (Exception e) {
+            throw new TransactionCreationException(
+                    "Failed to update order execution: " + e.getMessage()
+            );
+        }
+    }
+
+    /**
+     * Generates unique transaction ID following domain conventions.
+     */
+    private static String generateTransactionId() {
+        return "TXN_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+    }
+
+    // ===== DOMAIN EXCEPTION =====
+
+    /**
+     * Domain exception for transaction creation failures.
+     * Encapsulates validation errors within the domain.
+     */
+    public static class TransactionCreationException extends RuntimeException {
+        private final List<ValidationErrorMessage> validationErrors;
+
+        public TransactionCreationException(String message) {
+            super(message);
+            this.validationErrors = List.of();
+        }
+
+        public TransactionCreationException(String message, List<ValidationErrorMessage> validationErrors) {
+            super(message);
+            this.validationErrors = validationErrors;
+        }
+        public TransactionCreationException(String message, Throwable cause) {
+            super(message, cause);
+            this.validationErrors = List.of();
+        }
+
+        public List<ValidationErrorMessage> getValidationErrors() {
+            return validationErrors;
+        }
+
+        public List<String> getErrors() {
+            return validationErrors.stream()
+                    .map(ValidationErrorMessage::getMessage)
+                    .toList();
+        }
+
+        public boolean hasValidationErrors() {
+            return !validationErrors.isEmpty();
+        }
+
+        @Override
+        public String getMessage() {
+            if (validationErrors.isEmpty()) {
+                return super.getMessage();
+            }
+
+            StringBuilder sb = new StringBuilder(super.getMessage());
+            sb.append(". Validation errors: ");
+            validationErrors.forEach(error -> sb.append(error.getMessage()).append("; "));
+            return sb.toString();
+        }
+    }
+}=== ./domain/ports/inbound/OrderOperationResult.java ===
+package core.ms.order.domain.ports.inbound;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * Result type for order domain operations (create, cancel, update)
+ * Different from market_engine.OrderResult which is for trade execution results
+ */
+public class OrderOperationResult {
+    private final boolean success;
+    private final String orderId;
+    private final String message;
+    private final LocalDateTime timestamp;
+    private final List<String> errors;
+
+    public OrderOperationResult(boolean success, String orderId, String message, List<String> errors) {
+        this.success = success;
+        this.orderId = orderId;
+        this.message = message;
+        this.timestamp = LocalDateTime.now();
+        this.errors = errors != null ? errors : List.of();
+    }
+
+    public static OrderOperationResult success(String orderId, String message) {
+        return new OrderOperationResult(true, orderId, message, null);
+    }
+
+    public static OrderOperationResult failure(String orderId, String message, List<String> errors) {
+        return new OrderOperationResult(false, orderId, message, errors);
+    }
+
+    // Getters
+    public boolean isSuccess() { return success; }
+    public String getOrderId() { return orderId; }
+    public String getMessage() { return message; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public List<String> getErrors() { return errors; }
+}=== ./domain/ports/inbound/TransactionResult.java ===
+package core.ms.order.domain.ports.inbound;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+/**
+ * Result type for transaction operations
+ */
+public class TransactionResult {
+    private final boolean success;
+    private final String transactionId;
+    private final String message;
+    private final LocalDateTime timestamp;
+    private final List<String> errors;
+
+    public TransactionResult(boolean success, String transactionId, String message, List<String> errors) {
+        this.success = success;
+        this.transactionId = transactionId;
+        this.message = message;
+        this.timestamp = LocalDateTime.now();
+        this.errors = errors != null ? errors : List.of();
+    }
+
+    public static TransactionResult success(String transactionId, String message) {
+        return new TransactionResult(true, transactionId, message, null);
+    }
+
+    public static TransactionResult failure(String transactionId, String message, List<String> errors) {
+        return new TransactionResult(false, transactionId, message, errors);
+    }
+
+    // Getters
+    public boolean isSuccess() { return success; }
+    public String getTransactionId() { return transactionId; }
+    public String getMessage() { return message; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public List<String> getErrors() { return errors; }
+}=== ./domain/ports/inbound/OrderService.java ===
+package core.ms.order.domain.ports.inbound;
+
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.shared.domain.Symbol;
+import core.ms.shared.domain.Money;
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Primary service interface for Order domain operations.
+ * Defines all use cases that the Order domain can handle.
+ */
+public interface OrderService {
+
+    // ===== ORDER CREATION =====
+    /**
+     * Creates a new buy order
+     */
+    OrderOperationResult createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
+
+    /**
+     * Creates a new sell order
+     */
+    OrderOperationResult createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
+
+    // ===== ORDER MANAGEMENT =====
+    /**
+     * Cancels an existing order
+     */
+    OrderOperationResult cancelOrder(String orderId);
+
+    /**
+     * Updates the price of an existing order
+     */
+    OrderOperationResult updateOrderPrice(String orderId, Money newPrice);
+
+    /**
+     * Cancels partial quantity of an order
+     */
+    OrderOperationResult cancelPartialOrder(String orderId, BigDecimal quantityToCancel);
+
+    // ===== ORDER QUERIES =====
+    /**
+     * Finds an order by its ID
+     */
+    Optional<IOrder> findOrderById(String orderId);
+
+    /**
+     * Finds all active orders for a specific symbol
+     */
+    List<IOrder> findActiveOrdersBySymbol(Symbol symbol);
+
+    /**
+     * Finds all buy orders for a specific symbol
+     */
+    List<IBuyOrder> findBuyOrdersBySymbol(Symbol symbol);
+
+    /**
+     * Finds all sell orders for a specific symbol
+     */
+    List<ISellOrder> findSellOrdersBySymbol(Symbol symbol);
+
+    /**
+     * Finds orders by status
+     */
+    List<IOrder> findOrdersByStatus(OrderStatusEnum status);
+
+    // ===== ORDER VALIDATION =====
+    /**
+     * Validates if an order can be created
+     */
+    ValidationResult validateOrderCreation(String userId, Symbol symbol, Money price, BigDecimal quantity);
+
+    /**
+     * Validates if an order can be cancelled
+     */
+    ValidationResult validateOrderCancellation(String orderId);
+}=== ./domain/ports/inbound/TransactionStatistics.java ===
+package core.ms.order.domain.ports.inbound;
+
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+/**
+ * Value object for transaction statistics
+ */
+public class TransactionStatistics {
+    private final Symbol symbol;
+    private final long totalTransactions;
+    private final BigDecimal totalVolume;
+    private final Money averagePrice;
+    private final Money highestPrice;
+    private final Money lowestPrice;
+    private final LocalDateTime periodStart;
+    private final LocalDateTime periodEnd;
+
+    public TransactionStatistics(Symbol symbol, long totalTransactions, BigDecimal totalVolume,
+                                 Money averagePrice, Money highestPrice, Money lowestPrice,
+                                 LocalDateTime periodStart, LocalDateTime periodEnd) {
+        this.symbol = symbol;
+        this.totalTransactions = totalTransactions;
+        this.totalVolume = totalVolume;
+        this.averagePrice = averagePrice;
+        this.highestPrice = highestPrice;
+        this.lowestPrice = lowestPrice;
+        this.periodStart = periodStart;
+        this.periodEnd = periodEnd;
+    }
+
+    // Getters
+    public Symbol getSymbol() { return symbol; }
+    public long getTotalTransactions() { return totalTransactions; }
+    public BigDecimal getTotalVolume() { return totalVolume; }
+    public Money getAveragePrice() { return averagePrice; }
+    public Money getHighestPrice() { return highestPrice; }
+    public Money getLowestPrice() { return lowestPrice; }
+    public LocalDateTime getPeriodStart() { return periodStart; }
+    public LocalDateTime getPeriodEnd() { return periodEnd; }
+}=== ./domain/ports/inbound/OrderValidationService.java ===
+package core.ms.order.domain.ports.inbound;
+
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.validators.ValidationErrorMessage;
+import core.ms.shared.domain.Symbol;
+import core.ms.shared.domain.Money;
+import java.math.BigDecimal;
+import java.util.List;
+
+/**
+ * Service interface for order validation operations.
+ * Handles complex validation logic that spans multiple entities.
+ */
+public interface OrderValidationService {
+
+    /**
+     * Validates order creation parameters
+     */
+    List<ValidationErrorMessage> validateOrderCreation(String userId, Symbol symbol,
+                                                       Money price, BigDecimal quantity);
+
+    /**
+     * Validates order state transitions
+     */
+    List<ValidationErrorMessage> validateOrderStateTransition(IOrder order, String newState);
+
+    /**
+     * Validates order modification
+     */
+    List<ValidationErrorMessage> validateOrderModification(IOrder order, Money newPrice);
+
+    /**
+     * Validates order cancellation
+     */
+    List<ValidationErrorMessage> validateOrderCancellation(IOrder order);
+
+    /**
+     * Validates transaction creation
+     */
+    List<ValidationErrorMessage> validateTransactionCreation(IOrder buyOrder, IOrder sellOrder,
+                                                             Money price, BigDecimal quantity);
+}
+=== ./domain/ports/inbound/ValidationResult.java ===
+package core.ms.order.domain.ports.inbound;
+
+import core.ms.order.domain.validators.ValidationErrorMessage;
+import java.util.List;
+
+/**
+ * Result type for validation operations
+ */
+public class ValidationResult {
+    private final boolean valid;
+    private final List<ValidationErrorMessage> errors;
+
+    public ValidationResult(boolean valid, List<ValidationErrorMessage> errors) {
+        this.valid = valid;
+        this.errors = errors != null ? errors : List.of();
+    }
+
+    public static ValidationResult valid() {
+        return new ValidationResult(true, null);
+    }
+
+    public static ValidationResult invalid(List<ValidationErrorMessage> errors) {
+        return new ValidationResult(false, errors);
+    }
+
+    // Getters
+    public boolean isValid() { return valid; }
+    public List<ValidationErrorMessage> getErrors() { return errors; }
+}
+=== ./domain/ports/inbound/TransactionVolume.java ===
+package core.ms.order.domain.ports.inbound;
+
+import core.ms.shared.domain.Symbol;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+/**
+ * Value object for transaction volume information
+ */
+public class TransactionVolume {
+    private final Symbol symbol;
+    private final BigDecimal volume;
+    private final LocalDateTime periodStart;
+    private final LocalDateTime periodEnd;
+
+    public TransactionVolume(Symbol symbol, BigDecimal volume,
+                             LocalDateTime periodStart, LocalDateTime periodEnd) {
+        this.symbol = symbol;
+        this.volume = volume;
+        this.periodStart = periodStart;
+        this.periodEnd = periodEnd;
+    }
+
+    // Getters
+    public Symbol getSymbol() { return symbol; }
+    public BigDecimal getVolume() { return volume; }
+    public LocalDateTime getPeriodStart() { return periodStart; }
+    public LocalDateTime getPeriodEnd() { return periodEnd; }
+}=== ./domain/ports/inbound/TransactionService.java ===
+package core.ms.order.domain.ports.inbound;
+
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order.domain.entities.ITransaction;
+import core.ms.shared.domain.Symbol;
+import core.ms.shared.domain.Money;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Service interface for Transaction domain operations.
+ * Handles all transaction-related use cases.
+ */
+public interface TransactionService {
+
+    // ===== TRANSACTION CREATION =====
+    /**
+     * Creates a transaction from matching orders
+     */
+    TransactionResult createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
+                                        Money executionPrice, BigDecimal quantity);
+
+    /**
+     * Creates a transaction using order IDs
+     */
+    TransactionResult createTransactionByOrderIds(String buyOrderId, String sellOrderId,
+                                                  Money executionPrice, BigDecimal quantity);
+
+    // ===== TRANSACTION QUERIES =====
+    /**
+     * Finds a transaction by its ID
+     */
+    Optional<ITransaction> findTransactionById(String transactionId);
+
+    /**
+     * Finds all transactions for a specific order
+     */
+    List<ITransaction> findTransactionsByOrderId(String orderId);
+
+    /**
+     * Finds all transactions for a specific symbol
+     */
+    List<ITransaction> findTransactionsBySymbol(Symbol symbol);
+
+    /**
+     * Finds all transactions for a specific user
+     */
+    List<ITransaction> findTransactionsByUserId(String userId);
+
+    /**
+     * Finds transactions within a date range
+     */
+    List<ITransaction> findTransactionsByDateRange(LocalDateTime startDate, LocalDateTime endDate);
+
+    /**
+     * Finds transactions by price range
+     */
+    List<ITransaction> findTransactionsByPriceRange(Money minPrice, Money maxPrice);
+
+    // ===== TRANSACTION ANALYTICS =====
+    /**
+     * Gets transaction statistics for a symbol
+     */
+    TransactionStatistics getTransactionStatistics(Symbol symbol);
+
+    /**
+     * Gets transaction volume for a time period
+     */
+    TransactionVolume getTransactionVolume(Symbol symbol, LocalDateTime startDate, LocalDateTime endDate);
+}
+=== ./domain/ports/outbound/UserRepository.java ===
+package core.ms.order.domain.ports.outbound;
+
+import java.util.Optional;
+
+
+public interface UserRepository {
+    boolean existsById(String userId);
+    boolean canPlaceOrders(String userId);
+    Optional<UserTradingLimits> getTradingLimits(String userId);
+}=== ./domain/ports/outbound/UserTradingLimits.java ===
+package core.ms.order.domain.ports.outbound;
+
+import core.ms.shared.domain.Money;
+import java.math.BigDecimal;
+
+/**
+ * Value object representing user trading limits
+ */
+public class UserTradingLimits {
+    private final Money maxOrderValue;
+    private final BigDecimal maxOrderQuantity;
+    private final Money dailyTradingLimit;
+    private final int maxActiveOrders;
+
+    public UserTradingLimits(Money maxOrderValue, BigDecimal maxOrderQuantity,
+                             Money dailyTradingLimit, int maxActiveOrders) {
+        this.maxOrderValue = maxOrderValue;
+        this.maxOrderQuantity = maxOrderQuantity;
+        this.dailyTradingLimit = dailyTradingLimit;
+        this.maxActiveOrders = maxActiveOrders;
+    }
+
+    // Getters
+    public Money getMaxOrderValue() { return maxOrderValue; }
+    public BigDecimal getMaxOrderQuantity() { return maxOrderQuantity; }
+    public Money getDailyTradingLimit() { return dailyTradingLimit; }
+    public int getMaxActiveOrders() { return maxActiveOrders; }
+}
+=== ./domain/ports/outbound/TransactionRepository.java ===
+package core.ms.order.domain.ports.outbound;
+
+import core.ms.order.domain.entities.ITransaction;
+import core.ms.shared.domain.Symbol;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+public interface TransactionRepository {
+    // Basic CRUD
+    ITransaction save(ITransaction transaction);
+    Optional<ITransaction> findById(String transactionId);
+    void deleteById(String transactionId);
+    boolean existsById(String transactionId);
+
+    // Simple queries
+    List<ITransaction> findByOrderId(String orderId);
+    List<ITransaction> findBySymbol(Symbol symbol);
+    List<ITransaction> findByDateRange(LocalDateTime startDate, LocalDateTime endDate);
+
+    // Bulk operations
+    List<ITransaction> findAll();
+    long count();
+}=== ./domain/ports/outbound/OrderRepository.java ===
+package core.ms.order.domain.ports.outbound;
+
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.shared.domain.Symbol;
+
+import java.util.List;
+import java.util.Optional;
+
+public interface OrderRepository {
+    IOrder save(IOrder order);
+    Optional<IOrder> findById(String orderId);
+    void deleteById(String orderId);
+    boolean existsById(String orderId);
+
+
+    List<IOrder> findByUserId(String userId);
+    List<IOrder> findBySymbol(Symbol symbol);
+    List<IOrder> findByStatus(OrderStatusEnum status);
+    List<IBuyOrder> findBuyOrdersBySymbol(Symbol symbol);
+    List<ISellOrder> findSellOrdersBySymbol(Symbol symbol);
+
+
+    List<IOrder> findAll();
+    long count();
+}=== ./domain/entities/BuyOrder.java ===
+package core.ms.order.domain.entities;
+import core.ms.order.domain.value_objects.OrderStatus;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+/**
+ * Pure buy order entity - NO validation.
+ * Creation controlled by OrderFactory using validation builders.
+ */
+public class BuyOrder extends AbstractOrder implements IBuyOrder {
+
+    public BuyOrder(String id, Symbol symbol, Money price, BigDecimal quantity) {
+        super(id, symbol, price, quantity);
+    }
+
+    // Constructor for builder pattern with all fields
+    public BuyOrder(String id, Symbol symbol, Money price, BigDecimal quantity,
+                    OrderStatus status, LocalDateTime createdAt, LocalDateTime updatedAt,
+                    BigDecimal executedQuantity) {
+        super(id, symbol, price, quantity, status, createdAt, updatedAt, executedQuantity);
+    }
+
+    @Override
+    public Money getCostBasis() {
+        return getPrice().multiply(getExecutedQuantity());
+    }
+}
+
+=== ./domain/entities/ITransaction.java ===
+package core.ms.order.domain.entities;
+
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public interface ITransaction {
+    String getId();
+    Symbol getSymbol();
+    IBuyOrder getBuyOrder();
+    ISellOrder getSellOrder();
+    Money getPrice();
+    BigDecimal getQuantity();
+    LocalDateTime getCreatedAt();
+    Money getTotalValue();
+
+}=== ./domain/entities/SellOrder.java ===
+package core.ms.order.domain.entities;
+
+import core.ms.order.domain.value_objects.OrderStatus;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+/**
+ * Pure sell order entity - NO validation.
+ * Creation controlled by OrderFactory using validation builders.
+ */
+public class SellOrder extends AbstractOrder implements ISellOrder {
+
+    public SellOrder(String id, Symbol symbol, Money price, BigDecimal quantity) {
+        super(id, symbol, price, quantity);
+    }
+
+    // Constructor for builder pattern with all fields
+    public SellOrder(String id, Symbol symbol, Money price, BigDecimal quantity,
+                     OrderStatus status, LocalDateTime createdAt, LocalDateTime updatedAt,
+                     BigDecimal executedQuantity) {
+        super(id, symbol, price, quantity, status, createdAt, updatedAt, executedQuantity);
+    }
+
+    @Override
+    public Money getProceeds() {
+        return getPrice().multiply(getExecutedQuantity());
+    }
+}=== ./domain/entities/AbstractTransaction.java ===
+package core.ms.order.domain.entities;
+
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+/**
+ * Pure transaction entity - NO business rules, NO validation.
+ * All validation is handled by the factory/builder pattern.
+ */
+public abstract class AbstractTransaction implements ITransaction {
+    protected final String id;
+    protected final Symbol symbol;
+    protected final IBuyOrder buyOrder;
+    protected final ISellOrder sellOrder;
+    protected final Money price;
+    protected final BigDecimal quantity;
+    protected final LocalDateTime createdAt;
+
+    protected AbstractTransaction(String id, Symbol symbol, IBuyOrder buyOrder,
+                                  ISellOrder sellOrder, BigDecimal quantity) {
+        this.id = id;
+        this.symbol = symbol;
+        this.buyOrder = buyOrder;
+        this.sellOrder = sellOrder;
+        this.price = sellOrder.getPrice();
+        this.quantity = quantity;
+        this.createdAt = LocalDateTime.now();
+    }
+
+    @Override
+    public String getId() { return id; }
+
+    @Override
+    public Symbol getSymbol() { return symbol; }
+
+    @Override
+    public IBuyOrder getBuyOrder() { return buyOrder; }
+
+    @Override
+    public ISellOrder getSellOrder() { return sellOrder; }
+
+    @Override
+    public Money getPrice() { return price; }
+
+    @Override
+    public BigDecimal getQuantity() { return quantity; }
+
+    @Override
+    public LocalDateTime getCreatedAt() { return createdAt; }
+
+    @Override
+    public Money getTotalValue() {
+        return price.multiply(quantity);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        AbstractTransaction that = (AbstractTransaction) obj;
+        return Objects.equals(id, that.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("%s[%s, %s, %s @ %s]",
+                getClass().getSimpleName(), id, symbol.getFullSymbol(),
+                quantity, price);
+    }
+}=== ./domain/entities/IBuyOrder.java ===
+package core.ms.order.domain.entities;
+
+import core.ms.shared.domain.Money;
+
+public interface IBuyOrder extends IOrder {
+    Money getCostBasis();
+
+}
+=== ./domain/entities/IOrder.java ===
+package core.ms.order.domain.entities;
+
+import core.ms.order.domain.value_objects.OrderStatus;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+
+import core.ms.order.domain.value_objects.OrderStatus;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public interface IOrder {
+    String getId();
+
+    Symbol getSymbol();
+
+    Money getPrice();
+
+    BigDecimal getQuantity();
+
+    OrderStatus getStatus();
+
+    LocalDateTime getCreatedAt();
+
+    LocalDateTime getUpdatedAt();
+
+    // ===== STATUS OPERATIONS =====
+    void cancel();
+
+    void cancelPartial();
+
+    void fillPartial();
+
+    void complete();
+
+    void updatePrice(Money price);
+
+    // ===== BUSINESS LOGIC =====
+    Money getTotalValue();
+
+    boolean isActive();
+
+    // ===== EXECUTION TRACKING (Internal Only) =====
+    BigDecimal getExecutedQuantity();
+
+    BigDecimal getRemainingQuantity();
+    void updateExecution(BigDecimal executedAmount);
+
+    /**
+     * Sets the total executed quantity directly
+     * Used for reconstruction from persistence
+     */
+    void setExecutedQuantity(BigDecimal executedQuantity);
+}=== ./domain/entities/Transaction.java ===
+package core.ms.order.domain.entities;
+
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+
+/**
+ * Pure transaction entity - NO business rules, NO validation.
+ * Creation is controlled by TransactionFactory using validation builders.
+ */
+public class Transaction extends AbstractTransaction {
+
+    public Transaction(
+            String id,
+            Symbol symbol,
+            IBuyOrder buyOrder,
+            ISellOrder sellOrder,
+            BigDecimal quantity
+    ) {
+        // Pure delegation - NO validation
+        super(id, symbol, buyOrder, sellOrder, quantity);
+    }
+}=== ./domain/entities/AbstractOrder.java ===
+package core.ms.order.domain.entities;
+
+import core.ms.order.domain.value_objects.OrderStatus;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+import core.ms.order.domain.value_objects.OrderStatus;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+/**
+ * Pure order entity - NO business rules, NO validation.
+ * All validation is handled by the factory/builder pattern.
+ */
+public abstract class AbstractOrder implements IOrder {
+    protected final String id;
+    protected final Symbol symbol;
+    protected Money price;
+    protected final BigDecimal quantity;
+    protected OrderStatus status;
+    protected final LocalDateTime createdAt;
+    protected LocalDateTime updatedAt;
+    protected BigDecimal executedQuantity;
+
+    protected AbstractOrder(String id, Symbol symbol, Money price, BigDecimal quantity) {
+        // Pure assignment - NO validation, NO null checks
+        this.id = id;
+        this.symbol = symbol;
+        this.price = price;
+        this.quantity = quantity;
+        this.status = new OrderStatus();
+        this.createdAt = LocalDateTime.now();
+        this.updatedAt = LocalDateTime.now();
+        this.executedQuantity = BigDecimal.ZERO;
+    }
+
+    // Alternative constructor for builder pattern
+    protected AbstractOrder(String id, Symbol symbol, Money price, BigDecimal quantity,
+                            OrderStatus status, LocalDateTime createdAt, LocalDateTime updatedAt,
+                            BigDecimal executedQuantity) {
+        this.id = id;
+        this.symbol = symbol;
+        this.price = price;
+        this.quantity = quantity;
+        this.status = status;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+        this.executedQuantity = executedQuantity;
+    }
+
+    // ===== PURE GETTERS =====
+    @Override
+    public String getId() { return id; }
+
+    @Override
+    public Symbol getSymbol() { return symbol; }
+
+    @Override
+    public Money getPrice() { return price; }
+
+    @Override
+    public BigDecimal getQuantity() { return quantity; }
+
+    @Override
+    public OrderStatus getStatus() { return status; }
+
+    @Override
+    public LocalDateTime getCreatedAt() { return createdAt; }
+
+    @Override
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+
+    @Override
+    public BigDecimal getExecutedQuantity() { return executedQuantity; }
+
+    @Override
+    public BigDecimal getRemainingQuantity() {
+        BigDecimal remaining = quantity.subtract(executedQuantity);
+        return remaining.compareTo(BigDecimal.ZERO) <= 0 ? BigDecimal.ZERO : remaining;
+    }
+
+    // ===== STATE CHANGE METHODS (Domain Behavior) =====
+
+    @Override
+    public void updateExecution(BigDecimal executedAmount) {
+        // Domain behavior - update execution quantity
+        this.executedQuantity = this.executedQuantity.add(executedAmount);
+        this.updatedAt = LocalDateTime.now();
+        updateStatusAfterExecution();
+    }
+
+    @Override
+    public void setExecutedQuantity(BigDecimal executedQuantity) {
+        // Domain behavior - set execution quantity directly
+        this.executedQuantity = executedQuantity;
+        this.updatedAt = LocalDateTime.now();
+        updateStatusAfterExecution();
+    }
+
+    private void updateStatusAfterExecution() {
+        BigDecimal remaining = getRemainingQuantity();
+
+        if (remaining.compareTo(BigDecimal.ZERO) == 0) {
+            if (status.getStatus() != OrderStatusEnum.FILLED) {
+                status.completeOrder();
+            }
+        } else if (executedQuantity.compareTo(BigDecimal.ZERO) > 0) {
+            if (status.getStatus() == OrderStatusEnum.PENDING) {
+                status.fillPartialOrder();
+            }
+        }
+    }
+
+    @Override
+    public void cancel() {
+        status.cancelOrder();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    @Override
+    public void cancelPartial() {
+        status.cancelPartialOrder();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    @Override
+    public void fillPartial() {
+        status.fillPartialOrder();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    @Override
+    public void complete() {
+        status.completeOrder();
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    @Override
+    public void updatePrice(Money price) {
+        // Domain behavior - update price
+        this.price = price;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    // ===== BUSINESS LOGIC (Pure Calculations) =====
+    @Override
+    public Money getTotalValue() {
+        return price.multiply(quantity);
+    }
+
+    @Override
+    public boolean isActive() {
+        return !status.isTerminal();
+    }
+
+    public String getSymbolCode() {
+        return symbol.getCode();
+    }
+
+    // ===== OBJECT METHODS =====
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        AbstractOrder that = (AbstractOrder) obj;
+        return Objects.equals(id, that.id);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("%s[%s, %s, %s @ %s, %s, executed: %s, remaining: %s]",
+                getClass().getSimpleName(), id, symbol.getFullSymbol(),
+                quantity, price, status.getStatus(), executedQuantity, getRemainingQuantity());
+    }
+}=== ./domain/entities/ISellOrder.java ===
+package core.ms.order.domain.entities;
+
+import core.ms.shared.domain.Money;
+
+public interface ISellOrder extends IOrder {
+    Money getProceeds();
+}=== ./domain/value_objects/PendingOrder.java ===
+package core.ms.order.domain.value_objects;
+
+public class PendingOrder extends AbstractOrderState {
+
+    public PendingOrder(StateTransition transition) {
+        super(transition);
+    }
+
+    @Override
+    public void cancelPartialOrder() {
+        // Stay in PENDING state, just reduce quantity
+        // No state transition needed
+    }
+}
+=== ./domain/value_objects/PartialOrder.java ===
+package core.ms.order.domain.value_objects;
+
+public class PartialOrder extends AbstractOrderState {
+
+    public PartialOrder(StateTransition transition) {
+        super(transition);
+    }
+
+    @Override
+    public void cancelPartialOrder() {
+        // Stay in PARTIAL state, just reduce remaining quantity
+        // No state transition needed
+    }
+}=== ./domain/value_objects/StateTransition.java ===
+package core.ms.order.domain.value_objects;
+
+public interface StateTransition {
+    void transitionTo(IOrderState newState, OrderStatusEnum status);
+}=== ./domain/value_objects/IOrderState.java ===
+package core.ms.order.domain.value_objects;
+
+public interface IOrderState {
+    void cancelOrder();
+    void cancelPartialOrder();
+    void fillPartialOrder();
+    void completeOrder();
+}=== ./domain/value_objects/FilledOrder.java ===
+package core.ms.order.domain.value_objects;
+
+public class FilledOrder extends AbstractOrderState {
+
+    public FilledOrder(StateTransition transition) {
+        super(transition);
+    }
+
+    @Override
+    public void cancelOrder() {
+        throw new IllegalStateException("Cannot cancel a filled order");
+    }
+
+    @Override
+    public void cancelPartialOrder() {
+        throw new IllegalStateException("Cannot cancel a filled order");
+    }
+
+    @Override
+    public void fillPartialOrder() {
+        throw new IllegalStateException("Order is already filled");
+    }
+
+    @Override
+    public void completeOrder() {
+        throw new IllegalStateException("Order is already filled");
+    }
+}
+=== ./domain/value_objects/OrderStatus.java ===
+package core.ms.order.domain.value_objects;
+
+import lombok.Getter;
+
+public class OrderStatus implements IOrderState, StateTransition {
+    private IOrderState orderState;
+    // ===== GETTERS =====
+    @Getter
+    private OrderStatusEnum status;
+
+    public OrderStatus() {
+        orderState = new PendingOrder(this);
+        status = OrderStatusEnum.PENDING;
+    }
+
+    // ===== STATE TRANSITION CALLBACK =====
+    @Override
+    public void transitionTo(IOrderState newState, OrderStatusEnum status) {
+        this.orderState = newState;
+        this.status = status;
+    }
+
+    // ===== DELEGATION TO CURRENT STATE =====
+    @Override
+    public void cancelOrder() {
+        this.orderState.cancelOrder();
+    }
+
+    @Override
+    public void cancelPartialOrder() {
+        this.orderState.cancelPartialOrder();
+    }
+
+    @Override
+    public void fillPartialOrder() {
+        this.orderState.fillPartialOrder();
+    }
+
+    @Override
+    public void completeOrder() {
+        this.orderState.completeOrder();
+    }
+
+    public boolean isTerminal() {
+        return status == OrderStatusEnum.FILLED || status == OrderStatusEnum.CANCELLED;
+    }
+
+    @Override
+    public String toString() {
+        return status.name();
+    }
+}=== ./domain/value_objects/OrderStatusEnum.java ===
+package core.ms.order.domain.value_objects;
+
+public enum OrderStatusEnum {
+    PENDING,
+    FILLED,
+    PARTIAL,
+    CANCELLED
+}=== ./domain/value_objects/AbstractOrderState.java ===
+package core.ms.order.domain.value_objects;
+
+public abstract class AbstractOrderState implements IOrderState {
+    protected StateTransition transition;
+
+    public AbstractOrderState(StateTransition transition) {
+        this.transition = transition;
+    }
+
+    @Override
+    public void cancelOrder() {
+        transition.transitionTo(new CancelledOrder(transition), OrderStatusEnum.CANCELLED);
+    }
+
+    @Override
+    public void fillPartialOrder() {
+        transition.transitionTo(new PartialOrder(transition), OrderStatusEnum.PARTIAL);
+    }
+
+    @Override
+    public void completeOrder() {
+        transition.transitionTo(new FilledOrder(transition), OrderStatusEnum.FILLED);
+    }
+
+    // Default implementation for cancelPartialOrder - states override if needed
+    @Override
+    public void cancelPartialOrder() {
+        // Default: stay in same state (no transition)
+        // Override in specific states where it makes sense
+    }
+}=== ./domain/value_objects/CancelledOrder.java ===
+package core.ms.order.domain.value_objects;
+
+public class CancelledOrder extends AbstractOrderState {
+
+    public CancelledOrder(StateTransition transition) {
+        super(transition);
+    }
+
+    @Override
+    public void cancelOrder() {
+        throw new IllegalStateException("Order is already cancelled");
+    }
+
+    @Override
+    public void cancelPartialOrder() {
+        throw new IllegalStateException("Order is already cancelled");
+    }
+
+    @Override
+    public void fillPartialOrder() {
+        throw new IllegalStateException("Cannot fill a cancelled order");
+    }
+
+    @Override
+    public void completeOrder() {
+        throw new IllegalStateException("Cannot complete a cancelled order");
+    }
+}=== ./domain/validators/ValidationErrorMessage.java ===
+package core.ms.order.domain.validators;
+
+public class ValidationErrorMessage {
+    private String message;
+
+    public ValidationErrorMessage(String message) {
+        this.message = message;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+}=== ./domain/validators/OrderBuilderValidation.java ===
+package core.ms.order.domain.validators;
+
+import core.ms.order.domain.value_objects.OrderStatus;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+/**
+ * Progressive order builder with incremental validation.
+ * Each parameter is validated individually, then relationally with prior parameters.
+ * No redundant checks, no global validation.
+ */
+public class OrderBuilderValidation {
+
+    private String id;
+    private Symbol symbol;
+    private Money price;
+    private BigDecimal quantity;
+    private OrderStatus status;
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+    private BigDecimal executedQuantity;
+
+    private OrderBuilderValidation() {}
+
+    public static OrderBuilder builder() {
+        return new OrderBuilder();
+    }
+
+    public static class OrderBuilder {
+        private final OrderBuilderValidation order = new OrderBuilderValidation();
+
+        // ===== STEP 1: ID =====
+        public OrderBuilder withId(String id) {
+            // 1. Individual validation
+            if (id == null || id.trim().isEmpty()) {
+                throw new ValidationOrderException("Order ID cannot be null or empty");
+            }
+
+            // 2. No relational validation needed - first parameter
+
+            // 3. Assignment after validation
+            order.id = id;
+            return this;
+        }
+
+        // ===== STEP 2: SYMBOL =====
+        public OrderBuilder withSymbol(Symbol symbol) {
+            // 1. Individual validation
+            if (symbol == null) {
+                throw new ValidationOrderException("Symbol cannot be null");
+            }
+
+            // 2. No relational validation with ID
+
+            // 3. Assignment after validation
+            order.symbol = symbol;
+            return this;
+        }
+
+        // ===== STEP 3: PRICE =====
+        public OrderBuilder withPrice(Money price) {
+            // 1. Individual validation
+            if (price == null) {
+                throw new ValidationOrderException("Price cannot be null");
+            }
+
+            if (price.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ValidationOrderException("Price must be positive");
+            }
+
+            // 2. Relational validation with prior parameters
+            if (order.symbol != null) {
+                // Symbol + Price: Currency compatibility
+                if (!price.getCurrency().equals(order.symbol.getQuoteCurrency())) {
+                    throw new ValidationOrderException(
+                            String.format("Price currency %s does not match symbol quote currency %s",
+                                    price.getCurrency(), order.symbol.getQuoteCurrency()));
+                }
+            }
+
+            // 3. Assignment after validation
+            order.price = price;
+            return this;
+        }
+
+        // ===== STEP 4: QUANTITY =====
+        public OrderBuilder withQuantity(BigDecimal quantity) {
+            // 1. Individual validation
+            if (quantity == null) {
+                throw new ValidationOrderException("Quantity cannot be null");
+            }
+
+            if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ValidationOrderException("Quantity must be positive");
+            }
+
+            // 2. No relational validation needed for quantity
+
+            // 3. Assignment after validation
+            order.quantity = quantity;
+            return this;
+        }
+
+        // ===== BUILD - SET DEFAULTS =====
+        public OrderValidationResult build() {
+            // Set default values
+            order.status = new OrderStatus();  // PENDING by default
+            order.createdAt = LocalDateTime.now();
+            order.updatedAt = LocalDateTime.now();
+            order.executedQuantity = BigDecimal.ZERO;
+
+            return new OrderValidationResult(order);
+        }
+    }
+
+    // ===== CONVENIENCE BUILDER WITH AUTO-ID =====
+    public static OrderBuilder builderWithGeneratedId() {
+        return new OrderBuilder().withId(generateOrderId());
+    }
+
+    // ===== VALIDATION RESULT =====
+    public static class OrderValidationResult {
+        private final OrderBuilderValidation validatedData;
+
+        private OrderValidationResult(OrderBuilderValidation validatedData) {
+            this.validatedData = validatedData;
+        }
+
+        // Getters for validated data
+        public String getId() { return validatedData.id; }
+        public Symbol getSymbol() { return validatedData.symbol; }
+        public Money getPrice() { return validatedData.price; }
+        public BigDecimal getQuantity() { return validatedData.quantity; }
+        public OrderStatus getStatus() { return validatedData.status; }
+        public LocalDateTime getCreatedAt() { return validatedData.createdAt; }
+        public LocalDateTime getUpdatedAt() { return validatedData.updatedAt; }
+        public BigDecimal getExecutedQuantity() { return validatedData.executedQuantity; }
+    }
+
+    // ===== DOMAIN EXCEPTION =====
+    public static class ValidationOrderException extends RuntimeException {
+        public ValidationOrderException(String message) {
+            super(message);
+        }
+    }
+
+    // ===== HELPER =====
+    private static String generateOrderId() {
+        return "ORDER_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+    }
+}=== ./domain/validators/annotation/OrderNotFinal.java ===
+package core.ms.order.domain.validators.annotation;
+
+
+import java.lang.annotation.ElementType;
+import java.lang.annotation.Retention;
+import java.lang.annotation.RetentionPolicy;
+import java.lang.annotation.Target;
+
+@Retention(RetentionPolicy.RUNTIME)
+@Target(ElementType.FIELD)
+public @interface OrderNotFinal {
+    String message() default "Status order is final";
+}
+=== ./domain/validators/ValidateOrderState.java ===
+package core.ms.order.domain.validators;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.validators.annotation.OrderNotFinal;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.*;
+import java.lang.annotation.Annotation;
+
+public class ValidateOrderState {
+    private Map<Class<? extends Annotation>, MethodChecker> annotationMap = new HashMap<>();
+
+    public ValidateOrderState() {
+        annotationMap.put(OrderNotFinal.class, this::checkOrderNotFinal);
+    }
+
+    /**
+     * Validates all annotated fields in the given object
+     * @param target The object to validate
+     * @return List of validation errors (empty if valid)
+     */
+    public List<ValidationErrorMessage> validate(Object target) {
+        List<ValidationErrorMessage> errors = new ArrayList<>();
+
+        // Get all fields from the class hierarchy
+        Class<?> clazz = target.getClass();
+        while (clazz != null) {
+            Field[] fields = clazz.getDeclaredFields();
+
+            for (Field field : fields) {
+                // Check each annotation on the field
+                for (Annotation annotation : field.getAnnotations()) {
+                    MethodChecker checker = annotationMap.get(annotation.annotationType());
+                    if (checker != null) {
+                        try {
+                            // Make field accessible to read its value
+                            field.setAccessible(true);
+                            Object fieldValue = field.get(target);
+
+                            // Find the corresponding getter method
+                            Method getterMethod = findGetterMethod(clazz, field);
+                            if (getterMethod != null) {
+                                Optional<ValidationErrorMessage> error = checker.checkMethod(annotation, getterMethod, fieldValue);
+                                error.ifPresent(errors::add);
+                            } else {
+                                // If no getter found, pass null method but use fieldValue as object
+                                Optional<ValidationErrorMessage> error = checker.checkMethod(annotation, null, fieldValue);
+                                error.ifPresent(errors::add);
+                            }
+
+                        } catch (IllegalAccessException e) {
+                            errors.add(new ValidationErrorMessage("Cannot access field: " + field.getName()));
+                        }
+                    }
+                }
+            }
+            clazz = clazz.getSuperclass();
+        }
+
+        return errors;
+    }
+
+    /**
+     * Validates a single object and throws exception if invalid
+     * @param target The object to validate
+     * @throws IllegalArgumentException if validation fails
+     */
+    public void validateAndThrow(Object target) {
+        List<ValidationErrorMessage> errors = validate(target);
+        if (!errors.isEmpty()) {
+            StringBuilder message = new StringBuilder("Validation failed: ");
+            for (ValidationErrorMessage error : errors) {
+                message.append(error.getMessage()).append("; ");
+            }
+            throw new IllegalArgumentException(message.toString());
+        }
+    }
+
+    /**
+     * Checks if an order is not in a final state
+     */
+    private Optional<ValidationErrorMessage> checkOrderNotFinal(Annotation annotation, Method method, Object o) {
+        OrderNotFinal orderNotFinal = (OrderNotFinal) annotation;
+
+        // The object 'o' is the field value (IOrder instance)
+        if (o instanceof IOrder) {
+            IOrder order = (IOrder) o;
+            OrderStatusEnum status = order.getStatus().getStatus();
+
+            // Check if order is in a final state
+            if (status == OrderStatusEnum.FILLED || status == OrderStatusEnum.CANCELLED) {
+                return Optional.of(new ValidationErrorMessage(orderNotFinal.message()));
+            }
+        }
+
+        return Optional.empty();
+    }
+
+    /**
+     * Finds the getter method for a given field
+     */
+    private Method findGetterMethod(Class<?> clazz, Field field) {
+        String fieldName = field.getName();
+        String getterName = "get" + capitalize(fieldName);
+
+        try {
+            return clazz.getMethod(getterName);
+        } catch (NoSuchMethodException e) {
+            // Try boolean getter pattern
+            if (field.getType() == boolean.class || field.getType() == Boolean.class) {
+                String booleanGetterName = "is" + capitalize(fieldName);
+                try {
+                    return clazz.getMethod(booleanGetterName);
+                } catch (NoSuchMethodException ex) {
+                    // No getter found
+                    return null;
+                }
+            }
+            return null;
+        }
+    }
+
+    private String capitalize(String str) {
+        if (str == null || str.isEmpty()) return str;
+        return str.substring(0, 1).toUpperCase() + str.substring(1);
+    }
+}=== ./domain/validators/TransactionBuilderValidation.java ===
+package core.ms.order.domain.validators;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order.domain.validators.annotation.OrderNotFinal;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+/**
+ * Progressive transaction builder with incremental validation.
+ * Each parameter is validated individually, then relationally with prior parameters.
+ * No redundant checks, no global validation.
+ */
+public class TransactionBuilderValidation {
+
+    private String id;
+    private Symbol symbol;
+
+    @OrderNotFinal(message = "Buy order must be active (not FILLED or CANCELLED)")
+    private IBuyOrder buyOrder;
+
+    @OrderNotFinal(message = "Sell order must be active (not FILLED or CANCELLED)")
+    private ISellOrder sellOrder;
+
+    private BigDecimal quantity;
+    private LocalDateTime createdAt;
+
+    // Validator instance for annotation checking
+    private static final ValidateOrderState validator = new ValidateOrderState();
+
+    private TransactionBuilderValidation() {}
+
+    public static TransactionBuilder builder() {
+        return new TransactionBuilder();
+    }
+
+    public static class TransactionBuilder {
+        private final TransactionBuilderValidation transaction = new TransactionBuilderValidation();
+
+        public TransactionBuilder withId(String id) {
+
+            if (id == null || id.trim().isEmpty()) {
+                throw new ValidationTransactionException("Transaction ID cannot be null or empty");
+            }
+
+            transaction.id = id;
+            return this;
+        }
+
+
+        public TransactionBuilder withSymbol(Symbol symbol) {
+
+            if (symbol == null) {
+                throw new ValidationTransactionException("Symbol cannot be null");
+            }
+
+            transaction.symbol = symbol;
+            return this;
+        }
+
+        // ===== STEP 3: BUY ORDER =====
+        public TransactionBuilder withBuyOrder(IBuyOrder buyOrder) {
+
+            if (buyOrder == null) {
+                throw new ValidationTransactionException("Buy order cannot be null");
+            }
+
+            // Validate using annotations (individual order state) - need temp assignment for annotation validation
+            TransactionBuilderValidation tempTransaction = new TransactionBuilderValidation();
+            tempTransaction.buyOrder = buyOrder;
+            validator.validateAndThrow(tempTransaction);
+
+            if (transaction.symbol != null) {
+
+                if (!buyOrder.getSymbol().equals(transaction.symbol)) {
+                    throw new ValidationTransactionException(
+                            "Buy order symbol must match transaction symbol");
+                }
+            }
+            transaction.buyOrder = buyOrder;
+            return this;
+        }
+
+        public TransactionBuilder withSellOrder(ISellOrder sellOrder) {
+            // 1. Validate SellOrder individually
+            if (sellOrder == null) {
+                throw new ValidationTransactionException("Sell order cannot be null");
+            }
+
+
+            TransactionBuilderValidation tempTransaction = new TransactionBuilderValidation();
+            tempTransaction.sellOrder = sellOrder;
+            validator.validateAndThrow(tempTransaction);
+
+
+            if (transaction.symbol != null) {
+                // Symbol + SellOrder: Symbol compatibility
+                if (!sellOrder.getSymbol().equals(transaction.symbol)) {
+                    throw new ValidationTransactionException(
+                            "Sell order symbol must match transaction symbol");
+                }
+            }
+
+            if (transaction.buyOrder != null) {
+                // BuyOrder + SellOrder: Symbol compatibility
+                if (!transaction.buyOrder.getSymbol().equals(sellOrder.getSymbol())) {
+                    throw new ValidationTransactionException(
+                            "Buy and sell orders must have the same symbol");
+                }
+
+                // BuyOrder + SellOrder: Order matching (can they match?)
+                if (transaction.buyOrder.getPrice().isLessThan(sellOrder.getPrice())) {
+                    throw new ValidationTransactionException(
+                            "Buy order price must be greater than or equal to sell order price");
+                }
+            }
+
+            transaction.sellOrder = sellOrder;
+            return this;
+        }
+
+
+
+        public TransactionBuilder withQuantity(BigDecimal quantity) {
+
+            if (quantity == null) {
+                throw new ValidationTransactionException("Quantity cannot be null");
+            }
+
+            if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ValidationTransactionException("Quantity must be positive");
+            }
+
+            // 2. Relational validation with prior parameters
+            if (transaction.buyOrder != null) {
+                // BuyOrder + Quantity: Remaining quantity constraint
+                if (quantity.compareTo(transaction.buyOrder.getRemainingQuantity()) > 0) {
+                    throw new ValidationTransactionException(
+                            "Transaction quantity cannot exceed buy order remaining quantity");
+                }
+            }
+
+            if (transaction.sellOrder != null) {
+                // SellOrder + Quantity: Remaining quantity constraint
+                if (quantity.compareTo(transaction.sellOrder.getRemainingQuantity()) > 0) {
+                    throw new ValidationTransactionException(
+                            "Transaction quantity cannot exceed sell order remaining quantity");
+                }
+            }
+
+
+            transaction.quantity = quantity;
+            return this;
+        }
+
+
+        public TransactionValidationResult build() {
+            // Set final derived fields
+            transaction.createdAt = LocalDateTime.now();
+
+            // If we reach here, all validation passed progressively
+            // No additional validation needed!
+
+            return new TransactionValidationResult(transaction);
+        }
+    }
+
+    public static TransactionBuilder builderWithGeneratedId() {
+        return new TransactionBuilder().withId(generateTransactionId());
+    }
+
+
+
+    // ===== VALIDATION RESULT =====
+    public static class TransactionValidationResult {
+        private final TransactionBuilderValidation validatedData;
+
+        private TransactionValidationResult(TransactionBuilderValidation validatedData) {
+            this.validatedData = validatedData;
+        }
+
+        // Getters for validated data
+        public String getId() { return validatedData.id; }
+        public Symbol getSymbol() { return validatedData.symbol; }
+        public IBuyOrder getBuyOrder() { return validatedData.buyOrder; }
+        public ISellOrder getSellOrder() { return validatedData.sellOrder; }
+        public BigDecimal getQuantity() { return validatedData.quantity; }
+        public LocalDateTime getCreatedAt() { return validatedData.createdAt; }
+    }
+
+    // ===== DOMAIN EXCEPTION =====
+    public static class ValidationTransactionException extends RuntimeException {
+        public ValidationTransactionException(String message) {
+            super(message);
+        }
+    }
+
+    // ===== HELPER =====
+    private static String generateTransactionId() {
+        return "TXN_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+    }
+}=== ./domain/validators/MethodChecker.java ===
+package core.ms.order.domain.validators;
+
+import java.lang.annotation.Annotation;
+import java.lang.reflect.Method;
+import java.util.Optional;
+
+public interface MethodChecker {
+    Optional<ValidationErrorMessage> checkMethod(Annotation a, Method m, Object o);
+
+}
+=== ./application/dto/query/OrderOperationResultDTO.java ===
+package core.ms.order.application.dto.query;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+public class OrderOperationResultDTO {
+    private boolean success;
+    private String orderId;
+    private String message;
+    private LocalDateTime timestamp;
+    private List<String> errors;
+
+    public OrderOperationResultDTO() {}
+
+    public OrderOperationResultDTO(boolean success, String orderId, String message,
+                                   LocalDateTime timestamp, List<String> errors) {
+        this.success = success;
+        this.orderId = orderId;
+        this.message = message;
+        this.timestamp = timestamp;
+        this.errors = errors;
+    }
+
+    // Getters and Setters
+    public boolean isSuccess() { return success; }
+    public void setSuccess(boolean success) { this.success = success; }
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+    public String getMessage() { return message; }
+    public void setMessage(String message) { this.message = message; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+    public List<String> getErrors() { return errors; }
+    public void setErrors(List<String> errors) { this.errors = errors; }
+}=== ./application/dto/query/TransactionStatisticsDTO.java ===
+package core.ms.order.application.dto.query;
+
+import core.ms.shared.domain.Currency;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public class TransactionStatisticsDTO {
+    private String symbolCode;
+    private long totalTransactions;
+    private BigDecimal totalVolume;
+    private BigDecimal averagePrice;
+    private Currency currency;
+    private BigDecimal highestPrice;
+    private BigDecimal lowestPrice;
+    private LocalDateTime periodStart;
+    private LocalDateTime periodEnd;
+
+    public TransactionStatisticsDTO() {}
+
+    public TransactionStatisticsDTO(String symbolCode, long totalTransactions, BigDecimal totalVolume,
+                                    BigDecimal averagePrice, Currency currency, BigDecimal highestPrice,
+                                    BigDecimal lowestPrice, LocalDateTime periodStart, LocalDateTime periodEnd) {
+        this.symbolCode = symbolCode;
+        this.totalTransactions = totalTransactions;
+        this.totalVolume = totalVolume;
+        this.averagePrice = averagePrice;
+        this.currency = currency;
+        this.highestPrice = highestPrice;
+        this.lowestPrice = lowestPrice;
+        this.periodStart = periodStart;
+        this.periodEnd = periodEnd;
+    }
+
+    // Getters and Setters
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public long getTotalTransactions() { return totalTransactions; }
+    public void setTotalTransactions(long totalTransactions) { this.totalTransactions = totalTransactions; }
+    public BigDecimal getTotalVolume() { return totalVolume; }
+    public void setTotalVolume(BigDecimal totalVolume) { this.totalVolume = totalVolume; }
+    public BigDecimal getAveragePrice() { return averagePrice; }
+    public void setAveragePrice(BigDecimal averagePrice) { this.averagePrice = averagePrice; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getHighestPrice() { return highestPrice; }
+    public void setHighestPrice(BigDecimal highestPrice) { this.highestPrice = highestPrice; }
+    public BigDecimal getLowestPrice() { return lowestPrice; }
+    public void setLowestPrice(BigDecimal lowestPrice) { this.lowestPrice = lowestPrice; }
+    public LocalDateTime getPeriodStart() { return periodStart; }
+    public void setPeriodStart(LocalDateTime periodStart) { this.periodStart = periodStart; }
+    public LocalDateTime getPeriodEnd() { return periodEnd; }
+    public void setPeriodEnd(LocalDateTime periodEnd) { this.periodEnd = periodEnd; }
+}
+=== ./application/dto/query/OrderDTO.java ===
+package core.ms.order.application.dto.query;
+
+import core.ms.shared.domain.Currency;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public class OrderDTO {
+    private String id;
+    private String symbolCode;
+    private String symbolName;
+    private BigDecimal price;
+    private Currency currency;
+    private BigDecimal quantity;
+    private String status;
+    private BigDecimal executedQuantity;
+    private BigDecimal remainingQuantity;
+    private String orderType; // "BUY" or "SELL"
+    private LocalDateTime createdAt;
+    private LocalDateTime updatedAt;
+
+    public OrderDTO() {}
+
+    public OrderDTO(String id, String symbolCode, String symbolName, BigDecimal price, Currency currency,
+                    BigDecimal quantity, String status, BigDecimal executedQuantity, BigDecimal remainingQuantity,
+                    String orderType, LocalDateTime createdAt, LocalDateTime updatedAt) {
+        this.id = id;
+        this.symbolCode = symbolCode;
+        this.symbolName = symbolName;
+        this.price = price;
+        this.currency = currency;
+        this.quantity = quantity;
+        this.status = status;
+        this.executedQuantity = executedQuantity;
+        this.remainingQuantity = remainingQuantity;
+        this.orderType = orderType;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+    }
+
+    // Getters and Setters
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public String getSymbolName() { return symbolName; }
+    public void setSymbolName(String symbolName) { this.symbolName = symbolName; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
+    public BigDecimal getExecutedQuantity() { return executedQuantity; }
+    public void setExecutedQuantity(BigDecimal executedQuantity) { this.executedQuantity = executedQuantity; }
+    public BigDecimal getRemainingQuantity() { return remainingQuantity; }
+    public void setRemainingQuantity(BigDecimal remainingQuantity) { this.remainingQuantity = remainingQuantity; }
+    public String getOrderType() { return orderType; }
+    public void setOrderType(String orderType) { this.orderType = orderType; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+}=== ./application/dto/query/TransactionDTO.java ===
+package core.ms.order.application.dto.query;
+
+import core.ms.shared.domain.Currency;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public class TransactionDTO {
+    private String id;
+    private String symbolCode;
+    private String symbolName;
+    private String buyOrderId;
+    private String sellOrderId;
+    private BigDecimal price;
+    private Currency currency;
+    private BigDecimal quantity;
+    private BigDecimal totalValue;
+    private LocalDateTime createdAt;
+
+    public TransactionDTO() {}
+
+    public TransactionDTO(String id, String symbolCode, String symbolName, String buyOrderId, String sellOrderId,
+                          BigDecimal price, Currency currency, BigDecimal quantity, BigDecimal totalValue,
+                          LocalDateTime createdAt) {
+        this.id = id;
+        this.symbolCode = symbolCode;
+        this.symbolName = symbolName;
+        this.buyOrderId = buyOrderId;
+        this.sellOrderId = sellOrderId;
+        this.price = price;
+        this.currency = currency;
+        this.quantity = quantity;
+        this.totalValue = totalValue;
+        this.createdAt = createdAt;
+    }
+
+    // Getters and Setters
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public String getSymbolName() { return symbolName; }
+    public void setSymbolName(String symbolName) { this.symbolName = symbolName; }
+    public String getBuyOrderId() { return buyOrderId; }
+    public void setBuyOrderId(String buyOrderId) { this.buyOrderId = buyOrderId; }
+    public String getSellOrderId() { return sellOrderId; }
+    public void setSellOrderId(String sellOrderId) { this.sellOrderId = sellOrderId; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+    public BigDecimal getTotalValue() { return totalValue; }
+    public void setTotalValue(BigDecimal totalValue) { this.totalValue = totalValue; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+}
+=== ./application/dto/query/TransactionResultDTO.java ===
+package core.ms.order.application.dto.query;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+public class TransactionResultDTO {
+    private boolean success;
+    private String transactionId;
+    private String message;
+    private LocalDateTime timestamp;
+    private List<String> errors;
+
+    public TransactionResultDTO() {}
+
+    public TransactionResultDTO(boolean success, String transactionId, String message,
+                                LocalDateTime timestamp, List<String> errors) {
+        this.success = success;
+        this.transactionId = transactionId;
+        this.message = message;
+        this.timestamp = timestamp;
+        this.errors = errors;
+    }
+
+    // Getters and Setters
+    public boolean isSuccess() { return success; }
+    public void setSuccess(boolean success) { this.success = success; }
+    public String getTransactionId() { return transactionId; }
+    public void setTransactionId(String transactionId) { this.transactionId = transactionId; }
+    public String getMessage() { return message; }
+    public void setMessage(String message) { this.message = message; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+    public List<String> getErrors() { return errors; }
+    public void setErrors(List<String> errors) { this.errors = errors; }
+}=== ./application/dto/command/CancelOrderCommand.java ===
+package core.ms.order.application.dto.command;
+
+public class CancelOrderCommand {
+    private String orderId;
+
+    public CancelOrderCommand() {}
+
+    public CancelOrderCommand(String orderId) {
+        this.orderId = orderId;
+    }
+
+    // Getters and Setters
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+}=== ./application/dto/command/CreateSellOrderCommand.java ===
+package core.ms.order.application.dto.command;
+
+import core.ms.shared.domain.Currency;
+
+import java.math.BigDecimal;
+
+public class CreateSellOrderCommand {
+    private String userId;
+    private String symbolCode;
+    private BigDecimal price;
+    private Currency currency;
+    private BigDecimal quantity;
+
+    public CreateSellOrderCommand() {}
+
+    public CreateSellOrderCommand(String userId, String symbolCode, BigDecimal price,
+                                  Currency currency, BigDecimal quantity) {
+        this.userId = userId;
+        this.symbolCode = symbolCode;
+        this.price = price;
+        this.currency = currency;
+        this.quantity = quantity;
+    }
+
+    // Getters and Setters
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+}=== ./application/dto/command/UpdateOrderPriceCommand.java ===
+package core.ms.order.application.dto.command;
+
+import core.ms.shared.domain.Currency;
+
+import java.math.BigDecimal;
+
+public class UpdateOrderPriceCommand {
+    private String orderId;
+    private BigDecimal newPrice;
+    private Currency currency;
+
+    public UpdateOrderPriceCommand() {}
+
+    public UpdateOrderPriceCommand(String orderId, BigDecimal newPrice, Currency currency) {
+        this.orderId = orderId;
+        this.newPrice = newPrice;
+        this.currency = currency;
+    }
+
+    // Getters and Setters
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+    public BigDecimal getNewPrice() { return newPrice; }
+    public void setNewPrice(BigDecimal newPrice) { this.newPrice = newPrice; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+}
+=== ./application/dto/command/CreateBuyOrderCommand.java ===
+package core.ms.order.application.dto.command;
+
+import core.ms.shared.domain.Currency;
+
+import java.math.BigDecimal;
+
+public class CreateBuyOrderCommand {
+    private String userId;
+    private String symbolCode;
+    private BigDecimal price;
+    private Currency currency;
+    private BigDecimal quantity;
+
+    public CreateBuyOrderCommand() {}
+
+    public CreateBuyOrderCommand(String userId, String symbolCode, BigDecimal price,
+                                 Currency currency, BigDecimal quantity) {
+        this.userId = userId;
+        this.symbolCode = symbolCode;
+        this.price = price;
+        this.currency = currency;
+        this.quantity = quantity;
+    }
+
+    // Getters and Setters
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+}=== ./application/dto/command/CreateTransactionCommand.java ===
+package core.ms.order.application.dto.command;
+
+import core.ms.shared.domain.Currency;
+
+import java.math.BigDecimal;
+
+public class CreateTransactionCommand {
+    private String buyOrderId;
+    private String sellOrderId;
+    private BigDecimal executionPrice;
+    private Currency currency;
+    private BigDecimal quantity;
+
+    public CreateTransactionCommand() {}
+
+    public CreateTransactionCommand(String buyOrderId, String sellOrderId,
+                                    BigDecimal executionPrice, Currency currency, BigDecimal quantity) {
+        this.buyOrderId = buyOrderId;
+        this.sellOrderId = sellOrderId;
+        this.executionPrice = executionPrice;
+        this.currency = currency;
+        this.quantity = quantity;
+    }
+
+    // Getters and Setters
+    public String getBuyOrderId() { return buyOrderId; }
+    public void setBuyOrderId(String buyOrderId) { this.buyOrderId = buyOrderId; }
+    public String getSellOrderId() { return sellOrderId; }
+    public void setSellOrderId(String sellOrderId) { this.sellOrderId = sellOrderId; }
+    public BigDecimal getExecutionPrice() { return executionPrice; }
+    public void setExecutionPrice(BigDecimal executionPrice) { this.executionPrice = executionPrice; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+}=== ./application/dto/command/CancelPartialOrderCommand.java ===
+package core.ms.order.application.dto.command;
+
+import java.math.BigDecimal;
+
+public class CancelPartialOrderCommand {
+    private String orderId;
+    private BigDecimal quantityToCancel;
+
+    public CancelPartialOrderCommand() {}
+
+    public CancelPartialOrderCommand(String orderId, BigDecimal quantityToCancel) {
+        this.orderId = orderId;
+        this.quantityToCancel = quantityToCancel;
+    }
+
+    // Getters and Setters
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+    public BigDecimal getQuantityToCancel() { return quantityToCancel; }
+    public void setQuantityToCancel(BigDecimal quantityToCancel) { this.quantityToCancel = quantityToCancel; }
+}=== ./application/services/OrderApplicationService.java ===
+package core.ms.order.application.services;
+
+import core.ms.order.application.dto.command.*;
+import core.ms.order.application.dto.query.OrderDTO;
+import core.ms.order.application.dto.query.OrderOperationResultDTO;
+import core.ms.order.domain.entities.*;
+import core.ms.order.domain.ports.inbound.*;
+import core.ms.order.domain.ports.outbound.OrderRepository;
+import core.ms.order.domain.validators.ValidationErrorMessage;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+@Service
+public class OrderApplicationService implements OrderService {
+
+    // Inject infrastructure services (outbound port implementations)
+    @Autowired
+    private OrderRepository orderRepository; // This will be OrderRepositoryService
+
+    @Autowired
+    private OrderValidationService orderValidationService; // This will be OrderValidationApplicationService
+
+    // ===== ORDER CREATION =====
+
+    @Override
+    public OrderOperationResult createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
+        try {
+            // Validate order creation
+            ValidationResult validationResult = validateOrderCreation(userId, symbol, price, quantity);
+            if (!validationResult.isValid()) {
+                List<String> errorMessages = validationResult.getErrors().stream()
+                        .map(ValidationErrorMessage::getMessage)
+                        .toList();
+                return OrderOperationResult.failure(null, "Order validation failed", errorMessages);
+            }
+
+            // Generate order ID
+            String orderId = generateOrderId();
+
+            // Create buy order (Domain Entity)
+            BuyOrder buyOrder = new BuyOrder(orderId, symbol, price, quantity);
+
+            // Save order (Using Infrastructure Service)
+            IOrder savedOrder = orderRepository.save(buyOrder);
+
+            return OrderOperationResult.success(savedOrder.getId(), "Buy order created successfully");
+
+        } catch (Exception e) {
+            return OrderOperationResult.failure(null, "Failed to create buy order: " + e.getMessage(),
+                    List.of(e.getMessage()));
+        }
+    }
+
+    @Override
+    public OrderOperationResult createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
+        try {
+            // Validate order creation
+            ValidationResult validationResult = validateOrderCreation(userId, symbol, price, quantity);
+            if (!validationResult.isValid()) {
+                List<String> errorMessages = validationResult.getErrors().stream()
+                        .map(ValidationErrorMessage::getMessage)
+                        .toList();
+                return OrderOperationResult.failure(null, "Order validation failed", errorMessages);
+            }
+
+            // Generate order ID
+            String orderId = generateOrderId();
+
+            // Create sell order (Domain Entity)
+            SellOrder sellOrder = new SellOrder(orderId, symbol, price, quantity);
+
+            // Save order (Using Infrastructure Service)
+            IOrder savedOrder = orderRepository.save(sellOrder);
+
+            return OrderOperationResult.success(savedOrder.getId(), "Sell order created successfully");
+
+        } catch (Exception e) {
+            return OrderOperationResult.failure(null, "Failed to create sell order: " + e.getMessage(),
+                    List.of(e.getMessage()));
+        }
+    }
+
+    // ===== ORDER MANAGEMENT =====
+
+    @Override
+    public OrderOperationResult cancelOrder(String orderId) {
+        try {
+            Optional<IOrder> orderOpt = orderRepository.findById(orderId);
+            if (orderOpt.isEmpty()) {
+                return OrderOperationResult.failure(orderId, "Order not found", List.of("Order not found"));
+            }
+
+            IOrder order = orderOpt.get();
+
+            // Validate cancellation
+            ValidationResult validationResult = validateOrderCancellation(orderId);
+            if (!validationResult.isValid()) {
+                List<String> errorMessages = validationResult.getErrors().stream()
+                        .map(ValidationErrorMessage::getMessage)
+                        .toList();
+                return OrderOperationResult.failure(orderId, "Order cancellation validation failed", errorMessages);
+            }
+
+            // Cancel the order (Domain Logic)
+            order.cancel();
+
+            // Save updated order (Using Infrastructure Service)
+            orderRepository.save(order);
+
+            return OrderOperationResult.success(orderId, "Order cancelled successfully");
+
+        } catch (Exception e) {
+            return OrderOperationResult.failure(orderId, "Failed to cancel order: " + e.getMessage(),
+                    List.of(e.getMessage()));
+        }
+    }
+
+    @Override
+    public OrderOperationResult updateOrderPrice(String orderId, Money newPrice) {
+        try {
+            Optional<IOrder> orderOpt = orderRepository.findById(orderId);
+            if (orderOpt.isEmpty()) {
+                return OrderOperationResult.failure(orderId, "Order not found", List.of("Order not found"));
+            }
+
+            IOrder order = orderOpt.get();
+
+            // Validate price update
+            List<ValidationErrorMessage> errors = orderValidationService.validateOrderModification(order, newPrice);
+            if (!errors.isEmpty()) {
+                List<String> errorMessages = errors.stream()
+                        .map(ValidationErrorMessage::getMessage)
+                        .toList();
+                return OrderOperationResult.failure(orderId, "Order price update validation failed", errorMessages);
+            }
+
+            // Update price (Domain Logic)
+            order.updatePrice(newPrice);
+
+            // Save updated order (Using Infrastructure Service)
+            orderRepository.save(order);
+
+            return OrderOperationResult.success(orderId, "Order price updated successfully");
+
+        } catch (Exception e) {
+            return OrderOperationResult.failure(orderId, "Failed to update order price: " + e.getMessage(),
+                    List.of(e.getMessage()));
+        }
+    }
+
+    @Override
+    public OrderOperationResult cancelPartialOrder(String orderId, BigDecimal quantityToCancel) {
+        try {
+            Optional<IOrder> orderOpt = orderRepository.findById(orderId);
+            if (orderOpt.isEmpty()) {
+                return OrderOperationResult.failure(orderId, "Order not found", List.of("Order not found"));
+            }
+
+            IOrder order = orderOpt.get();
+
+            // Validate partial cancellation
+            if (quantityToCancel.compareTo(order.getRemainingQuantity()) > 0) {
+                return OrderOperationResult.failure(orderId, "Cannot cancel more than remaining quantity",
+                        List.of("Quantity to cancel exceeds remaining quantity"));
+            }
+
+            // For partial cancellation (Domain Logic)
+            order.cancelPartial();
+
+            // Save updated order (Using Infrastructure Service)
+            orderRepository.save(order);
+
+            return OrderOperationResult.success(orderId, "Order partially cancelled successfully");
+
+        } catch (Exception e) {
+            return OrderOperationResult.failure(orderId, "Failed to cancel partial order: " + e.getMessage(),
+                    List.of(e.getMessage()));
+        }
+    }
+
+    // ===== ORDER QUERIES =====
+
+    @Override
+    public Optional<IOrder> findOrderById(String orderId) {
+        return orderRepository.findById(orderId);
+    }
+
+
+    @Override
+    public List<IOrder> findActiveOrdersBySymbol(Symbol symbol) {
+        List<IOrder> allOrders = orderRepository.findBySymbol(symbol);
+        return allOrders.stream()
+                .filter(IOrder::isActive)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<IBuyOrder> findBuyOrdersBySymbol(Symbol symbol) {
+        return orderRepository.findBuyOrdersBySymbol(symbol);
+    }
+
+    @Override
+    public List<ISellOrder> findSellOrdersBySymbol(Symbol symbol) {
+        return orderRepository.findSellOrdersBySymbol(symbol);
+    }
+
+    @Override
+    public List<IOrder> findOrdersByStatus(OrderStatusEnum status) {
+        return orderRepository.findByStatus(status);
+    }
+
+    // ===== ORDER VALIDATION =====
+
+    @Override
+    public ValidationResult validateOrderCreation(String userId, Symbol symbol, Money price, BigDecimal quantity) {
+        List<ValidationErrorMessage> errors = orderValidationService.validateOrderCreation(userId, symbol, price, quantity);
+
+        if (errors.isEmpty()) {
+            return ValidationResult.valid();
+        } else {
+            return ValidationResult.invalid(errors);
+        }
+    }
+
+    @Override
+    public ValidationResult validateOrderCancellation(String orderId) {
+        Optional<IOrder> orderOpt = orderRepository.findById(orderId);
+        if (orderOpt.isEmpty()) {
+            return ValidationResult.invalid(List.of(new ValidationErrorMessage("Order not found")));
+        }
+
+        List<ValidationErrorMessage> errors = orderValidationService.validateOrderCancellation(orderOpt.get());
+
+        if (errors.isEmpty()) {
+            return ValidationResult.valid();
+        } else {
+            return ValidationResult.invalid(errors);
+        }
+    }
+
+    // ===== DTO ORCHESTRATION METHODS =====
+
+    public OrderOperationResultDTO createBuyOrder(CreateBuyOrderCommand command) {
+        Symbol symbol = createSymbol(command.getSymbolCode());
+        Money price = Money.of(command.getPrice(), command.getCurrency());
+
+        OrderOperationResult result = createBuyOrder(
+                command.getUserId(),
+                symbol,
+                price,
+                command.getQuantity()
+        );
+
+        return mapToOrderOperationResultDTO(result);
+    }
+
+    public OrderOperationResultDTO createSellOrder(CreateSellOrderCommand command) {
+        Symbol symbol = createSymbol(command.getSymbolCode());
+        Money price = Money.of(command.getPrice(), command.getCurrency());
+
+        OrderOperationResult result = createSellOrder(
+                command.getUserId(),
+                symbol,
+                price,
+                command.getQuantity()
+        );
+
+        return mapToOrderOperationResultDTO(result);
+    }
+
+    public OrderOperationResultDTO updateOrderPrice(UpdateOrderPriceCommand command) {
+        Money newPrice = Money.of(command.getNewPrice(), command.getCurrency());
+
+        OrderOperationResult result = updateOrderPrice(
+                command.getOrderId(),
+                newPrice
+        );
+
+        return mapToOrderOperationResultDTO(result);
+    }
+
+    public OrderOperationResultDTO cancelOrder(CancelOrderCommand command) {
+        OrderOperationResult result = cancelOrder(command.getOrderId());
+        return mapToOrderOperationResultDTO(result);
+    }
+
+    public OrderOperationResultDTO cancelPartialOrder(CancelPartialOrderCommand command) {
+        OrderOperationResult result = cancelPartialOrder(
+                command.getOrderId(),
+                command.getQuantityToCancel()
+        );
+
+        return mapToOrderOperationResultDTO(result);
+    }
+
+    // DTO Query Methods
+    public Optional<OrderDTO> findOrderByIdAsDTO(String orderId) {
+        Optional<IOrder> order = findOrderById(orderId);
+        return order.map(this::mapToOrderDTO);
+    }
+
+    public List<OrderDTO> findOrdersBySymbolAsDTO(String symbolCode) {
+        Symbol symbol = createSymbol(symbolCode);
+        List<IOrder> orders = findActiveOrdersBySymbol(symbol);
+        return orders.stream()
+                .map(this::mapToOrderDTO)
+                .collect(Collectors.toList());
+    }
+
+    public List<OrderDTO> findOrdersByStatusAsDTO(String status) {
+        OrderStatusEnum statusEnum = OrderStatusEnum.valueOf(status.toUpperCase());
+        List<IOrder> orders = findOrdersByStatus(statusEnum);
+        return orders.stream()
+                .map(this::mapToOrderDTO)
+                .collect(Collectors.toList());
+    }
+
+    public List<OrderDTO> findBuyOrdersBySymbolAsDTO(String symbolCode) {
+        Symbol symbol = createSymbol(symbolCode);
+        List<IBuyOrder> buyOrders = findBuyOrdersBySymbol(symbol);
+        return buyOrders.stream()
+                .map(this::mapToOrderDTO)
+                .collect(Collectors.toList());
+    }
+
+    public List<OrderDTO> findSellOrdersBySymbolAsDTO(String symbolCode) {
+        Symbol symbol = createSymbol(symbolCode);
+        List<ISellOrder> sellOrders = findSellOrdersBySymbol(symbol);
+        return sellOrders.stream()
+                .map(this::mapToOrderDTO)
+                .collect(Collectors.toList());
+    }
+
+    // ===== PRIVATE HELPER METHODS =====
+
+    private String generateOrderId() {
+        return "ORDER_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+    }
+
+    private OrderOperationResultDTO mapToOrderOperationResultDTO(OrderOperationResult result) {
+        return new OrderOperationResultDTO(
+                result.isSuccess(),
+                result.getOrderId(),
+                result.getMessage(),
+                result.getTimestamp(),
+                result.getErrors()
+        );
+    }
+
+    private OrderDTO mapToOrderDTO(IOrder order) {
+        String orderType = order instanceof IBuyOrder ? "BUY" : "SELL";
+
+        return new OrderDTO(
+                order.getId(),
+                order.getSymbol().getCode(),
+                order.getSymbol().getName(),
+                order.getPrice().getAmount(),
+                order.getPrice().getCurrency(),
+                order.getQuantity(),
+                order.getStatus().getStatus().name(),
+                order.getExecutedQuantity(),
+                order.getRemainingQuantity(),
+                orderType,
+                order.getCreatedAt(),
+                order.getUpdatedAt()
+        );
+    }
+
+    private Symbol createSymbol(String symbolCode) {
+        return switch (symbolCode.toUpperCase()) {
+            case "BTC" -> Symbol.btcUsd();
+            case "ETH" -> Symbol.ethUsd();
+            case "EURUSD" -> Symbol.eurUsd();
+            case "GBPUSD" -> Symbol.gbpUsd();
+            default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
+        };
+    }
+}
+=== ./application/services/OrderValidationApplicationService.java ===
+package core.ms.order.application.services;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order.domain.ports.inbound.OrderValidationService;
+import core.ms.order.domain.validators.ValidationErrorMessage;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+
+@Service
+public class OrderValidationApplicationService implements OrderValidationService {
+
+    // ===== ORDER CREATION VALIDATION =====
+
+    @Override
+    public List<ValidationErrorMessage> validateOrderCreation(String userId, Symbol symbol,
+                                                              Money price, BigDecimal quantity) {
+        List<ValidationErrorMessage> errors = new ArrayList<>();
+
+        // Basic parameter validation
+        if (userId == null || userId.trim().isEmpty()) {
+            errors.add(new ValidationErrorMessage("User ID cannot be null or empty"));
+        }
+        if (symbol == null) {
+            errors.add(new ValidationErrorMessage("Symbol cannot be null"));
+        }
+        if (price == null) {
+            errors.add(new ValidationErrorMessage("Price cannot be null"));
+        }
+        if (quantity == null) {
+            errors.add(new ValidationErrorMessage("Quantity cannot be null"));
+        }
+
+        // Early return if basic validation fails
+        if (!errors.isEmpty()) {
+            return errors;
+        }
+
+        // Price validation
+        if (price.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            errors.add(new ValidationErrorMessage("Price must be positive"));
+        }
+
+        // Quantity validation
+        if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
+            errors.add(new ValidationErrorMessage("Quantity must be positive"));
+        }
+
+        // Symbol-price currency validation
+        if (!price.getCurrency().equals(symbol.getQuoteCurrency())) {
+            errors.add(new ValidationErrorMessage(
+                    String.format("Price currency %s does not match symbol quote currency %s",
+                            price.getCurrency(), symbol.getQuoteCurrency())));
+        }
+
+        return errors;
+    }
+
+    @Override
+    public List<ValidationErrorMessage> validateOrderStateTransition(IOrder order, String newState) {
+        List<ValidationErrorMessage> errors = new ArrayList<>();
+
+        if (order == null) {
+            errors.add(new ValidationErrorMessage("Order cannot be null"));
+            return errors;
+        }
+
+        if (newState == null || newState.trim().isEmpty()) {
+            errors.add(new ValidationErrorMessage("New state cannot be null or empty"));
+            return errors;
+        }
+
+        OrderStatusEnum currentStatus = order.getStatus().getStatus();
+        OrderStatusEnum targetStatus;
+
+        try {
+            targetStatus = OrderStatusEnum.valueOf(newState.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            errors.add(new ValidationErrorMessage("Invalid order state: " + newState));
+            return errors;
+        }
+
+        // Validate state transitions
+        switch (currentStatus) {
+            case PENDING -> {
+                if (targetStatus != OrderStatusEnum.PARTIAL &&
+                        targetStatus != OrderStatusEnum.FILLED &&
+                        targetStatus != OrderStatusEnum.CANCELLED) {
+                    errors.add(new ValidationErrorMessage(
+                            String.format("Cannot transition from %s to %s", currentStatus, targetStatus)));
+                }
+            }
+            case PARTIAL -> {
+                if (targetStatus != OrderStatusEnum.FILLED &&
+                        targetStatus != OrderStatusEnum.CANCELLED) {
+                    errors.add(new ValidationErrorMessage(
+                            String.format("Cannot transition from %s to %s", currentStatus, targetStatus)));
+                }
+            }
+            case FILLED, CANCELLED -> {
+                errors.add(new ValidationErrorMessage(
+                        String.format("Cannot transition from terminal state %s", currentStatus)));
+            }
+        }
+
+        return errors;
+    }
+
+    @Override
+    public List<ValidationErrorMessage> validateOrderModification(IOrder order, Money newPrice) {
+        List<ValidationErrorMessage> errors = new ArrayList<>();
+
+        if (order == null) {
+            errors.add(new ValidationErrorMessage("Order cannot be null"));
+            return errors;
+        }
+
+        if (newPrice == null) {
+            errors.add(new ValidationErrorMessage("New price cannot be null"));
+            return errors;
+        }
+
+        // Check if order can be modified
+        if (order.getStatus().isTerminal()) {
+            errors.add(new ValidationErrorMessage("Cannot modify order in terminal state"));
+        }
+
+        // Price validation
+        if (newPrice.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            errors.add(new ValidationErrorMessage("New price must be positive"));
+        }
+
+        // Currency validation
+        if (!newPrice.getCurrency().equals(order.getPrice().getCurrency())) {
+            errors.add(new ValidationErrorMessage(
+                    String.format("New price currency %s does not match order currency %s",
+                            newPrice.getCurrency(), order.getPrice().getCurrency())));
+        }
+
+        return errors;
+    }
+
+    @Override
+    public List<ValidationErrorMessage> validateOrderCancellation(IOrder order) {
+        List<ValidationErrorMessage> errors = new ArrayList<>();
+
+        if (order == null) {
+            errors.add(new ValidationErrorMessage("Order cannot be null"));
+            return errors;
+        }
+
+        // Check if order can be cancelled
+        if (order.getStatus().isTerminal()) {
+            errors.add(new ValidationErrorMessage("Cannot cancel order in terminal state"));
+        }
+
+        return errors;
+    }
+
+    @Override
+    public List<ValidationErrorMessage> validateTransactionCreation(IOrder buyOrder, IOrder sellOrder,
+                                                                    Money price, BigDecimal quantity) {
+        List<ValidationErrorMessage> errors = new ArrayList<>();
+
+        // Basic parameter validation
+        if (buyOrder == null) {
+            errors.add(new ValidationErrorMessage("Buy order cannot be null"));
+        }
+        if (sellOrder == null) {
+            errors.add(new ValidationErrorMessage("Sell order cannot be null"));
+        }
+        if (price == null) {
+            errors.add(new ValidationErrorMessage("Transaction price cannot be null"));
+        }
+        if (quantity == null) {
+            errors.add(new ValidationErrorMessage("Transaction quantity cannot be null"));
+        }
+
+        // Early return if basic validation fails
+        if (!errors.isEmpty()) {
+            return errors;
+        }
+
+        // Validate order types
+        if (!(buyOrder instanceof IBuyOrder)) {
+            errors.add(new ValidationErrorMessage("First order must be a buy order"));
+        }
+        if (!(sellOrder instanceof ISellOrder)) {
+            errors.add(new ValidationErrorMessage("Second order must be a sell order"));
+        }
+
+        // Symbol compatibility validation
+        if (!buyOrder.getSymbol().equals(sellOrder.getSymbol())) {
+            errors.add(new ValidationErrorMessage("Buy and sell orders must have the same symbol"));
+        }
+
+        // Order status validation
+        if (buyOrder.getStatus().isTerminal()) {
+            errors.add(new ValidationErrorMessage("Buy order is in terminal state and cannot be used for transaction"));
+        }
+        if (sellOrder.getStatus().isTerminal()) {
+            errors.add(new ValidationErrorMessage("Sell order is in terminal state and cannot be used for transaction"));
+        }
+
+        // Price validation
+        if (price.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            errors.add(new ValidationErrorMessage("Transaction price must be positive"));
+        }
+
+        // Quantity validation
+        if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
+            errors.add(new ValidationErrorMessage("Transaction quantity must be positive"));
+        }
+
+        // Currency validation
+        if (!price.getCurrency().equals(buyOrder.getPrice().getCurrency()) ||
+                !price.getCurrency().equals(sellOrder.getPrice().getCurrency())) {
+            errors.add(new ValidationErrorMessage("Transaction price currency must match order currencies"));
+        }
+
+        // Order matching validation
+        IBuyOrder buyOrderTyped = (IBuyOrder) buyOrder;
+        ISellOrder sellOrderTyped = (ISellOrder) sellOrder;
+
+        if (buyOrderTyped.getPrice().isLessThan(sellOrderTyped.getPrice())) {
+            errors.add(new ValidationErrorMessage("Buy order price must be greater than or equal to sell order price"));
+        }
+
+        // Execution price range validation
+        if (price.isLessThan(sellOrderTyped.getPrice()) || price.isGreaterThan(buyOrderTyped.getPrice())) {
+            errors.add(new ValidationErrorMessage("Execution price must be between sell price and buy price"));
+        }
+
+        // Quantity constraints validation
+        if (quantity.compareTo(buyOrderTyped.getRemainingQuantity()) > 0) {
+            errors.add(new ValidationErrorMessage("Transaction quantity cannot exceed buy order remaining quantity"));
+        }
+        if (quantity.compareTo(sellOrderTyped.getRemainingQuantity()) > 0) {
+            errors.add(new ValidationErrorMessage("Transaction quantity cannot exceed sell order remaining quantity"));
+        }
+
+        return errors;
+    }
+}=== ./application/services/TransactionApplicationService.java ===
+package core.ms.order.application.services;
+
+import core.ms.order.application.dto.command.CreateTransactionCommand;
+import core.ms.order.application.dto.query.TransactionDTO;
+import core.ms.order.application.dto.query.TransactionResultDTO;
+import core.ms.order.application.dto.query.TransactionStatisticsDTO;
+import core.ms.order.domain.entities.*;
+import core.ms.order.domain.ports.inbound.*;
+import core.ms.order.domain.ports.outbound.OrderRepository;
+import core.ms.order.domain.ports.outbound.TransactionRepository;
+import core.ms.order.domain.validators.ValidationErrorMessage;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+public class TransactionApplicationService implements TransactionService {
+
+    // Inject infrastructure services (outbound port implementations)
+    @Autowired
+    private TransactionRepository transactionRepository; // This will be TransactionRepositoryService
+
+    @Autowired
+    private OrderRepository orderRepository; // This will be OrderRepositoryService
+
+    @Autowired
+    private OrderValidationService orderValidationService; // This will be OrderValidationApplicationService
+
+    // ===== TRANSACTION CREATION =====
+
+    @Override
+    public TransactionResult createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
+                                               Money executionPrice, BigDecimal quantity) {
+        try {
+            // Validate transaction creation
+            List<ValidationErrorMessage> errors = orderValidationService.validateTransactionCreation(
+                    buyOrder, sellOrder, executionPrice, quantity);
+
+            if (!errors.isEmpty()) {
+                List<String> errorMessages = errors.stream()
+                        .map(ValidationErrorMessage::getMessage)
+                        .toList();
+                return TransactionResult.failure(null, "Transaction validation failed", errorMessages);
+            }
+
+            // Generate transaction ID
+            String transactionId = generateTransactionId();
+
+            // Create transaction (Domain Entity)
+            Transaction transaction = new Transaction(
+                    transactionId,
+                    buyOrder.getSymbol(),
+                    buyOrder,
+                    sellOrder,
+                    executionPrice,
+                    quantity
+            );
+
+            // Save transaction (Using Infrastructure Service)
+            ITransaction savedTransaction = transactionRepository.save(transaction);
+
+            // Update orders after transaction (Using Infrastructure Service)
+            orderRepository.save(buyOrder);
+            orderRepository.save(sellOrder);
+
+            return TransactionResult.success(savedTransaction.getId(), "Transaction created successfully");
+
+        } catch (Exception e) {
+            return TransactionResult.failure(null, "Failed to create transaction: " + e.getMessage(),
+                    List.of(e.getMessage()));
+        }
+    }
+
+    @Override
+    public TransactionResult createTransactionByOrderIds(String buyOrderId, String sellOrderId,
+                                                         Money executionPrice, BigDecimal quantity) {
+        try {
+            // Fetch orders (Using Infrastructure Service)
+            Optional<IOrder> buyOrderOpt = orderRepository.findById(buyOrderId);
+            Optional<IOrder> sellOrderOpt = orderRepository.findById(sellOrderId);
+
+            if (buyOrderOpt.isEmpty()) {
+                return TransactionResult.failure(null, "Buy order not found", List.of("Buy order not found"));
+            }
+            if (sellOrderOpt.isEmpty()) {
+                return TransactionResult.failure(null, "Sell order not found", List.of("Sell order not found"));
+            }
+
+            // Validate order types
+            if (!(buyOrderOpt.get() instanceof IBuyOrder)) {
+                return TransactionResult.failure(null, "Invalid buy order type", List.of("Invalid buy order type"));
+            }
+            if (!(sellOrderOpt.get() instanceof ISellOrder)) {
+                return TransactionResult.failure(null, "Invalid sell order type", List.of("Invalid sell order type"));
+            }
+
+            IBuyOrder buyOrder = (IBuyOrder) buyOrderOpt.get();
+            ISellOrder sellOrder = (ISellOrder) sellOrderOpt.get();
+
+            // Delegate to the main creation method
+            return createTransaction(buyOrder, sellOrder, executionPrice, quantity);
+
+        } catch (Exception e) {
+            return TransactionResult.failure(null, "Failed to create transaction: " + e.getMessage(),
+                    List.of(e.getMessage()));
+        }
+    }
+
+    // ===== TRANSACTION QUERIES =====
+
+    @Override
+    public Optional<ITransaction> findTransactionById(String transactionId) {
+        return transactionRepository.findById(transactionId);
+    }
+
+    @Override
+    public List<ITransaction> findTransactionsByOrderId(String orderId) {
+        return transactionRepository.findByOrderId(orderId);
+    }
+
+    @Override
+    public List<ITransaction> findTransactionsBySymbol(Symbol symbol) {
+        return transactionRepository.findBySymbol(symbol);
+    }
+
+    @Override
+    public List<ITransaction> findTransactionsByUserId(String userId) {
+        // This domain doesn't handle users directly
+        return new ArrayList<>();
+    }
+
+    @Override
+    public List<ITransaction> findTransactionsByDateRange(LocalDateTime startDate, LocalDateTime endDate) {
+        return transactionRepository.findByDateRange(startDate, endDate);
+    }
+
+    @Override
+    public List<ITransaction> findTransactionsByPriceRange(Money minPrice, Money maxPrice) {
+        // FIXED: Use correct Money method names
+        return transactionRepository.findAll().stream()
+                .filter(t -> t.getPrice().isGreaterThanOrEqual(minPrice) &&
+                        t.getPrice().isLessThanOrEqual(maxPrice))
+                .collect(Collectors.toList());
+    }
+
+    // ===== TRANSACTION ANALYTICS =====
+
+    @Override
+    public TransactionStatistics getTransactionStatistics(Symbol symbol) {
+        List<ITransaction> transactions = transactionRepository.findBySymbol(symbol);
+
+        if (transactions.isEmpty()) {
+            return new TransactionStatistics(
+                    symbol,
+                    0L,
+                    BigDecimal.ZERO,
+                    Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()),
+                    Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()),
+                    Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()),
+                    LocalDateTime.now(),
+                    LocalDateTime.now()
+            );
+        }
+
+        long totalTransactions = transactions.size();
+
+        BigDecimal totalVolume = transactions.stream()
+                .map(ITransaction::getQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalValue = transactions.stream()
+                .map(t -> t.getPrice().getAmount().multiply(t.getQuantity()))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        Money averagePrice = Money.of(
+                totalValue.divide(totalVolume, 8, RoundingMode.HALF_UP),
+                symbol.getQuoteCurrency()
+        );
+
+        // FIXED: Use proper Money comparison with custom comparator
+        Money highestPrice = transactions.stream()
+                .map(ITransaction::getPrice)
+                .max(Comparator.comparing(Money::getAmount))
+                .orElse(Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()));
+
+        Money lowestPrice = transactions.stream()
+                .map(ITransaction::getPrice)
+                .min(Comparator.comparing(Money::getAmount))
+                .orElse(Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()));
+
+        LocalDateTime periodStart = transactions.stream()
+                .map(ITransaction::getCreatedAt)
+                .min(LocalDateTime::compareTo)
+                .orElse(LocalDateTime.now());
+
+        LocalDateTime periodEnd = transactions.stream()
+                .map(ITransaction::getCreatedAt)
+                .max(LocalDateTime::compareTo)
+                .orElse(LocalDateTime.now());
+
+        return new TransactionStatistics(
+                symbol,
+                totalTransactions,
+                totalVolume,
+                averagePrice,
+                highestPrice,
+                lowestPrice,
+                periodStart,
+                periodEnd
+        );
+    }
+
+    @Override
+    public TransactionVolume getTransactionVolume(Symbol symbol, LocalDateTime startDate, LocalDateTime endDate) {
+        List<ITransaction> transactions = transactionRepository.findByDateRange(startDate, endDate)
+                .stream()
+                .filter(t -> t.getSymbol().equals(symbol))
+                .collect(Collectors.toList());
+
+        BigDecimal totalVolume = transactions.stream()
+                .map(ITransaction::getQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        return new TransactionVolume(symbol, totalVolume, startDate, endDate);
+    }
+
+    // ===== DTO ORCHESTRATION METHODS =====
+
+    public TransactionResultDTO createTransaction(CreateTransactionCommand command) {
+        Money executionPrice = Money.of(command.getExecutionPrice(), command.getCurrency());
+
+        TransactionResult result = createTransactionByOrderIds(
+                command.getBuyOrderId(),
+                command.getSellOrderId(),
+                executionPrice,
+                command.getQuantity()
+        );
+
+        return mapToTransactionResultDTO(result);
+    }
+
+    // DTO Query Methods
+    public Optional<TransactionDTO> findTransactionByIdAsDTO(String transactionId) {
+        Optional<ITransaction> transaction = findTransactionById(transactionId);
+        return transaction.map(this::mapToTransactionDTO);
+    }
+
+    public List<TransactionDTO> findTransactionsByOrderIdAsDTO(String orderId) {
+        List<ITransaction> transactions = findTransactionsByOrderId(orderId);
+        return transactions.stream()
+                .map(this::mapToTransactionDTO)
+                .collect(Collectors.toList());
+    }
+
+    public List<TransactionDTO> findTransactionsBySymbolAsDTO(String symbolCode) {
+        Symbol symbol = createSymbol(symbolCode);
+        List<ITransaction> transactions = findTransactionsBySymbol(symbol);
+        return transactions.stream()
+                .map(this::mapToTransactionDTO)
+                .collect(Collectors.toList());
+    }
+
+    public List<TransactionDTO> findTransactionsByDateRangeAsDTO(LocalDateTime startDate, LocalDateTime endDate) {
+        List<ITransaction> transactions = findTransactionsByDateRange(startDate, endDate);
+        return transactions.stream()
+                .map(this::mapToTransactionDTO)
+                .collect(Collectors.toList());
+    }
+
+    public TransactionStatisticsDTO getTransactionStatisticsAsDTO(String symbolCode) {
+        Symbol symbol = createSymbol(symbolCode);
+        TransactionStatistics stats = getTransactionStatistics(symbol);
+        return mapToTransactionStatisticsDTO(stats);
+    }
+
+    // ===== PRIVATE HELPER METHODS =====
+
+    private String generateTransactionId() {
+        return "TXN_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+    }
+
+    private TransactionResultDTO mapToTransactionResultDTO(TransactionResult result) {
+        return new TransactionResultDTO(
+                result.isSuccess(),
+                result.getTransactionId(),
+                result.getMessage(),
+                result.getTimestamp(),
+                result.getErrors()
+        );
+    }
+
+    private TransactionDTO mapToTransactionDTO(ITransaction transaction) {
+        return new TransactionDTO(
+                transaction.getId(),
+                transaction.getSymbol().getCode(),
+                transaction.getSymbol().getName(),
+                transaction.getBuyOrder().getId(),
+                transaction.getSellOrder().getId(),
+                transaction.getPrice().getAmount(),
+                transaction.getPrice().getCurrency(),
+                transaction.getQuantity(),
+                transaction.getTotalValue().getAmount(),
+                transaction.getCreatedAt()
+        );
+    }
+
+    private TransactionStatisticsDTO mapToTransactionStatisticsDTO(TransactionStatistics stats) {
+        return new TransactionStatisticsDTO(
+                stats.getSymbol().getCode(),
+                stats.getTotalTransactions(),
+                stats.getTotalVolume(),
+                stats.getAveragePrice().getAmount(),
+                stats.getAveragePrice().getCurrency(),
+                stats.getHighestPrice().getAmount(),
+                stats.getLowestPrice().getAmount(),
+                stats.getPeriodStart(),
+                stats.getPeriodEnd()
+        );
+    }
+
+    private Symbol createSymbol(String symbolCode) {
+        return switch (symbolCode.toUpperCase()) {
+            case "BTC" -> Symbol.btcUsd();
+            case "ETH" -> Symbol.ethUsd();
+            case "EURUSD" -> Symbol.eurUsd();
+            case "GBPUSD" -> Symbol.gbpUsd();
+            default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
+        };
+    }
+}=== ./web/controllers/OrderController.java ===
+package core.ms.order.web.controllers;
+
+import core.ms.order.application.dto.query.OrderDTO;
+import core.ms.order.application.services.OrderApplicationService;
+import core.ms.order.web.dto.request.CancelPartialOrderRequest;
+import core.ms.order.web.dto.request.CreateBuyOrderRequest;
+import core.ms.order.web.dto.request.CreateSellOrderRequest;
+import core.ms.order.web.dto.request.UpdateOrderPriceRequest;
+import core.ms.order.web.dto.response.ApiResponse;
+import core.ms.order.web.mappers.OrderWebMapper;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/api/v1/orders")
+@Validated
+public class OrderController {
+
+    @Autowired
+    private OrderApplicationService orderApplicationService;
+
+    @Autowired
+    private OrderWebMapper orderWebMapper;
+
+    // ===== ORDER CREATION =====
+
+    @PostMapping("/buy")
+    public ResponseEntity<ApiResponse<String>> createBuyOrder(@Valid @RequestBody CreateBuyOrderRequest request) {
+        try {
+            var command = orderWebMapper.toCommand(request);
+            var result = orderApplicationService.createBuyOrder(command);
+            var response = orderWebMapper.toApiResponse(result);
+
+            HttpStatus status = response.isSuccess() ? HttpStatus.CREATED : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(response);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/sell")
+    public ResponseEntity<ApiResponse<String>> createSellOrder(@Valid @RequestBody CreateSellOrderRequest request) {
+        try {
+            var command = orderWebMapper.toCommand(request);
+            var result = orderApplicationService.createSellOrder(command);
+            var response = orderWebMapper.toApiResponse(result);
+
+            HttpStatus status = response.isSuccess() ? HttpStatus.CREATED : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(response);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    // ===== ORDER MANAGEMENT =====
+
+    @PutMapping("/{orderId}/price")
+    public ResponseEntity<ApiResponse<String>> updateOrderPrice(
+            @PathVariable @NotBlank(message = "Order ID cannot be blank") String orderId,
+            @Valid @RequestBody UpdateOrderPriceRequest request) {
+        try {
+            var command = orderWebMapper.toCommand(orderId, request);
+            var result = orderApplicationService.updateOrderPrice(command);
+            var response = orderWebMapper.toApiResponse(result);
+
+            HttpStatus status = response.isSuccess() ? HttpStatus.OK : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(response);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/{orderId}")
+    public ResponseEntity<ApiResponse<String>> cancelOrder(
+            @PathVariable @NotBlank(message = "Order ID cannot be blank") String orderId) {
+        try {
+            var command = orderWebMapper.toCommand(orderId);
+            var result = orderApplicationService.cancelOrder(command);
+            var response = orderWebMapper.toApiResponse(result);
+
+            HttpStatus status = response.isSuccess() ? HttpStatus.OK : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(response);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @PutMapping("/{orderId}/cancel-partial")
+    public ResponseEntity<ApiResponse<String>> cancelPartialOrder(
+            @PathVariable @NotBlank(message = "Order ID cannot be blank") String orderId,
+            @Valid @RequestBody CancelPartialOrderRequest request) {
+        try {
+            var command = orderWebMapper.toCommand(orderId, request);
+            var result = orderApplicationService.cancelPartialOrder(command);
+            var response = orderWebMapper.toApiResponse(result);
+
+            HttpStatus status = response.isSuccess() ? HttpStatus.OK : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(response);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    // ===== ORDER QUERIES =====
+
+    @GetMapping("/{orderId}")
+    public ResponseEntity<ApiResponse<OrderDTO>> getOrderById(
+            @PathVariable @NotBlank(message = "Order ID cannot be blank") String orderId) {
+        try {
+            Optional<OrderDTO> orderOpt = orderApplicationService.findOrderByIdAsDTO(orderId);
+
+            return orderOpt.map(orderDTO -> ResponseEntity.ok(ApiResponse.success("Order found", orderDTO))).orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("Order not found")));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/symbol/{symbolCode}")
+    public ResponseEntity<ApiResponse<List<OrderDTO>>> getOrdersBySymbol(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode) {
+        try {
+            List<OrderDTO> orders = orderApplicationService.findOrdersBySymbolAsDTO(symbolCode);
+            return ResponseEntity.ok(ApiResponse.success("Orders found", orders));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/status/{status}")
+    public ResponseEntity<ApiResponse<List<OrderDTO>>> getOrdersByStatus(
+            @PathVariable @NotBlank(message = "Status cannot be blank")
+            @Pattern(regexp = "^(PENDING|PARTIAL|FILLED|CANCELLED)$", message = "Invalid order status")
+            String status) {
+        try {
+            List<OrderDTO> orders = orderApplicationService.findOrdersByStatusAsDTO(status);
+            return ResponseEntity.ok(ApiResponse.success("Orders found", orders));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/buy/symbol/{symbolCode}")
+    public ResponseEntity<ApiResponse<List<OrderDTO>>> getBuyOrdersBySymbol(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode) {
+        try {
+            List<OrderDTO> orders = orderApplicationService.findBuyOrdersBySymbolAsDTO(symbolCode);
+            return ResponseEntity.ok(ApiResponse.success("Buy orders found", orders));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/sell/symbol/{symbolCode}")
+    public ResponseEntity<ApiResponse<List<OrderDTO>>> getSellOrdersBySymbol(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode) {
+        try {
+            List<OrderDTO> orders = orderApplicationService.findSellOrdersBySymbolAsDTO(symbolCode);
+            return ResponseEntity.ok(ApiResponse.success("Sell orders found", orders));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+}
+=== ./web/controllers/TransactionController.java ===
+package core.ms.order.web.controllers;
+
+import core.ms.order.application.dto.query.TransactionDTO;
+import core.ms.order.application.dto.query.TransactionStatisticsDTO;
+import core.ms.order.application.services.TransactionApplicationService;
+import core.ms.order.web.dto.request.CreateTransactionRequest;
+import core.ms.order.web.dto.response.ApiResponse;
+import core.ms.order.web.mappers.TransactionWebMapper;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/api/v1/transactions")
+@Validated
+public class TransactionController {
+
+    @Autowired
+    private TransactionApplicationService transactionApplicationService;
+
+    @Autowired
+    private TransactionWebMapper transactionWebMapper;
+
+    // ===== TRANSACTION CREATION =====
+
+    @PostMapping
+    public ResponseEntity<ApiResponse<String>> createTransaction(@Valid @RequestBody CreateTransactionRequest request) {
+        try {
+            var command = transactionWebMapper.toCommand(request);
+            var result = transactionApplicationService.createTransaction(command);
+            var response = transactionWebMapper.toApiResponse(result);
+
+            HttpStatus status = response.isSuccess() ? HttpStatus.CREATED : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(response);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    // ===== TRANSACTION QUERIES =====
+
+    @GetMapping("/{transactionId}")
+    public ResponseEntity<ApiResponse<TransactionDTO>> getTransactionById(
+            @PathVariable @NotBlank(message = "Transaction ID cannot be blank") String transactionId) {
+        try {
+            Optional<TransactionDTO> transactionOpt = transactionApplicationService.findTransactionByIdAsDTO(transactionId);
+
+            return transactionOpt.map(transactionDTO -> ResponseEntity.ok(ApiResponse.success("Transaction found", transactionDTO))).orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("Transaction not found")));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/order/{orderId}")
+    public ResponseEntity<ApiResponse<List<TransactionDTO>>> getTransactionsByOrderId(
+            @PathVariable @NotBlank(message = "Order ID cannot be blank") String orderId) {
+        try {
+            List<TransactionDTO> transactions = transactionApplicationService.findTransactionsByOrderIdAsDTO(orderId);
+            return ResponseEntity.ok(ApiResponse.success("Transactions found", transactions));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/symbol/{symbolCode}")
+    public ResponseEntity<ApiResponse<List<TransactionDTO>>> getTransactionsBySymbol(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode) {
+        try {
+            List<TransactionDTO> transactions = transactionApplicationService.findTransactionsBySymbolAsDTO(symbolCode);
+            return ResponseEntity.ok(ApiResponse.success("Transactions found", transactions));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/date-range")
+    public ResponseEntity<ApiResponse<List<TransactionDTO>>> getTransactionsByDateRange(
+            @RequestParam @NotNull(message = "Start date cannot be null")
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime startDate,
+            @RequestParam @NotNull(message = "End date cannot be null")
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime endDate) {
+        try {
+            if (startDate.isAfter(endDate)) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.error("Start date must be before end date"));
+            }
+
+            List<TransactionDTO> transactions = transactionApplicationService.findTransactionsByDateRangeAsDTO(startDate, endDate);
+            return ResponseEntity.ok(ApiResponse.success("Transactions found", transactions));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    // ===== TRANSACTION ANALYTICS =====
+
+    @GetMapping("/statistics/symbol/{symbolCode}")
+    public ResponseEntity<ApiResponse<TransactionStatisticsDTO>> getTransactionStatistics(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode) {
+        try {
+            TransactionStatisticsDTO statistics = transactionApplicationService.getTransactionStatisticsAsDTO(symbolCode);
+            return ResponseEntity.ok(ApiResponse.success("Transaction statistics found", statistics));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+}
+=== ./web/controllers/GlobalExceptionHandler.java ===
+package core.ms.order.web.controllers;
+
+import core.ms.order.web.dto.response.ApiResponse;
+import jakarta.validation.ConstraintViolation;
+import jakarta.validation.ConstraintViolationException;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiResponse<Void>> handleValidationExceptions(MethodArgumentNotValidException ex) {
+        List<String> errors = ex.getBindingResult()
+                .getFieldErrors()
+                .stream()
+                .map(FieldError::getDefaultMessage)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.validationError(errors));
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleConstraintViolationException(ConstraintViolationException ex) {
+        List<String> errors = ex.getConstraintViolations()
+                .stream()
+                .map(ConstraintViolation::getMessage)
+                .collect(Collectors.toList());
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.validationError(errors));
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTypeMismatchException(MethodArgumentTypeMismatchException ex) {
+        String error = String.format("Invalid value '%s' for parameter '%s'. Expected type: %s",
+                ex.getValue(), ex.getParameter().getParameterName(), ex.getRequiredType().getSimpleName());
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(error));
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIllegalArgumentException(IllegalArgumentException ex) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(ApiResponse.error(ex.getMessage()));
+    }
+
+    @ExceptionHandler(Exception.class)
+    public ResponseEntity<ApiResponse<Void>> handleGenericException(Exception ex) {
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(ApiResponse.error("An unexpected error occurred: " + ex.getMessage()));
+    }
+}=== ./web/dto/request/CreateBuyOrderRequest.java ===
+package core.ms.order.web.dto.request;
+
+import core.ms.shared.domain.Currency;
+import jakarta.validation.constraints.*;
+
+import java.math.BigDecimal;
+
+public class CreateBuyOrderRequest {
+
+    @NotBlank(message = "User ID cannot be blank")
+    @Size(min = 1, max = 50, message = "User ID must be between 1 and 50 characters")
+    private String userId;
+
+    @NotBlank(message = "Symbol code cannot be blank")
+    @Size(min = 1, max = 20, message = "Symbol code must be between 1 and 20 characters")
+    @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+    private String symbolCode;
+
+    @NotNull(message = "Price cannot be null")
+    @DecimalMin(value = "0.00000001", message = "Price must be greater than 0")
+    @Digits(integer = 10, fraction = 8, message = "Price must have at most 10 integer digits and 8 decimal places")
+    private BigDecimal price;
+
+    @NotNull(message = "Currency cannot be null")
+    private Currency currency;
+
+    @NotNull(message = "Quantity cannot be null")
+    @DecimalMin(value = "0.00000001", message = "Quantity must be greater than 0")
+    @Digits(integer = 10, fraction = 8, message = "Quantity must have at most 10 integer digits and 8 decimal places")
+    private BigDecimal quantity;
+
+    // Constructors
+    public CreateBuyOrderRequest() {}
+
+    public CreateBuyOrderRequest(String userId, String symbolCode, BigDecimal price, Currency currency, BigDecimal quantity) {
+        this.userId = userId;
+        this.symbolCode = symbolCode;
+        this.price = price;
+        this.currency = currency;
+        this.quantity = quantity;
+    }
+
+    // Getters and Setters
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+}=== ./web/dto/request/CancelPartialOrderRequest.java ===
+package core.ms.order.web.dto.request;
+
+import jakarta.validation.constraints.*;
+
+import java.math.BigDecimal;
+
+public class CancelPartialOrderRequest {
+
+    @NotNull(message = "Quantity to cancel cannot be null")
+    @DecimalMin(value = "0.00000001", message = "Quantity to cancel must be greater than 0")
+    @Digits(integer = 10, fraction = 8, message = "Quantity to cancel must have at most 10 integer digits and 8 decimal places")
+    private BigDecimal quantityToCancel;
+
+    // Constructors
+    public CancelPartialOrderRequest() {}
+
+    public CancelPartialOrderRequest(BigDecimal quantityToCancel) {
+        this.quantityToCancel = quantityToCancel;
+    }
+
+    // Getters and Setters
+    public BigDecimal getQuantityToCancel() { return quantityToCancel; }
+    public void setQuantityToCancel(BigDecimal quantityToCancel) { this.quantityToCancel = quantityToCancel; }
+}=== ./web/dto/request/UpdateOrderPriceRequest.java ===
+package core.ms.order.web.dto.request;
+
+import core.ms.shared.domain.Currency;
+import jakarta.validation.constraints.*;
+
+import java.math.BigDecimal;
+
+public class UpdateOrderPriceRequest {
+
+    @NotNull(message = "New price cannot be null")
+    @DecimalMin(value = "0.00000001", message = "New price must be greater than 0")
+    @Digits(integer = 10, fraction = 8, message = "New price must have at most 10 integer digits and 8 decimal places")
+    private BigDecimal newPrice;
+
+    @NotNull(message = "Currency cannot be null")
+    private Currency currency;
+
+    // Constructors
+    public UpdateOrderPriceRequest() {}
+
+    public UpdateOrderPriceRequest(BigDecimal newPrice, Currency currency) {
+        this.newPrice = newPrice;
+        this.currency = currency;
+    }
+
+    // Getters and Setters
+    public BigDecimal getNewPrice() { return newPrice; }
+    public void setNewPrice(BigDecimal newPrice) { this.newPrice = newPrice; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+}=== ./web/dto/request/CreateTransactionRequest.java ===
+package core.ms.order.web.dto.request;
+
+import core.ms.shared.domain.Currency;
+import jakarta.validation.constraints.*;
+
+import java.math.BigDecimal;
+
+public class CreateTransactionRequest {
+
+    @NotBlank(message = "Buy order ID cannot be blank")
+    @Size(min = 1, max = 50, message = "Buy order ID must be between 1 and 50 characters")
+    private String buyOrderId;
+
+    @NotBlank(message = "Sell order ID cannot be blank")
+    @Size(min = 1, max = 50, message = "Sell order ID must be between 1 and 50 characters")
+    private String sellOrderId;
+
+    @NotNull(message = "Execution price cannot be null")
+    @DecimalMin(value = "0.00000001", message = "Execution price must be greater than 0")
+    @Digits(integer = 10, fraction = 8, message = "Execution price must have at most 10 integer digits and 8 decimal places")
+    private BigDecimal executionPrice;
+
+    @NotNull(message = "Currency cannot be null")
+    private Currency currency;
+
+    @NotNull(message = "Quantity cannot be null")
+    @DecimalMin(value = "0.00000001", message = "Quantity must be greater than 0")
+    @Digits(integer = 10, fraction = 8, message = "Quantity must have at most 10 integer digits and 8 decimal places")
+    private BigDecimal quantity;
+
+    // Constructors
+    public CreateTransactionRequest() {}
+
+    public CreateTransactionRequest(String buyOrderId, String sellOrderId, BigDecimal executionPrice, Currency currency, BigDecimal quantity) {
+        this.buyOrderId = buyOrderId;
+        this.sellOrderId = sellOrderId;
+        this.executionPrice = executionPrice;
+        this.currency = currency;
+        this.quantity = quantity;
+    }
+
+    // Getters and Setters
+    public String getBuyOrderId() { return buyOrderId; }
+    public void setBuyOrderId(String buyOrderId) { this.buyOrderId = buyOrderId; }
+    public String getSellOrderId() { return sellOrderId; }
+    public void setSellOrderId(String sellOrderId) { this.sellOrderId = sellOrderId; }
+    public BigDecimal getExecutionPrice() { return executionPrice; }
+    public void setExecutionPrice(BigDecimal executionPrice) { this.executionPrice = executionPrice; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+}=== ./web/dto/request/CreateSellOrderRequest.java ===
+package core.ms.order.web.dto.request;
+
+import core.ms.shared.domain.Currency;
+import jakarta.validation.constraints.*;
+
+import java.math.BigDecimal;
+
+public class CreateSellOrderRequest {
+
+    @NotBlank(message = "User ID cannot be blank")
+    @Size(min = 1, max = 50, message = "User ID must be between 1 and 50 characters")
+    private String userId;
+
+    @NotBlank(message = "Symbol code cannot be blank")
+    @Size(min = 1, max = 20, message = "Symbol code must be between 1 and 20 characters")
+    @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+    private String symbolCode;
+
+    @NotNull(message = "Price cannot be null")
+    @DecimalMin(value = "0.00000001", message = "Price must be greater than 0")
+    @Digits(integer = 10, fraction = 8, message = "Price must have at most 10 integer digits and 8 decimal places")
+    private BigDecimal price;
+
+    @NotNull(message = "Currency cannot be null")
+    private Currency currency;
+
+    @NotNull(message = "Quantity cannot be null")
+    @DecimalMin(value = "0.00000001", message = "Quantity must be greater than 0")
+    @Digits(integer = 10, fraction = 8, message = "Quantity must have at most 10 integer digits and 8 decimal places")
+    private BigDecimal quantity;
+
+    // Constructors
+    public CreateSellOrderRequest() {}
+
+    public CreateSellOrderRequest(String userId, String symbolCode, BigDecimal price, Currency currency, BigDecimal quantity) {
+        this.userId = userId;
+        this.symbolCode = symbolCode;
+        this.price = price;
+        this.currency = currency;
+        this.quantity = quantity;
+    }
+
+    // Getters and Setters
+    public String getUserId() { return userId; }
+    public void setUserId(String userId) { this.userId = userId; }
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+}=== ./web/dto/response/ApiResponse.java ===
+package core.ms.order.web.dto.response;
+
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@JsonInclude(JsonInclude.Include.NON_NULL)
+public class ApiResponse<T> {
+
+    @JsonProperty("success")
+    private boolean success;
+
+    @JsonProperty("message")
+    private String message;
+
+    @JsonProperty("data")
+    private T data;
+
+    @JsonProperty("errors")
+    private List<String> errors;
+
+    @JsonProperty("timestamp")
+    private LocalDateTime timestamp;
+
+    // Constructors
+    public ApiResponse() {
+        this.timestamp = LocalDateTime.now();
+    }
+
+    public ApiResponse(boolean success, String message, T data, List<String> errors) {
+        this.success = success;
+        this.message = message;
+        this.data = data;
+        this.errors = errors;
+        this.timestamp = LocalDateTime.now();
+    }
+
+    // Factory methods for success responses
+    public static <T> ApiResponse<T> success(T data) {
+        return new ApiResponse<>(true, "Operation completed successfully", data, null);
+    }
+
+    public static <T> ApiResponse<T> success(String message, T data) {
+        return new ApiResponse<>(true, message, data, null);
+    }
+
+    public static ApiResponse<Void> success(String message) {
+        return new ApiResponse<>(true, message, null, null);
+    }
+
+    // Factory methods for error responses
+    public static <T> ApiResponse<T> error(String message) {
+        return new ApiResponse<>(false, message, null, null);
+    }
+
+    public static <T> ApiResponse<T> error(String message, List<String> errors) {
+        return new ApiResponse<>(false, message, null, errors);
+    }
+
+    public static <T> ApiResponse<T> validationError(List<String> errors) {
+        return new ApiResponse<>(false, "Validation failed", null, errors);
+    }
+
+    // Getters and Setters
+    public boolean isSuccess() { return success; }
+    public void setSuccess(boolean success) { this.success = success; }
+    public String getMessage() { return message; }
+    public void setMessage(String message) { this.message = message; }
+    public T getData() { return data; }
+    public void setData(T data) { this.data = data; }
+    public List<String> getErrors() { return errors; }
+    public void setErrors(List<String> errors) { this.errors = errors; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+}=== ./web/mappers/TransactionWebMapper.java ===
+package core.ms.order.web.mappers;
+
+import core.ms.order.application.dto.command.CreateTransactionCommand;
+import core.ms.order.application.dto.query.TransactionResultDTO;
+import core.ms.order.web.dto.request.CreateTransactionRequest;
+import core.ms.order.web.dto.response.ApiResponse;
+import org.springframework.stereotype.Component;
+
+@Component
+public class TransactionWebMapper {
+
+    // ===== REQUEST TO COMMAND MAPPING =====
+
+    public CreateTransactionCommand toCommand(CreateTransactionRequest request) {
+        return new CreateTransactionCommand(
+                request.getBuyOrderId(),
+                request.getSellOrderId(),
+                request.getExecutionPrice(),
+                request.getCurrency(),
+                request.getQuantity()
+        );
+    }
+
+    // ===== RESPONSE MAPPING =====
+
+    public ApiResponse<String> toApiResponse(TransactionResultDTO result) {
+        if (result.isSuccess()) {
+            return ApiResponse.success(result.getMessage(), result.getTransactionId());
+        } else {
+            return ApiResponse.error(result.getMessage(), result.getErrors());
+        }
+    }
+}
+=== ./web/mappers/OrderWebMapper.java ===
+package core.ms.order.web.mappers;
+
+import core.ms.order.application.dto.command.*;
+import core.ms.order.application.dto.query.OrderOperationResultDTO;
+
+import core.ms.order.web.dto.request.CancelPartialOrderRequest;
+import core.ms.order.web.dto.request.CreateBuyOrderRequest;
+import core.ms.order.web.dto.request.CreateSellOrderRequest;
+import core.ms.order.web.dto.request.UpdateOrderPriceRequest;
+import core.ms.order.web.dto.response.ApiResponse;
+import org.springframework.stereotype.Component;
+
+@Component
+public class OrderWebMapper {
+
+    // ===== REQUEST TO COMMAND MAPPING =====
+
+    public CreateBuyOrderCommand toCommand(CreateBuyOrderRequest request) {
+        return new CreateBuyOrderCommand(
+                request.getUserId(),
+                request.getSymbolCode(),
+                request.getPrice(),
+                request.getCurrency(),
+                request.getQuantity()
+        );
+    }
+
+    public CreateSellOrderCommand toCommand(CreateSellOrderRequest request) {
+        return new CreateSellOrderCommand(
+                request.getUserId(),
+                request.getSymbolCode(),
+                request.getPrice(),
+                request.getCurrency(),
+                request.getQuantity()
+        );
+    }
+
+    public UpdateOrderPriceCommand toCommand(String orderId, UpdateOrderPriceRequest request) {
+        return new UpdateOrderPriceCommand(
+                orderId,
+                request.getNewPrice(),
+                request.getCurrency()
+        );
+    }
+
+    public CancelOrderCommand toCommand(String orderId) {
+        return new CancelOrderCommand(orderId);
+    }
+
+    public CancelPartialOrderCommand toCommand(String orderId, CancelPartialOrderRequest request) {
+        return new CancelPartialOrderCommand(
+                orderId,
+                request.getQuantityToCancel()
+        );
+    }
+
+    // ===== RESPONSE MAPPING =====
+
+    public ApiResponse<String> toApiResponse(OrderOperationResultDTO result) {
+        if (result.isSuccess()) {
+            return ApiResponse.success(result.getMessage(), result.getOrderId());
+        } else {
+            return ApiResponse.error(result.getMessage(), result.getErrors());
+        }
+    }
+}=== ./infrastructure/services/TransactionRepositoryService.java ===
+package core.ms.order.infrastructure.services;
+
+import core.ms.order.domain.entities.*;
+import core.ms.order.domain.ports.outbound.OrderRepository;
+import core.ms.order.domain.ports.outbound.TransactionRepository;
+import core.ms.order.infrastructure.persistence.dao.TransactionDAO;
+import core.ms.order.infrastructure.persistence.entities.TransactionEntity;
+import core.ms.order.infrastructure.persistence.mappers.TransactionMapper;
+import core.ms.shared.domain.Symbol;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+@Service
+public class TransactionRepositoryService implements TransactionRepository {
+
+    @Autowired
+    private TransactionDAO transactionDAO;
+
+    @Autowired
+    private TransactionMapper transactionMapper;
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    @Override
+    public ITransaction save(ITransaction transaction) {
+        Transaction domainTransaction = (Transaction) transaction;
+        TransactionEntity entity = transactionMapper.fromDomain(domainTransaction);
+        TransactionEntity saved = transactionDAO.save(entity);
+
+        // Get orders for reconstruction
+        IBuyOrder buyOrder = getBuyOrderById(saved.getBuyOrderId());
+        ISellOrder sellOrder = getSellOrderById(saved.getSellOrderId());
+
+        return transactionMapper.toDomain(saved, buyOrder, sellOrder);
+    }
+
+    @Override
+    public Optional<ITransaction> findById(String transactionId) {
+        Optional<TransactionEntity> entityOpt = transactionDAO.findById(transactionId);
+
+        if (entityOpt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        TransactionEntity entity = entityOpt.get();
+        IBuyOrder buyOrder = getBuyOrderById(entity.getBuyOrderId());
+        ISellOrder sellOrder = getSellOrderById(entity.getSellOrderId());
+
+        return Optional.of(transactionMapper.toDomain(entity, buyOrder, sellOrder));
+    }
+
+    @Override
+    public void deleteById(String transactionId) {
+        transactionDAO.deleteById(transactionId);
+    }
+
+    @Override
+    public boolean existsById(String transactionId) {
+        return transactionDAO.existsById(transactionId);
+    }
+
+    @Override
+    public List<ITransaction> findByOrderId(String orderId) {
+        List<TransactionEntity> entities = new ArrayList<>();
+        entities.addAll(transactionDAO.findByBuyOrderId(orderId));
+        entities.addAll(transactionDAO.findBySellOrderId(orderId));
+        return mapToDomain(entities);
+    }
+
+    @Override
+    public List<ITransaction> findBySymbol(Symbol symbol) {
+        List<TransactionEntity> entities = transactionDAO.findBySymbolCode(symbol.getCode());
+        return mapToDomain(entities);
+    }
+
+    @Override
+    public List<ITransaction> findByDateRange(LocalDateTime startDate, LocalDateTime endDate) {
+        List<TransactionEntity> entities = transactionDAO.findByCreatedAtBetween(startDate, endDate);
+        return mapToDomain(entities);
+    }
+
+    @Override
+    public List<ITransaction> findAll() {
+        List<TransactionEntity> entities = transactionDAO.findAll();
+        return mapToDomain(entities);
+    }
+
+    @Override
+    public long count() {
+        return transactionDAO.count();
+    }
+
+    // Helper methods
+    private List<ITransaction> mapToDomain(List<TransactionEntity> entities) {
+        return entities.stream()
+                .map(entity -> {
+                    IBuyOrder buyOrder = getBuyOrderById(entity.getBuyOrderId());
+                    ISellOrder sellOrder = getSellOrderById(entity.getSellOrderId());
+                    return transactionMapper.toDomain(entity, buyOrder, sellOrder);
+                })
+                .collect(Collectors.toList());
+    }
+
+    private IBuyOrder getBuyOrderById(String orderId) {
+        Optional<IOrder> order = orderRepository.findById(orderId);
+        if (order.isPresent() && order.get() instanceof IBuyOrder) {
+            return (IBuyOrder) order.get();
+        }
+        throw new IllegalStateException("Buy order not found: " + orderId);
+    }
+
+    private ISellOrder getSellOrderById(String orderId) {
+        Optional<IOrder> order = orderRepository.findById(orderId);
+        if (order.isPresent() && order.get() instanceof ISellOrder) {
+            return (ISellOrder) order.get();
+        }
+        throw new IllegalStateException("Sell order not found: " + orderId);
+    }
+}=== ./infrastructure/services/OrderRepositoryService.java ===
+package core.ms.order.infrastructure.services;
+
+import core.ms.order.domain.entities.*;
+import core.ms.order.domain.ports.outbound.OrderRepository;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.order.infrastructure.persistence.dao.BuyOrderDAO;
+import core.ms.order.infrastructure.persistence.dao.SellOrderDAO;
+import core.ms.order.infrastructure.persistence.entities.BuyOrderEntity;
+import core.ms.order.infrastructure.persistence.entities.SellOrderEntity;
+import core.ms.order.infrastructure.persistence.mappers.BuyOrderMapper;
+import core.ms.order.infrastructure.persistence.mappers.SellOrderMapper;
+import core.ms.shared.domain.Symbol;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+@Service
+public class OrderRepositoryService implements OrderRepository {
+
+    @Autowired
+    private BuyOrderDAO buyOrderDAO;
+
+    @Autowired
+    private SellOrderDAO sellOrderDAO;
+
+    @Autowired
+    private BuyOrderMapper buyOrderMapper;
+
+    @Autowired
+    private SellOrderMapper sellOrderMapper;
+
+    @Override
+    public IOrder save(IOrder order) {
+        if (order instanceof BuyOrder buyOrder) {
+            BuyOrderEntity entity = buyOrderMapper.fromDomain(buyOrder);
+            BuyOrderEntity saved = buyOrderDAO.save(entity);
+            return buyOrderMapper.toDomain(saved);
+        } else if (order instanceof SellOrder sellOrder) {
+            SellOrderEntity entity = sellOrderMapper.fromDomain(sellOrder);
+            SellOrderEntity saved = sellOrderDAO.save(entity);
+            return sellOrderMapper.toDomain(saved);
+        } else {
+            throw new IllegalArgumentException("Unknown order type: " + order.getClass());
+        }
+    }
+
+    @Override
+    public Optional<IOrder> findById(String orderId) {
+        // Try buy orders first
+        Optional<BuyOrderEntity> buyEntity = buyOrderDAO.findById(orderId);
+        if (buyEntity.isPresent()) {
+            return Optional.of(buyOrderMapper.toDomain(buyEntity.get()));
+        }
+
+        // Try sell orders
+        Optional<SellOrderEntity> sellEntity = sellOrderDAO.findById(orderId);
+        return sellEntity.map(sellOrderEntity -> sellOrderMapper.toDomain(sellOrderEntity));
+
+    }
+
+    @Override
+    public void deleteById(String orderId) {
+        buyOrderDAO.deleteById(orderId);
+        sellOrderDAO.deleteById(orderId);
+    }
+
+    @Override
+    public boolean existsById(String orderId) {
+        return buyOrderDAO.existsById(orderId) || sellOrderDAO.existsById(orderId);
+    }
+
+    @Override
+    public List<IOrder> findByUserId(String userId) {
+        // This method shouldn't exist in this domain but it's in the port
+        // Return empty list since we don't handle users in this domain
+        return new ArrayList<>();
+    }
+
+    @Override
+    public List<IOrder> findBySymbol(Symbol symbol) {
+        List<IOrder> orders = new ArrayList<>();
+
+        orders.addAll(buyOrderDAO.findBySymbolCode(symbol.getCode()).stream()
+                .map(buyOrderMapper::toDomain)
+                .toList());
+
+        orders.addAll(sellOrderDAO.findBySymbolCode(symbol.getCode()).stream()
+                .map(sellOrderMapper::toDomain)
+                .toList());
+
+        return orders;
+    }
+
+    @Override
+    public List<IOrder> findByStatus(OrderStatusEnum status) {
+        List<IOrder> orders = new ArrayList<>();
+
+        orders.addAll(buyOrderDAO.findByStatus(status).stream()
+                .map(buyOrderMapper::toDomain)
+                .toList());
+
+        orders.addAll(sellOrderDAO.findByStatus(status).stream()
+                .map(sellOrderMapper::toDomain)
+                .toList());
+
+        return orders;
+    }
+
+    @Override
+    public List<IBuyOrder> findBuyOrdersBySymbol(Symbol symbol) {
+        return buyOrderDAO.findBySymbolCode(symbol.getCode()).stream()
+                .map(buyOrderMapper::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<ISellOrder> findSellOrdersBySymbol(Symbol symbol) {
+        return sellOrderDAO.findBySymbolCode(symbol.getCode()).stream()
+                .map(sellOrderMapper::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<IOrder> findAll() {
+        List<IOrder> orders = new ArrayList<>();
+
+        orders.addAll(buyOrderDAO.findAll().stream()
+                .map(buyOrderMapper::toDomain)
+                .toList());
+
+        orders.addAll(sellOrderDAO.findAll().stream()
+                .map(sellOrderMapper::toDomain)
+                .toList());
+
+        return orders;
+    }
+
+    @Override
+    public long count() {
+        return buyOrderDAO.count() + sellOrderDAO.count();
+    }
+}=== ./infrastructure/persistence/dao/BuyOrderDAO.java ===
+package core.ms.order.infrastructure.persistence.dao;
+
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.order.infrastructure.persistence.entities.BuyOrderEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+public interface BuyOrderDAO extends JpaRepository<BuyOrderEntity, String> {
+    List<BuyOrderEntity> findBySymbolCode(String symbolCode);
+    List<BuyOrderEntity> findByStatus(OrderStatusEnum status);
+}
+=== ./infrastructure/persistence/dao/TransactionDAO.java ===
+package core.ms.order.infrastructure.persistence.dao;
+
+import core.ms.order.infrastructure.persistence.entities.TransactionEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Repository
+public interface TransactionDAO extends JpaRepository<TransactionEntity, String> {
+    List<TransactionEntity> findByBuyOrderId(String buyOrderId);
+    List<TransactionEntity> findBySellOrderId(String sellOrderId);
+    List<TransactionEntity> findBySymbolCode(String symbolCode);
+    List<TransactionEntity> findByCreatedAtBetween(LocalDateTime startDate, LocalDateTime endDate);
+}=== ./infrastructure/persistence/dao/SellOrderDAO.java ===
+package core.ms.order.infrastructure.persistence.dao;
+
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.order.infrastructure.persistence.entities.SellOrderEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+public interface SellOrderDAO extends JpaRepository<SellOrderEntity, String> {
+    List<SellOrderEntity> findBySymbolCode(String symbolCode);
+    List<SellOrderEntity> findByStatus(OrderStatusEnum status);
+}=== ./infrastructure/persistence/entities/AbstractOrderEntity.java ===
+package core.ms.order.infrastructure.persistence.entities;
+
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.shared.domain.Currency;
+import jakarta.persistence.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+@MappedSuperclass
+public abstract class AbstractOrderEntity {
+
+    @Id
+    @Column(name = "id", length = 50)
+    protected String id;
+
+    @Column(name = "symbol_code", nullable = false, length = 20)
+    protected String symbolCode;
+
+    @Column(name = "symbol_name", nullable = false, length = 100)
+    protected String symbolName;
+
+    @Column(name = "price", nullable = false, precision = 19, scale = 8)
+    protected BigDecimal price;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "currency", nullable = false, length = 10)
+    protected Currency currency;
+
+    @Column(name = "quantity", nullable = false, precision = 19, scale = 8)
+    protected BigDecimal quantity;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false, length = 20)
+    protected OrderStatusEnum status;
+
+    @Column(name = "executed_quantity", nullable = false, precision = 19, scale = 8)
+    protected BigDecimal executedQuantity;
+
+    @Column(name = "created_at", nullable = false)
+    protected LocalDateTime createdAt;
+
+    @Column(name = "updated_at", nullable = false)
+    protected LocalDateTime updatedAt;
+
+    // Constructors
+    protected AbstractOrderEntity() {}
+
+    protected AbstractOrderEntity(String id, String symbolCode, String symbolName,
+                                  BigDecimal price, Currency currency, BigDecimal quantity,
+                                  OrderStatusEnum status, BigDecimal executedQuantity,
+                                  LocalDateTime createdAt, LocalDateTime updatedAt) {
+        this.id = id;
+        this.symbolCode = symbolCode;
+        this.symbolName = symbolName;
+        this.price = price;
+        this.currency = currency;
+        this.quantity = quantity;
+        this.status = status;
+        this.executedQuantity = executedQuantity;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+    }
+
+    // Getters and Setters
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public String getSymbolName() { return symbolName; }
+    public void setSymbolName(String symbolName) { this.symbolName = symbolName; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+    public OrderStatusEnum getStatus() { return status; }
+    public void setStatus(OrderStatusEnum status) { this.status = status; }
+    public BigDecimal getExecutedQuantity() { return executedQuantity; }
+    public void setExecutedQuantity(BigDecimal executedQuantity) { this.executedQuantity = executedQuantity; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+    public LocalDateTime getUpdatedAt() { return updatedAt; }
+    public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        AbstractOrderEntity that = (AbstractOrderEntity) obj;
+        return Objects.equals(id, that.id);
+    }
+
+    @Override
+    public int hashCode() { return Objects.hash(id); }
+}=== ./infrastructure/persistence/entities/TransactionEntity.java ===
+package core.ms.order.infrastructure.persistence.entities;
+
+import core.ms.shared.domain.Currency;
+import jakarta.persistence.*;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+@Entity
+@Table(name = "transactions")
+public class TransactionEntity {
+
+    @Id
+    @Column(name = "id", length = 50)
+    private String id;
+
+    @Column(name = "symbol_code", nullable = false, length = 20)
+    private String symbolCode;
+
+    @Column(name = "symbol_name", nullable = false, length = 100)
+    private String symbolName;
+
+    @Column(name = "buy_order_id", nullable = false, length = 50)
+    private String buyOrderId;
+
+    @Column(name = "sell_order_id", nullable = false, length = 50)
+    private String sellOrderId;
+
+    @Column(name = "price", nullable = false, precision = 19, scale = 8)
+    private BigDecimal price;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "currency", nullable = false, length = 10)
+    private Currency currency;
+
+    @Column(name = "quantity", nullable = false, precision = 19, scale = 8)
+    private BigDecimal quantity;
+
+    @Column(name = "total_value", nullable = false, precision = 19, scale = 8)
+    private BigDecimal totalValue;
+
+    @Column(name = "created_at", nullable = false)
+    private LocalDateTime createdAt;
+
+    // Constructors
+    public TransactionEntity() {}
+
+    public TransactionEntity(String id, String symbolCode, String symbolName,
+                             String buyOrderId, String sellOrderId,
+                             BigDecimal price, Currency currency, BigDecimal quantity,
+                             BigDecimal totalValue, LocalDateTime createdAt) {
+        this.id = id;
+        this.symbolCode = symbolCode;
+        this.symbolName = symbolName;
+        this.buyOrderId = buyOrderId;
+        this.sellOrderId = sellOrderId;
+        this.price = price;
+        this.currency = currency;
+        this.quantity = quantity;
+        this.totalValue = totalValue;
+        this.createdAt = createdAt;
+    }
+
+    // Getters and Setters
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public String getSymbolName() { return symbolName; }
+    public void setSymbolName(String symbolName) { this.symbolName = symbolName; }
+    public String getBuyOrderId() { return buyOrderId; }
+    public void setBuyOrderId(String buyOrderId) { this.buyOrderId = buyOrderId; }
+    public String getSellOrderId() { return sellOrderId; }
+    public void setSellOrderId(String sellOrderId) { this.sellOrderId = sellOrderId; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+    public BigDecimal getTotalValue() { return totalValue; }
+    public void setTotalValue(BigDecimal totalValue) { this.totalValue = totalValue; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        TransactionEntity that = (TransactionEntity) obj;
+        return Objects.equals(id, that.id);
+    }
+
+    @Override
+    public int hashCode() { return Objects.hash(id); }
+}=== ./infrastructure/persistence/entities/SellOrderEntity.java ===
+package core.ms.order.infrastructure.persistence.entities;
+
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.shared.domain.Currency;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "sell_orders")
+public class SellOrderEntity extends AbstractOrderEntity {
+
+    public SellOrderEntity() { super(); }
+
+    public SellOrderEntity(String id, String symbolCode, String symbolName,
+                           BigDecimal price, Currency currency, BigDecimal quantity,
+                           OrderStatusEnum status, BigDecimal executedQuantity,
+                           LocalDateTime createdAt, LocalDateTime updatedAt) {
+        super(id, symbolCode, symbolName, price, currency, quantity,
+                status, executedQuantity, createdAt, updatedAt);
+    }
+}=== ./infrastructure/persistence/entities/BuyOrderEntity.java ===
+package core.ms.order.infrastructure.persistence.entities;
+
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.shared.domain.Currency;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Table;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "buy_orders")
+public class BuyOrderEntity extends AbstractOrderEntity {
+
+    public BuyOrderEntity() { super(); }
+
+    public BuyOrderEntity(String id, String symbolCode, String symbolName,
+                          BigDecimal price, Currency currency, BigDecimal quantity,
+                          OrderStatusEnum status, BigDecimal executedQuantity,
+                          LocalDateTime createdAt, LocalDateTime updatedAt) {
+        super(id, symbolCode, symbolName, price, currency, quantity,
+                status, executedQuantity, createdAt, updatedAt);
+    }
+}=== ./infrastructure/persistence/mappers/TransactionMapper.java ===
+package core.ms.order.infrastructure.persistence.mappers;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order.domain.entities.Transaction;
+import core.ms.order.infrastructure.persistence.entities.TransactionEntity;
+import core.ms.shared.domain.AssetType;
+import core.ms.shared.domain.Currency;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+import org.springframework.stereotype.Component;
+
+@Component
+public class TransactionMapper {
+
+    public TransactionEntity fromDomain(Transaction transaction) {
+        return new TransactionEntity(
+                transaction.getId(),
+                transaction.getSymbol().getCode(),
+                transaction.getSymbol().getName(),
+                transaction.getBuyOrder().getId(),
+                transaction.getSellOrder().getId(),
+                transaction.getPrice().getAmount(),
+                transaction.getPrice().getCurrency(),
+                transaction.getQuantity(),
+                transaction.getTotalValue().getAmount(),
+                transaction.getCreatedAt()
+        );
+    }
+
+    public Transaction toDomain(TransactionEntity entity, IBuyOrder buyOrder, ISellOrder sellOrder) {
+        Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
+        Money price = Money.of(entity.getPrice(), entity.getCurrency());
+
+        return new Transaction(
+                entity.getId(),
+                symbol,
+                buyOrder,
+                sellOrder,
+                price,
+                entity.getQuantity()
+        );
+    }
+
+    private Symbol reconstructSymbol(String code, String name, Currency quoteCurrency) {
+        return switch (code.toUpperCase()) {
+            case "BTC" -> quoteCurrency == Currency.USD ? Symbol.btcUsd() : Symbol.btcEur();
+            case "ETH" -> Symbol.ethUsd();
+            case "EURUSD" -> Symbol.eurUsd();
+            case "GBPUSD" -> Symbol.gbpUsd();
+            default -> new Symbol(code, name, AssetType.STOCK, Currency.USD, quoteCurrency);
+        };
+    }
+}=== ./infrastructure/persistence/mappers/AbstractOrderMapper.java ===
+package core.ms.order.infrastructure.persistence.mappers;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.order.infrastructure.persistence.entities.AbstractOrderEntity;
+import core.ms.shared.domain.AssetType;
+import core.ms.shared.domain.Currency;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+
+public abstract class AbstractOrderMapper <T extends IOrder, E extends AbstractOrderEntity>{
+    /**
+     * Common mapping from domain to entity
+     */
+    protected void mapCommonFields(T order, E entity) {
+        entity.setId(order.getId());
+        entity.setSymbolCode(order.getSymbol().getCode());
+        entity.setSymbolName(order.getSymbol().getName());
+        entity.setPrice(order.getPrice().getAmount());
+        entity.setCurrency(order.getPrice().getCurrency());
+        entity.setQuantity(order.getQuantity());
+        entity.setStatus(order.getStatus().getStatus()); // Extract enum from state pattern
+        entity.setExecutedQuantity(order.getExecutedQuantity());
+        entity.setCreatedAt(order.getCreatedAt());
+        entity.setUpdatedAt(order.getUpdatedAt());
+    }
+
+    /**
+     * Common mapping from entity to domain fields
+     */
+    protected void reconstructCommonState(T order, E entity) {
+        // Reconstruct the order state from persisted data
+        reconstructOrderState(order, entity.getStatus(), entity.getExecutedQuantity());
+    }
+
+    /**
+     * Reconstructs the domain order state from persisted data
+     * This handles the state pattern complexity
+     */
+    protected void reconstructOrderState(T order, OrderStatusEnum status, BigDecimal executedQuantity) {
+        // If there's executed quantity, we need to simulate the partial execution
+        if (executedQuantity.compareTo(BigDecimal.ZERO) > 0) {
+            if (status == OrderStatusEnum.PARTIAL) {
+                order.fillPartial();
+            } else if (status == OrderStatusEnum.FILLED) {
+                order.complete();
+            }
+        } else {
+            // No execution, just set the final status
+            switch (status) {
+                case CANCELLED -> order.cancel();
+                case FILLED -> order.complete();
+                // PENDING is default state
+            }
+        }
+    }
+
+    /**
+     * Reconstructs Symbol from persisted data
+     * Common logic for all order types
+     */
+    protected Symbol reconstructSymbol(String code, String name, Currency quoteCurrency) {
+        // Enhanced symbol reconstruction based on your Symbol factory methods
+        return switch (code.toUpperCase()) {
+            case "BTC" -> quoteCurrency == Currency.USD ? Symbol.btcUsd() : Symbol.btcEur();
+            case "ETH" -> Symbol.ethUsd();
+            case "EURUSD" -> Symbol.eurUsd();
+            case "GBPUSD" -> Symbol.gbpUsd();
+            default -> {
+                // Fallback - determine asset type based on currency
+                AssetType assetType = quoteCurrency.isCrypto() ? AssetType.CRYPTO :
+                        quoteCurrency.isFiat() ? AssetType.FOREX : AssetType.STOCK;
+                Currency baseCurrency = determineBasseCurrency(code, quoteCurrency);
+                yield new Symbol(code, name, assetType, baseCurrency, quoteCurrency);
+            }
+        };
+    }
+
+    /**
+     * Helper method to determine base currency for unknown symbols
+     */
+    private Currency determineBasseCurrency(String code, Currency quoteCurrency) {
+        // Simple heuristic - you might want to enhance this
+        if (code.contains("BTC")) return Currency.BTC;
+        if (code.contains("ETH")) return Currency.ETH;
+        if (code.contains("USD")) return Currency.USD;
+        if (code.contains("EUR")) return Currency.EUR;
+        if (code.contains("GBP")) return Currency.GBP;
+
+        // Default fallback
+        return quoteCurrency == Currency.USD ? Currency.EUR : Currency.USD;
+    }
+
+    public abstract E fromDomain(T order);
+
+    public abstract T toDomain(E entity);
+}
+=== ./infrastructure/persistence/mappers/SellOrderMapper.java ===
+package core.ms.order.infrastructure.persistence.mappers;
+
+import core.ms.order.domain.entities.SellOrder;
+import core.ms.order.infrastructure.persistence.entities.SellOrderEntity;
+import core.ms.shared.domain.AssetType;
+import core.ms.shared.domain.Currency;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+import org.springframework.stereotype.Component;
+
+
+@Component
+public class SellOrderMapper {
+
+    public SellOrderEntity fromDomain(SellOrder order) {
+        return new SellOrderEntity(
+                order.getId(),
+                order.getSymbol().getCode(),
+                order.getSymbol().getName(),
+                order.getPrice().getAmount(),
+                order.getPrice().getCurrency(),
+                order.getQuantity(),
+                order.getStatus().getStatus(),
+                order.getExecutedQuantity(),
+                order.getCreatedAt(),
+                order.getUpdatedAt()
+        );
+    }
+
+    public SellOrder toDomain(SellOrderEntity entity) {
+        Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
+        Money price = Money.of(entity.getPrice(), entity.getCurrency());
+
+        SellOrder order = new SellOrder(entity.getId(), symbol, price, entity.getQuantity());
+
+        // Reconstruct state
+        order.setExecutedQuantity(entity.getExecutedQuantity());
+        reconstructOrderState(order, entity);
+
+        return order;
+    }
+
+    private void reconstructOrderState(SellOrder order, SellOrderEntity entity) {
+        switch (entity.getStatus()) {
+            case PARTIAL -> order.fillPartial();
+            case FILLED -> order.complete();
+            case CANCELLED -> order.cancel();
+            // PENDING is default
+        }
+    }
+
+    private Symbol reconstructSymbol(String code, String name, Currency quoteCurrency) {
+        return switch (code.toUpperCase()) {
+            case "BTC" -> quoteCurrency == Currency.USD ? Symbol.btcUsd() : Symbol.btcEur();
+            case "ETH" -> Symbol.ethUsd();
+            case "EURUSD" -> Symbol.eurUsd();
+            case "GBPUSD" -> Symbol.gbpUsd();
+            default -> new Symbol(code, name, AssetType.STOCK, Currency.USD, quoteCurrency);
+        };
+    }
+}
+=== ./infrastructure/persistence/mappers/BuyOrderMapper.java ===
+package core.ms.order.infrastructure.persistence.mappers;
+
+import core.ms.order.domain.entities.BuyOrder;
+import core.ms.order.infrastructure.persistence.entities.BuyOrderEntity;
+import core.ms.shared.domain.AssetType;
+import core.ms.shared.domain.Currency;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+import org.springframework.stereotype.Component;
+
+@Component
+public class BuyOrderMapper {
+
+    public BuyOrderEntity fromDomain(BuyOrder order) {
+        return new BuyOrderEntity(
+                order.getId(),
+                order.getSymbol().getCode(),
+                order.getSymbol().getName(),
+                order.getPrice().getAmount(),
+                order.getPrice().getCurrency(),
+                order.getQuantity(),
+                order.getStatus().getStatus(),
+                order.getExecutedQuantity(),
+                order.getCreatedAt(),
+                order.getUpdatedAt()
+        );
+    }
+
+    public BuyOrder toDomain(BuyOrderEntity entity) {
+        Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
+        Money price = Money.of(entity.getPrice(), entity.getCurrency());
+
+        BuyOrder order = new BuyOrder(entity.getId(), symbol, price, entity.getQuantity());
+
+        // Reconstruct state
+        order.setExecutedQuantity(entity.getExecutedQuantity());
+        reconstructOrderState(order, entity);
+
+        return order;
+    }
+
+    private void reconstructOrderState(BuyOrder order, BuyOrderEntity entity) {
+        switch (entity.getStatus()) {
+            case PARTIAL -> order.fillPartial();
+            case FILLED -> order.complete();
+            case CANCELLED -> order.cancel();
+            // PENDING is default
+        }
+    }
+
+    private Symbol reconstructSymbol(String code, String name, Currency quoteCurrency) {
+        return switch (code.toUpperCase()) {
+            case "BTC" -> quoteCurrency == Currency.USD ? Symbol.btcUsd() : Symbol.btcEur();
+            case "ETH" -> Symbol.ethUsd();
+            case "EURUSD" -> Symbol.eurUsd();
+            case "GBPUSD" -> Symbol.gbpUsd();
+            default -> new Symbol(code, name, AssetType.STOCK, Currency.USD, quoteCurrency);
+        };
+    }
+}
+
+

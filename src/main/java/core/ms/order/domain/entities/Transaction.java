@@ -5,6 +5,10 @@ import core.ms.shared.domain.Symbol;
 
 import java.math.BigDecimal;
 
+/**
+ * Pure transaction entity - NO business rules, NO validation.
+ * Creation is controlled by TransactionFactory using validation builders.
+ */
 public class Transaction extends AbstractTransaction {
 
     public Transaction(
@@ -12,20 +16,9 @@ public class Transaction extends AbstractTransaction {
             Symbol symbol,
             IBuyOrder buyOrder,
             ISellOrder sellOrder,
-            Money price,
             BigDecimal quantity
     ) {
-        super(id, symbol, buyOrder, sellOrder, price, quantity);
-    }
-
-    public static Transaction fromMatchingOrders(String id, IBuyOrder buyOrder,
-                                                 ISellOrder sellOrder, Money executionPrice,
-                                                 BigDecimal executionQuantity) {
-        if (!buyOrder.getSymbol().equals(sellOrder.getSymbol())) {
-            throw new IllegalArgumentException("Orders must have the same symbol");
-        }
-
-        return new Transaction(id, buyOrder.getSymbol(), buyOrder,
-                sellOrder, executionPrice, executionQuantity);
+        // Pure delegation - NO validation
+        super(id, symbol, buyOrder, sellOrder, quantity);
     }
 }

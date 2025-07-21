@@ -1,0 +1,438 @@
+=== ./event/OrderAcceptedEvent.java ===
+package core.ms.market_engine.event;
+
+import core.ms.order.domain.entities.IOrder;
+
+import java.util.Objects;
+
+public class OrderAcceptedEvent extends DomainEvent {
+    private final IOrder order;
+
+    public OrderAcceptedEvent(IOrder order, String engineId) {
+        super(engineId);
+        this.order = Objects.requireNonNull(order, "Order cannot be null");
+    }
+
+    public IOrder getOrder() {
+        return order;
+    }
+
+    @Override
+    public String toString() {
+        return "OrderAcceptedEvent{" +
+                "orderId='" + order.getId() + '\'' +
+                ", symbol=" + order.getSymbol().getCode() +
+                ", eventId='" + eventId + '\'' +
+                '}';
+    }
+}
+=== ./event/TransactionCreatedEvent.java ===
+package core.ms.market_engine.event;
+
+import core.ms.order.domain.entities.ITransaction;
+
+import java.util.Objects;
+
+public class TransactionCreatedEvent extends DomainEvent {
+    private final ITransaction transaction;
+
+    public TransactionCreatedEvent(ITransaction transaction, String engineId) {
+        super(engineId);
+        this.transaction = Objects.requireNonNull(transaction, "Transaction cannot be null");
+    }
+
+    public ITransaction getTransaction() {
+        return transaction;
+    }
+
+    @Override
+    public String toString() {
+        return "TransactionCreatedEvent{" +
+                "transactionId='" + transaction.getId() + '\'' +
+                ", symbol=" + transaction.getSymbol().getCode() +
+                ", eventId='" + eventId + '\'' +
+                '}';
+    }
+}
+
+=== ./event/DomainEvent.java ===
+package core.ms.market_engine.event;
+
+import core.ms.utils.IdGenerator;
+
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+public abstract class DomainEvent {
+    protected final String eventId;
+    protected final LocalDateTime timestamp;
+    protected final String engineId;
+
+    protected DomainEvent(String engineId) {
+        this.eventId = new IdGenerator().generateEventId();
+        this.timestamp = LocalDateTime.now();
+        this.engineId = Objects.requireNonNull(engineId, "Engine ID cannot be null");
+    }
+
+    public String getEventId() {
+        return eventId;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public String getEngineId() {
+        return engineId;
+    }
+}
+=== ./event/OrderExecutedEvent.java ===
+package core.ms.market_engine.event;
+
+import core.ms.shared.domain.Money;
+
+import java.math.BigDecimal;
+import java.util.Objects;
+
+public class OrderExecutedEvent extends DomainEvent {
+    private final String orderId;
+    private final BigDecimal executedQuantity;
+    private final BigDecimal remainingQuantity;
+    private final Money executionPrice;
+
+    public OrderExecutedEvent(String orderId, BigDecimal executedQuantity,
+                              BigDecimal remainingQuantity, Money executionPrice, String engineId) {
+        super(engineId);
+        this.orderId = Objects.requireNonNull(orderId, "Order ID cannot be null");
+        this.executedQuantity = Objects.requireNonNull(executedQuantity, "Executed quantity cannot be null");
+        this.remainingQuantity = Objects.requireNonNull(remainingQuantity, "Remaining quantity cannot be null");
+        this.executionPrice = Objects.requireNonNull(executionPrice, "Execution price cannot be null");
+    }
+
+    public String getOrderId() {
+        return orderId;
+    }
+
+    public BigDecimal getExecutedQuantity() {
+        return executedQuantity;
+    }
+
+    public BigDecimal getRemainingQuantity() {
+        return remainingQuantity;
+    }
+
+    public Money getExecutionPrice() {
+        return executionPrice;
+    }
+
+    public boolean isFullyExecuted() {
+        return remainingQuantity.compareTo(BigDecimal.ZERO) == 0;
+    }
+
+    @Override
+    public String toString() {
+        return "OrderExecutedEvent{" +
+                "orderId='" + orderId + '\'' +
+                ", executedQuantity=" + executedQuantity +
+                ", remainingQuantity=" + remainingQuantity +
+                ", executionPrice=" + executionPrice.toPlainString() +
+                ", fullyExecuted=" + isFullyExecuted() +
+                '}';
+    }
+}=== ./TransactionProcessor.java ===
+package core.ms.market_engine;
+
+import core.ms.order.domain.entities.ITransaction;
+import core.ms.order.domain.entities.Transaction;
+import core.ms.order_book.domain.value_object.OrderMatch;
+import core.ms.utils.IdGenerator;
+
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+public class TransactionProcessor {
+    private final IdGenerator idGenerator;
+
+    public TransactionProcessor() {
+        this.idGenerator = new IdGenerator();
+    }
+
+    /**
+     * Creates a transaction from an order match.
+     * Note: Order status updates and quantity management are automatically
+     * handled by the Order domain when the Transaction is created.
+     */
+    public ITransaction createTransaction(OrderMatch match) {
+        Objects.requireNonNull(match, "OrderMatch cannot be null");
+
+        if (!match.isValid()) {
+            throw new IllegalArgumentException("Cannot create transaction from invalid match");
+        }
+
+        String transactionId = idGenerator.generateTransactionId();
+
+        // Creating the transaction automatically updates both orders
+        // via AbstractTransaction.updateOrdersAfterTransaction()
+        return new Transaction(
+                transactionId,
+                match.getBuyOrder().getSymbol(),
+                match.getBuyOrder(),
+                match.getSellOrder(),
+                match.getSuggestedPrice(),
+                match.getMatchableQuantity()
+        );
+    }
+
+    /**
+     * Processes multiple matches into transactions.
+     * Each transaction creation automatically updates the involved orders.
+     */
+    public List<ITransaction> processMatches(List<OrderMatch> matches) {
+        return matches.stream()
+                .filter(OrderMatch::isValid)
+                .map(this::createTransaction)
+                .collect(Collectors.toList());
+    }
+
+}=== ./MarketEngine.java ===
+package core.ms.market_engine;
+
+import core.ms.market_engine.event.OrderAcceptedEvent;
+import core.ms.market_engine.event.OrderExecutedEvent;
+import core.ms.market_engine.event.TransactionCreatedEvent;
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.entities.ITransaction;
+import core.ms.order_book.domain.OrderBookManager;
+import core.ms.order_book.domain.value_object.OrderMatch;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+public class MarketEngine {
+    private final String engineId;
+    private final OrderBookManager orderBookManager;
+    private final TransactionProcessor transactionProcessor;
+    private final EventPublisher eventPublisher;
+    private final LocalDateTime createdAt;
+
+    public MarketEngine(String engineId, OrderBookManager orderBookManager) {
+        this.engineId = Objects.requireNonNull(engineId, "Engine ID cannot be null");
+        this.orderBookManager = Objects.requireNonNull(orderBookManager, "OrderBookManager cannot be null");
+        this.transactionProcessor = new TransactionProcessor();
+        this.eventPublisher = new EventPublisher();
+        this.createdAt = LocalDateTime.now();
+    }
+
+    /**
+     * Main business operation: processes an order through the complete workflow.
+     */
+    public OrderResult processOrder(IOrder order) {
+        Objects.requireNonNull(order, "Order cannot be null");
+
+        try {
+            // 1. Add order to the appropriate order book
+            orderBookManager.addOrderToBook(order);
+
+            // 2. Publish order accepted event
+            eventPublisher.publishOrderAccepted(new OrderAcceptedEvent(order, engineId));
+
+            // 3. Find all possible matches across all order books
+            List<OrderMatch> matches = orderBookManager.findAllMatches();
+
+            // 4. Process any matches into transactions
+            List<ITransaction> transactions = processMatches(matches);
+
+            // 5. Extract transaction IDs for the result
+            List<String> transactionIds = transactions.stream()
+                    .map(ITransaction::getId)
+                    .collect(Collectors.toList());
+
+            // 6. Return appropriate result
+            if (transactions.isEmpty()) {
+                return OrderResult.accepted(order.getId());
+            } else {
+                return OrderResult.acceptedWithTransactions(order.getId(), transactionIds);
+            }
+
+        } catch (Exception e) {
+            return OrderResult.rejected(order.getId(), "Processing failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Processes a list of order matches into transactions.
+     * Note: Order status updates and quantity management are automatically
+     * handled by the Order domain when transactions are created.
+     */
+    private List<ITransaction> processMatches(List<OrderMatch> matches) {
+        List<ITransaction> transactions = new ArrayList<>();
+
+        for (OrderMatch match : matches) {
+            if (match.isValid()) {
+                try {
+                    // Create transaction - this automatically updates orders via Order domain
+                    ITransaction transaction = transactionProcessor.createTransaction(match);
+                    transactions.add(transaction);
+
+                    // Publish transaction created event
+                    eventPublisher.publishTransactionCreated(new TransactionCreatedEvent(transaction, engineId));
+
+                    // Publish order execution events
+                    publishOrderExecutionEvents(match);
+
+                } catch (Exception e) {
+                    System.err.println("Failed to process match: " + e.getMessage());
+                }
+            }
+        }
+
+        return transactions;
+    }
+
+    private void publishOrderExecutionEvents(OrderMatch match) {
+        eventPublisher.publishOrderExecuted(new OrderExecutedEvent(
+                match.getBuyOrder().getId(),
+                match.getMatchableQuantity(),
+                match.getBuyOrder().getRemainingQuantity(),
+                match.getSuggestedPrice(),
+                engineId
+        ));
+
+        eventPublisher.publishOrderExecuted(new OrderExecutedEvent(
+                match.getSellOrder().getId(),
+                match.getMatchableQuantity(),
+                match.getSellOrder().getRemainingQuantity(),
+                match.getSuggestedPrice(),
+                engineId
+        ));
+    }
+
+    // Getters
+    public String getEngineId() {
+        return engineId;
+    }
+
+    public LocalDateTime getCreatedAt() {
+        return createdAt;
+    }
+}=== ./EventPublisher.java ===
+package core.ms.market_engine;
+
+import core.ms.market_engine.event.OrderAcceptedEvent;
+import core.ms.market_engine.event.OrderExecutedEvent;
+import core.ms.market_engine.event.TransactionCreatedEvent;
+import core.ms.order.domain.entities.ITransaction;
+
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+public class EventPublisher {
+
+    /**
+     * Publishes order accepted event.
+     */
+    public void publishOrderAccepted(OrderAcceptedEvent event) {
+        Objects.requireNonNull(event, "Event cannot be null");
+        logEvent("ORDER_ACCEPTED",
+                "Order " + event.getOrder().getId() + " accepted for symbol " + event.getOrder().getSymbol().getCode());
+    }
+
+    /**
+     * Publishes transaction created event.
+     */
+    public void publishTransactionCreated(TransactionCreatedEvent event) {
+        Objects.requireNonNull(event, "Event cannot be null");
+        ITransaction tx = event.getTransaction();
+        logEvent("TRANSACTION_CREATED",
+                "Transaction " + tx.getId() + " created: " + tx.getQuantity() + " " +
+                        tx.getSymbol().getCode() + " @ " + tx.getPrice().toPlainString());
+    }
+
+    /**
+     * Publishes order executed event.
+     */
+    public void publishOrderExecuted(OrderExecutedEvent event) {
+        Objects.requireNonNull(event, "Event cannot be null");
+        logEvent("ORDER_EXECUTED",
+                "Order " + event.getOrderId() + " executed: " + event.getExecutedQuantity() +
+                        " @ " + event.getExecutionPrice().toPlainString() +
+                        " (remaining: " + event.getRemainingQuantity() + ")");
+    }
+
+    /**
+     * Simple logging mechanism.
+     */
+    private void logEvent(String eventType, String message) {
+        System.out.println("[" + LocalDateTime.now() + "] " + eventType + ": " + message);
+    }
+}=== ./OrderResult.java ===
+package core.ms.market_engine;
+
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+
+public class OrderResult {
+    private final String orderId;
+    private final boolean success;
+    private final String message;
+    private final LocalDateTime timestamp;
+    private final List<String> transactionIds;
+
+    public OrderResult(String orderId, boolean success, String message, List<String> transactionIds) {
+        this.orderId = Objects.requireNonNull(orderId, "Order ID cannot be null");
+        this.success = success;
+        this.message = Objects.requireNonNull(message, "Message cannot be null");
+        this.timestamp = LocalDateTime.now();
+        this.transactionIds = transactionIds != null ? new ArrayList<>(transactionIds) : new ArrayList<>();
+    }
+
+    // Static factory methods
+    public static OrderResult accepted(String orderId) {
+        return new OrderResult(orderId, true, "Order accepted", new ArrayList<>());
+    }
+
+    public static OrderResult acceptedWithTransactions(String orderId, List<String> transactionIds) {
+        return new OrderResult(orderId, true, "Order accepted and executed", transactionIds);
+    }
+
+    public static OrderResult rejected(String orderId, String reason) {
+        return new OrderResult(orderId, false, reason, new ArrayList<>());
+    }
+
+    // Getters
+    public String getOrderId() {
+        return orderId;
+    }
+
+    public boolean isSuccess() {
+        return success;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public List<String> getTransactionIds() {
+        return new ArrayList<>(transactionIds);
+    }
+
+    @Override
+    public String toString() {
+        return "OrderResult{" +
+                "orderId='" + orderId + '\'' +
+                ", success=" + success +
+                ", message='" + message + '\'' +
+                ", transactionIds=" + transactionIds.size() +
+                '}';
+    }
+}

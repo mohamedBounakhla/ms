@@ -11,6 +11,19 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 
+import core.ms.order.domain.value_objects.OrderStatus;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+/**
+ * Pure order entity - NO business rules, NO validation.
+ * All validation is handled by the factory/builder pattern.
+ */
 public abstract class AbstractOrder implements IOrder {
     protected final String id;
     protected final Symbol symbol;
@@ -19,26 +32,35 @@ public abstract class AbstractOrder implements IOrder {
     protected OrderStatus status;
     protected final LocalDateTime createdAt;
     protected LocalDateTime updatedAt;
-
-    // ===== EXECUTION TRACKING (Internal State Only) =====
     protected BigDecimal executedQuantity;
 
     protected AbstractOrder(String id, Symbol symbol, Money price, BigDecimal quantity) {
-        this.id = Objects.requireNonNull(id, "ID cannot be null");
-        this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");
-        this.price = Objects.requireNonNull(price, "Price cannot be null");
-        this.quantity = Objects.requireNonNull(quantity, "Quantity cannot be null");
+        // Pure assignment - NO validation, NO null checks
+        this.id = id;
+        this.symbol = symbol;
+        this.price = price;
+        this.quantity = quantity;
         this.status = new OrderStatus();
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
-
         this.executedQuantity = BigDecimal.ZERO;
-
-        validatePriceCurrency(price);
-        validateQuantity(quantity);
     }
 
-    // ===== GETTERS =====
+    // Alternative constructor for builder pattern
+    protected AbstractOrder(String id, Symbol symbol, Money price, BigDecimal quantity,
+                            OrderStatus status, LocalDateTime createdAt, LocalDateTime updatedAt,
+                            BigDecimal executedQuantity) {
+        this.id = id;
+        this.symbol = symbol;
+        this.price = price;
+        this.quantity = quantity;
+        this.status = status;
+        this.createdAt = createdAt;
+        this.updatedAt = updatedAt;
+        this.executedQuantity = executedQuantity;
+    }
+
+    // ===== PURE GETTERS =====
     @Override
     public String getId() { return id; }
 
@@ -60,11 +82,8 @@ public abstract class AbstractOrder implements IOrder {
     @Override
     public LocalDateTime getUpdatedAt() { return updatedAt; }
 
-    // ===== EXECUTION TRACKING =====
     @Override
-    public BigDecimal getExecutedQuantity() {
-        return executedQuantity;
-    }
+    public BigDecimal getExecutedQuantity() { return executedQuantity; }
 
     @Override
     public BigDecimal getRemainingQuantity() {
@@ -72,20 +91,11 @@ public abstract class AbstractOrder implements IOrder {
         return remaining.compareTo(BigDecimal.ZERO) <= 0 ? BigDecimal.ZERO : remaining;
     }
 
-    // ===== NEW CLEAN EXECUTION METHODS =====
+    // ===== STATE CHANGE METHODS (Domain Behavior) =====
 
     @Override
     public void updateExecution(BigDecimal executedAmount) {
-        Objects.requireNonNull(executedAmount, "Executed amount cannot be null");
-
-        if (executedAmount.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Executed amount must be positive");
-        }
-
-        if (executedAmount.compareTo(getRemainingQuantity()) > 0) {
-            throw new IllegalArgumentException("Executed amount exceeds remaining quantity");
-        }
-
+        // Domain behavior - update execution quantity
         this.executedQuantity = this.executedQuantity.add(executedAmount);
         this.updatedAt = LocalDateTime.now();
         updateStatusAfterExecution();
@@ -93,16 +103,7 @@ public abstract class AbstractOrder implements IOrder {
 
     @Override
     public void setExecutedQuantity(BigDecimal executedQuantity) {
-        Objects.requireNonNull(executedQuantity, "Executed quantity cannot be null");
-
-        if (executedQuantity.compareTo(BigDecimal.ZERO) < 0) {
-            throw new IllegalArgumentException("Executed quantity cannot be negative");
-        }
-
-        if (executedQuantity.compareTo(quantity) > 0) {
-            throw new IllegalArgumentException("Executed quantity cannot exceed total quantity");
-        }
-
+        // Domain behavior - set execution quantity directly
         this.executedQuantity = executedQuantity;
         this.updatedAt = LocalDateTime.now();
         updateStatusAfterExecution();
@@ -122,7 +123,6 @@ public abstract class AbstractOrder implements IOrder {
         }
     }
 
-    // ===== STATUS OPERATIONS =====
     @Override
     public void cancel() {
         status.cancelOrder();
@@ -149,18 +149,12 @@ public abstract class AbstractOrder implements IOrder {
 
     @Override
     public void updatePrice(Money price) {
-        Objects.requireNonNull(price, "Price cannot be null");
-        validatePriceCurrency(price);
-
-        if (status.isTerminal()) {
-            throw new IllegalStateException("Cannot update price of terminal order");
-        }
-
+        // Domain behavior - update price
         this.price = price;
         this.updatedAt = LocalDateTime.now();
     }
 
-    // ===== BUSINESS LOGIC =====
+    // ===== BUSINESS LOGIC (Pure Calculations) =====
     @Override
     public Money getTotalValue() {
         return price.multiply(quantity);
@@ -173,21 +167,6 @@ public abstract class AbstractOrder implements IOrder {
 
     public String getSymbolCode() {
         return symbol.getCode();
-    }
-
-    // ===== VALIDATION =====
-    protected void validatePriceCurrency(Money price) {
-        if (!price.getCurrency().equals(symbol.getQuoteCurrency())) {
-            throw new IllegalArgumentException(
-                    String.format("Price currency %s does not match symbol quote currency %s",
-                            price.getCurrency(), symbol.getQuoteCurrency()));
-        }
-    }
-
-    private void validateQuantity(BigDecimal quantity) {
-        if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Quantity must be positive");
-        }
     }
 
     // ===== OBJECT METHODS =====
