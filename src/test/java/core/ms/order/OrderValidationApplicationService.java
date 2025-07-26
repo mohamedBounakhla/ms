@@ -1,6 +1,5 @@
 package core.ms.order;
 
-import core.ms.order.application.services.OrderValidationApplicationService;
 import core.ms.order.domain.entities.BuyOrder;
 import core.ms.order.domain.entities.SellOrder;
 import core.ms.order.domain.validators.ValidationErrorMessage;

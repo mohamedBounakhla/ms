@@ -1,13 +1,13 @@
 package core.ms.order.infrastructure.persistence.mappers;
 
 import core.ms.order.domain.entities.SellOrder;
+import core.ms.order.domain.factories.OrderFactory;
 import core.ms.order.infrastructure.persistence.entities.SellOrderEntity;
 import core.ms.shared.domain.AssetType;
 import core.ms.shared.domain.Currency;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
 import org.springframework.stereotype.Component;
-
 
 @Component
 public class SellOrderMapper {
@@ -28,16 +28,28 @@ public class SellOrderMapper {
     }
 
     public SellOrder toDomain(SellOrderEntity entity) {
-        Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
-        Money price = Money.of(entity.getPrice(), entity.getCurrency());
+        try {
+            // Reconstruct domain objects
+            Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
+            Money price = Money.of(entity.getPrice(), entity.getCurrency());
 
-        SellOrder order = new SellOrder(entity.getId(), symbol, price, entity.getQuantity());
+            // Use factory to create the order with proper validation
+            SellOrder order = OrderFactory.createSellOrderWithId(
+                    entity.getId(),
+                    symbol,
+                    price,
+                    entity.getQuantity()
+            );
 
-        // Reconstruct state
-        order.setExecutedQuantity(entity.getExecutedQuantity());
-        reconstructOrderState(order, entity);
+            // Reconstruct the persisted state (executed quantity and status)
+            order.setExecutedQuantity(entity.getExecutedQuantity());
+            reconstructOrderState(order, entity);
 
-        return order;
+            return order;
+
+        } catch (OrderFactory.OrderCreationException e) {
+            throw new IllegalStateException("Failed to reconstruct SellOrder from persistence: " + e.getMessage(), e);
+        }
     }
 
     private void reconstructOrderState(SellOrder order, SellOrderEntity entity) {
@@ -45,7 +57,7 @@ public class SellOrderMapper {
             case PARTIAL -> order.fillPartial();
             case FILLED -> order.complete();
             case CANCELLED -> order.cancel();
-            // PENDING is default
+            // PENDING is default state, no action needed
         }
     }
 

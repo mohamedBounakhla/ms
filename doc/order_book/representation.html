@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OrderBook Domain Hierarchy</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+
+        h1 {
+            text-align: center;
+            color: #2c3e50;
+            margin-bottom: 30px;
+            font-size: 2.2em;
+        }
+
+        .hierarchy-section {
+            margin-bottom: 40px;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            background: #fafafa;
+        }
+
+        .section-title {
+            font-size: 1.5em;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .tree {
+            font-family: monospace;
+            font-size: 14px;
+            line-height: 1.6;
+            background: #2c3e50;
+            color: #ecf0f1;
+            padding: 20px;
+            border-radius: 8px;
+            overflow-x: auto;
+            white-space: pre;
+        }
+
+        .aggregate-root { color: #e74c3c; font-weight: bold; }
+        .entity { color: #3498db; font-weight: bold; }
+        .value-object { color: #2ecc71; }
+        .behavior { color: #f39c12; }
+        .data { color: #9b59b6; }
+        .validation { color: #e67e22; }
+        .complexity-low { color: #27ae60; }
+        .complexity-medium { color: #f39c12; }
+        .complexity-high { color: #e74c3c; }
+
+        .validation-flow {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-top: 20px;
+        }
+
+        .validation-card {
+            background: white;
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            border-left: 5px solid;
+        }
+
+        .validation-card.simple { border-left-color: #27ae60; }
+        .validation-card.medium { border-left-color: #f39c12; }
+        .validation-card.complex { border-left-color: #e74c3c; }
+
+        .validation-card h3 {
+            margin-top: 0;
+            color: #2c3e50;
+        }
+
+        .validation-step {
+            background: #ecf0f1;
+            margin: 5px 0;
+            padding: 8px 12px;
+            border-radius: 5px;
+            border-left: 3px solid #3498db;
+        }
+
+        .cascade {
+            margin-left: 20px;
+            border-left: 2px dashed #95a5a6;
+            padding-left: 15px;
+        }
+
+        .legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-bottom: 30px;
+            justify-content: center;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .legend-color {
+            width: 20px;
+            height: 20px;
+            border-radius: 3px;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: #ecf0f1;
+            border: none;
+            border-radius: 5px 5px 0 0;
+            cursor: pointer;
+            font-weight: bold;
+            transition: background 0.3s;
+        }
+
+        .tab.active {
+            background: #3498db;
+            color: white;
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🏗️ OrderBook Domain Hierarchy & Validation Flow</h1>
+
+    <div class="legend">
+        <div class="legend-item">
+            <div class="legend-color aggregate-root" style="background: #e74c3c;"></div>
+            <span>Aggregate Root</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color entity" style="background: #3498db;"></div>
+            <span>Entity</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color value-object" style="background: #2ecc71;"></div>
+            <span>Value Object</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color behavior" style="background: #f39c12;"></div>
+            <span>Behavior</span>
+        </div>
+        <div class="legend-item">
+            <div class="legend-color data" style="background: #9b59b6;"></div>
+            <span>Data</span>
+        </div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active" onclick="showTab('structure')">Aggregate Structure</button>
+        <button class="tab" onclick="showTab('validation')">Validation Flow</button>
+        <button class="tab" onclick="showTab('dependencies')">Dependencies</button>
+        <button class="tab" onclick="showTab('class-deps')">Class Dependencies</button>
+    </div>
+
+    <div id="structure" class="tab-content active">
+        <div class="hierarchy-section">
+            <div class="section-title">📊 Complete Domain Hierarchy</div>
+            <div class="tree">
+                <span class="aggregate-root">OrderBookManager</span> (Aggregate Root)
+                ├── <span class="data">Map&lt;Symbol, OrderBook&gt;</span> orderBooks
+                ├── <span class="behavior">OrderBook</span> getOrderBook(Symbol)
+                ├── <span class="behavior">OrderBook</span> createOrderBook(Symbol)
+                ├── <span class="behavior">boolean</span> removeOrderBook(Symbol)
+                ├── <span class="behavior">void</span> addOrderToBook(IOrder)
+                ├── <span class="behavior">boolean</span> removeOrderFromBook(IOrder)
+                ├── <span class="behavior">List&lt;OrderMatch&gt;</span> findAllMatches()
+                └── <span class="behavior">MarketOverview</span> getMarketOverview()
+
+                <span class="entity">OrderBook</span> (Entity)
+                ├── <span class="data">Symbol</span> symbol (Identity)
+                ├── <span class="data">TreeMap&lt;Money, BidPriceLevel&gt;</span> bidLevels
+                ├── <span class="data">TreeMap&lt;Money, AskPriceLevel&gt;</span> askLevels
+                ├── <span class="data">Map&lt;String, IOrder&gt;</span> orderIndex
+                ├── <span class="data">LocalDateTime</span> lastUpdate
+                ├── <span class="data">BigDecimal</span> totalBidVolume
+                ├── <span class="data">BigDecimal</span> totalAskVolume
+                ├── <span class="behavior">BuyOrderPriorityCalculator</span> buyOrderCalculator
+                ├── <span class="behavior">SellOrderPriorityCalculator</span> sellOrderCalculator
+                ├── <span class="behavior">MatchFinder</span> matchFinder
+                ├── <span class="behavior">void</span> addOrder(IBuyOrder/ISellOrder)
+                ├── <span class="behavior">boolean</span> removeOrder(IBuyOrder/ISellOrder)
+                ├── <span class="behavior">MarketDepth</span> getMarketDepth(int)
+                ├── <span class="behavior">List&lt;OrderMatch&gt;</span> findMatches()
+                ├── <span class="behavior">Optional&lt;Money&gt;</span> getBestBid/Ask()
+                └── <span class="behavior">Optional&lt;IBuyOrder/ISellOrder&gt;</span> getBestOrder()
+
+                <span class="value-object">BidPriceLevel</span> (Value Object)
+                ├── <span class="data">Money</span> price (Identity)
+                ├── <span class="data">LinkedList&lt;IBuyOrder&gt;</span> buyOrders
+                ├── <span class="data">int</span> orderCount
+                ├── <span class="behavior">void</span> addOrder(IBuyOrder)
+                ├── <span class="behavior">boolean</span> removeOrder(IBuyOrder)
+                ├── <span class="behavior">List&lt;IBuyOrder&gt;</span> getActiveOrders()
+                ├── <span class="behavior">BigDecimal</span> getTotalQuantity()
+                └── <span class="behavior">Optional&lt;IBuyOrder&gt;</span> getFirstActiveOrder()
+
+                <span class="value-object">AskPriceLevel</span> (Value Object)
+                ├── <span class="data">Money</span> price (Identity)
+                ├── <span class="data">LinkedList&lt;ISellOrder&gt;</span> sellOrders
+                ├── <span class="data">int</span> orderCount
+                ├── <span class="behavior">void</span> addOrder(ISellOrder)
+                ├── <span class="behavior">boolean</span> removeOrder(ISellOrder)
+                ├── <span class="behavior">List&lt;ISellOrder&gt;</span> getActiveOrders()
+                ├── <span class="behavior">BigDecimal</span> getTotalQuantity()
+                └── <span class="behavior">Optional&lt;ISellOrder&gt;</span> getFirstActiveOrder()
+
+                <span class="value-object">OrderMatch</span> (Value Object)
+                ├── <span class="data">IBuyOrder</span> buyOrder
+                ├── <span class="data">ISellOrder</span> sellOrder
+                ├── <span class="data">BigDecimal</span> matchableQuantity
+                ├── <span class="data">Money</span> suggestedPrice
+                ├── <span class="data">LocalDateTime</span> timestamp
+                ├── <span class="behavior">boolean</span> isValid()
+                ├── <span class="behavior">Money</span> getTotalValue()
+                ├── <span class="behavior">Money</span> calculateMidpointPrice()
+                ├── <span class="behavior">Money</span> calculatePriceTimePriority()
+                └── <span class="behavior">Money</span> calculatePriceWithAggressor()
+
+                <span class="value-object">MarketDepth</span> (Value Object)
+                ├── <span class="data">Symbol</span> symbol
+                ├── <span class="data">List&lt;BidPriceLevel&gt;</span> bidLevels
+                ├── <span class="data">List&lt;AskPriceLevel&gt;</span> askLevels
+                ├── <span class="data">Money</span> spread
+                ├── <span class="data">BigDecimal</span> totalBidVolume
+                ├── <span class="data">BigDecimal</span> totalAskVolume
+                └── <span class="data">LocalDateTime</span> timestamp
+
+                <span class="value-object">MarketOverview</span> (Value Object)
+                ├── <span class="data">Set&lt;Symbol&gt;</span> activeSymbols
+                ├── <span class="data">int</span> totalOrderBooks
+                ├── <span class="data">int</span> totalOrders
+                ├── <span class="data">Map&lt;Symbol, BigDecimal&gt;</span> totalVolume
+                └── <span class="data">LocalDateTime</span> timestamp
+            </div>
+        </div>
+    </div>
+
+    <div id="validation" class="tab-content">
+        <div class="hierarchy-section">
+            <div class="section-title">🔍 Validation Complexity & Flow</div>
+            <div class="validation-flow">
+                <div class="validation-card simple">
+                    <h3>🟢 Simple Validations</h3>
+                    <div class="validation-step">OrderBookFactory.create(Symbol)</div>
+                    <div class="validation-step">MarketOverviewFactory.create(...)</div>
+                    <div class="validation-step">PriorityCalculator validations</div>
+                </div>
+
+                <div class="validation-card medium">
+                    <h3>🟡 Medium Validations</h3>
+                    <div class="validation-step">MarketDepthFactory.create(...)</div>
+                    <div class="cascade">
+                        <div class="validation-step">→ Symbol validation</div>
+                        <div class="validation-step">→ Level sorting validation</div>
+                        <div class="validation-step">→ Volume calculations</div>
+                    </div>
+                </div>
+
+                <div class="validation-card complex">
+                    <h3>🔴 Complex Validations</h3>
+                    <div class="validation-step">OrderMatchFactory.create(buy, sell)</div>
+                    <div class="cascade">
+                        <div class="validation-step">→ Symbol compatibility</div>
+                        <div class="validation-step">→ Price compatibility</div>
+                        <div class="validation-step">→ Activity status</div>
+                        <div class="validation-step">→ Time priority rules</div>
+                        <div class="validation-step">→ Price calculations</div>
+                    </div>
+                </div>
+
+                <div class="validation-card complex">
+                    <h3>🔴 Most Complex: Order Addition</h3>
+                    <div class="validation-step">OrderAdditionValidator.validate(...)</div>
+                    <div class="cascade">
+                        <div class="validation-step">→ Individual validations</div>
+                        <div class="validation-step">→ Symbol compatibility</div>
+                        <div class="validation-step">→ Order uniqueness</div>
+                        <div class="validation-step">→ Type placement rules</div>
+                        <div class="cascade">
+                            <div class="validation-step">→→ Price level validation</div>
+                            <div class="validation-step">→→ Time priority validation</div>
+                            <div class="validation-step">→→ Volume recalculation</div>
+                            <div class="validation-step">→→ Market structure integrity</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="class-deps" class="tab-content">
+        <div class="hierarchy-section">
+            <div class="section-title">🏛️ Pure Class Dependencies (No Business Rules)</div>
+            <div class="tree">
+                <span class="aggregate-root">OrderBookManager</span>
+                ├── <span class="data">Map&lt;Symbol, OrderBook&gt;</span>
+                └── Uses: <span class="entity">OrderBook</span>, <span class="value-object">MarketOverview</span>, <span class="value-object">OrderMatch</span>
+
+                <span class="entity">OrderBook</span>
+                ├── <span class="data">Symbol</span> (from shared domain)
+                ├── <span class="data">TreeMap&lt;Money, BidPriceLevel&gt;</span>
+                ├── <span class="data">TreeMap&lt;Money, AskPriceLevel&gt;</span>
+                ├── <span class="data">Map&lt;String, IOrder&gt;</span> (from order domain)
+                ├── <span class="data">LocalDateTime</span>, <span class="data">BigDecimal</span> (Java types)
+                ├── Contains: <span class="value-object">BidPriceLevel</span>, <span class="value-object">AskPriceLevel</span>
+                ├── Uses: <span class="value-object">BuyOrderPriorityCalculator</span>, <span class="value-object">SellOrderPriorityCalculator</span>
+                ├── Uses: <span class="value-object">MatchFinder</span>
+                ├── Creates: <span class="value-object">MarketDepth</span>
+                └── Returns: <span class="value-object">OrderMatch</span> (via MatchFinder)
+
+                <span class="value-object">BidPriceLevel</span>
+                ├── <span class="data">Money</span> (from shared domain)
+                ├── <span class="data">LinkedList&lt;IBuyOrder&gt;</span> (from order domain)
+                ├── <span class="data">int</span> (Java type)
+                └── Extends: <span class="value-object">AbstractPriceLevel&lt;IBuyOrder&gt;</span>
+
+                <span class="value-object">AskPriceLevel</span>
+                ├── <span class="data">Money</span> (from shared domain)
+                ├── <span class="data">LinkedList&lt;ISellOrder&gt;</span> (from order domain)
+                ├── <span class="data">int</span> (Java type)
+                └── Extends: <span class="value-object">AbstractPriceLevel&lt;ISellOrder&gt;</span>
+
+                <span class="value-object">AbstractPriceLevel&lt;T extends IOrder&gt;</span>
+                ├── <span class="data">Money</span> (from shared domain)
+                ├── <span class="data">int</span> (Java type)
+                ├── Implements: <span class="value-object">IPriceLevel</span>
+                └── Uses: <span class="data">IOrder</span> (from order domain)
+
+                <span class="value-object">IPriceLevel</span>
+                ├── <span class="data">Money</span> (from shared domain)
+                └── <span class="data">BigDecimal</span> (Java type)
+
+                <span class="value-object">OrderMatch</span>
+                ├── <span class="data">IBuyOrder</span> (from order domain)
+                ├── <span class="data">ISellOrder</span> (from order domain)
+                ├── <span class="data">BigDecimal</span> (Java type)
+                ├── <span class="data">Money</span> (from shared domain)
+                └── <span class="data">LocalDateTime</span> (Java type)
+
+                <span class="value-object">MarketDepth</span>
+                ├── <span class="data">Symbol</span> (from shared domain)
+                ├── <span class="data">List&lt;BidPriceLevel&gt;</span> → <span class="value-object">BidPriceLevel</span>
+                ├── <span class="data">List&lt;AskPriceLevel&gt;</span> → <span class="value-object">AskPriceLevel</span>
+                ├── <span class="data">Money</span> (from shared domain)
+                ├── <span class="data">BigDecimal</span> (Java type)
+                └── <span class="data">LocalDateTime</span> (Java type)
+
+                <span class="value-object">MarketOverview</span>
+                ├── <span class="data">Set&lt;Symbol&gt;</span> (from shared domain)
+                ├── <span class="data">int</span> (Java type)
+                ├── <span class="data">Map&lt;Symbol, BigDecimal&gt;</span> (shared domain + Java)
+                └── <span class="data">LocalDateTime</span> (Java type)
+
+                <span class="value-object">MatchFinder</span>
+                ├── Uses: <span class="entity">OrderBook</span>
+                ├── Uses: <span class="data">IBuyOrder</span>, <span class="data">ISellOrder</span> (from order domain)
+                ├── Uses: <span class="data">Money</span>, <span class="data">BigDecimal</span>
+                └── Creates: <span class="value-object">OrderMatch</span>
+
+                <span class="value-object">BuyOrderPriorityCalculator</span>
+                ├── <span class="data">IBuyOrder</span> (from order domain)
+                ├── <span class="data">Money</span> (from shared domain)
+                ├── Extends: <span class="value-object">AbstractPriorityCalculator&lt;IBuyOrder&gt;</span>
+                └── Implements: <span class="value-object">IPriorityCalculator&lt;IBuyOrder&gt;</span>
+
+                <span class="value-object">SellOrderPriorityCalculator</span>
+                ├── <span class="data">ISellOrder</span> (from order domain)
+                ├── <span class="data">Money</span> (from shared domain)
+                ├── Extends: <span class="value-object">AbstractPriorityCalculator&lt;ISellOrder&gt;</span>
+                └── Implements: <span class="value-object">IPriorityCalculator&lt;ISellOrder&gt;</span>
+
+                <span class="value-object">AbstractPriorityCalculator&lt;T extends IOrder&gt;</span>
+                ├── <span class="data">IOrder</span> (from order domain)
+                ├── <span class="data">Money</span> (from shared domain)
+                ├── <span class="data">LocalDateTime</span> (Java type)
+                └── Implements: <span class="value-object">IPriorityCalculator&lt;T&gt;</span>
+
+                <span class="value-object">IPriorityCalculator&lt;T extends IOrder&gt;</span>
+                ├── <span class="data">IOrder</span> (from order domain)
+                ├── <span class="data">Money</span> (from shared domain)
+                └── <span class="data">LocalDateTime</span> (Java type)
+
+                <span class="complexity-medium">External Dependencies:</span>
+                ├── <span class="data">Order Domain:</span> IOrder, IBuyOrder, ISellOrder
+                ├── <span class="data">Shared Domain:</span> Symbol, Money
+                └── <span class="data">Java Types:</span> BigDecimal, LocalDateTime, Map, List, Set, etc.
+            </div>
+        </div>
+    </div>
+
+    <div id="dependencies" class="tab-content">
+        <div class="hierarchy-section">
+            <div class="section-title">🔗 Validation Dependencies Graph</div>
+            <div class="tree">
+                <span class="complexity-high">OrderBookManager Validation</span>
+                ├── <span class="validation">Symbol uniqueness across books</span>
+                ├── <span class="validation">OrderBook existence validation</span>
+                └── <span class="cascade">Delegates to → <span class="complexity-high">OrderBook Validation</span></span>
+
+                <span class="complexity-high">OrderBook Validation</span>
+                ├── <span class="validation">Order Addition Validation</span>
+                │   ├── <span class="complexity-low">Order != null</span>
+                │   ├── <span class="complexity-low">Order.isActive()</span>
+                │   ├── <span class="complexity-medium">Symbol compatibility</span>
+                │   ├── <span class="complexity-medium">Order uniqueness</span>
+                │   ├── <span class="complexity-medium">Type placement (Buy→Bid, Sell→Ask)</span>
+                │   └── <span class="cascade">Cascades to → <span class="complexity-high">Price Level Validation</span></span>
+                ├── <span class="validation">Order Removal Validation</span>
+                │   ├── <span class="complexity-low">Order exists in book</span>
+                │   ├── <span class="complexity-medium">Price level cleanup</span>
+                │   └── <span class="cascade">Cascades to → <span class="complexity-medium">Volume Recalculation</span></span>
+                └── <span class="validation">Market Depth Validation</span>
+                ├── <span class="complexity-low">Levels > 0</span>
+                ├── <span class="complexity-medium">Level limit validation</span>
+                └── <span class="cascade">Cascades to → <span class="complexity-medium">Level Aggregation</span></span>
+
+                <span class="complexity-high">Price Level Validation</span>
+                ├── <span class="validation">Bid Level Validation</span>
+                │   ├── <span class="complexity-low">Price != null</span>
+                │   ├── <span class="complexity-medium">Order.price == Level.price</span>
+                │   ├── <span class="complexity-medium">Order type == IBuyOrder</span>
+                │   └── <span class="cascade">Cascades to → <span class="complexity-medium">Time Priority Validation</span></span>
+                ├── <span class="validation">Ask Level Validation</span>
+                │   ├── <span class="complexity-low">Price != null</span>
+                │   ├── <span class="complexity-medium">Order.price == Level.price</span>
+                │   ├── <span class="complexity-medium">Order type == ISellOrder</span>
+                │   └── <span class="cascade">Cascades to → <span class="complexity-medium">Time Priority Validation</span></span>
+                └── <span class="cascade">Cascades to → <span class="complexity-high">Book State Consistency</span></span>
+
+                <span class="complexity-high">Order Match Validation</span>
+                ├── <span class="validation">Individual Order Validation</span>
+                │   ├── <span class="complexity-low">Buy/Sell orders != null</span>
+                │   ├── <span class="complexity-low">Both orders active</span>
+                │   └── <span class="complexity-low">Both have remaining quantity > 0</span>
+                ├── <span class="validation">Compatibility Validation</span>
+                │   ├── <span class="complexity-medium">Same symbol</span>
+                │   ├── <span class="complexity-medium">Buy price >= Sell price</span>
+                │   └── <span class="complexity-high">Time priority rules</span>
+                └── <span class="cascade">Cascades to → <span class="complexity-high">Price Calculation Validation</span></span>
+
+                <span class="complexity-high">Book State Consistency Validation</span>
+                ├── <span class="validation">Volume Consistency</span>
+                │   ├── <span class="complexity-medium">Total bid volume calculation</span>
+                │   └── <span class="complexity-medium">Total ask volume calculation</span>
+                ├── <span class="validation">Market Structure</span>
+                │   ├── <span class="complexity-medium">Price level sorting maintained</span>
+                │   ├── <span class="complexity-medium">No cross-market violations</span>
+                │   └── <span class="complexity-high">Spread validity</span>
+                └── <span class="validation">Index Consistency</span>
+                ├── <span class="complexity-medium">Order index synchronized</span>
+                └── <span class="complexity-medium">No orphaned orders</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function showTab(tabName) {
+        // Hide all tab contents
+        const contents = document.querySelectorAll('.tab-content');
+        contents.forEach(content => content.classList.remove('active'));
+
+        // Remove active class from all tabs
+        const tabs = document.querySelectorAll('.tab');
+        tabs.forEach(tab => tab.classList.remove('active'));
+
+        // Show selected tab content
+        document.getElementById(tabName).classList.add('active');
+
+        // Add active class to clicked tab
+        event.target.classList.add('active');
+    }
+</script>
+</body>
+</html>

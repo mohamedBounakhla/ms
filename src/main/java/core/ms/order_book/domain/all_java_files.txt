@@ -1,5 +1,817 @@
-=== ./domain/OrderBook.java ===
-package core.ms.order_book.domain;
+=== ./value_object/MarketDepth.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.shared.domain.Money;
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+
+public class MarketDepth {
+    private final Symbol symbol;
+    private final List<BidPriceLevel> bidLevels;
+    private final List<AskPriceLevel> askLevels;
+    private final Money spread;
+    private final BigDecimal totalBidVolume;
+    private final BigDecimal totalAskVolume;
+    private final LocalDateTime timestamp;
+
+    public MarketDepth(Symbol symbol, List<BidPriceLevel> bidLevels, List<AskPriceLevel> askLevels) {
+        this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");
+        this.bidLevels = new ArrayList<>(Objects.requireNonNull(bidLevels, "Bid levels cannot be null"));
+        this.askLevels = new ArrayList<>(Objects.requireNonNull(askLevels, "Ask levels cannot be null"));
+        this.timestamp = LocalDateTime.now();
+
+        this.totalBidVolume = calculateBidVolume();
+        this.totalAskVolume = calculateAskVolume();
+        this.spread = calculateSpread();
+    }
+
+    public Symbol getSymbol() {
+        return symbol;
+    }
+
+    public List<BidPriceLevel> getBidLevels() {
+        return new ArrayList<>(bidLevels);
+    }
+
+    public List<AskPriceLevel> getAskLevels() {
+        return new ArrayList<>(askLevels);
+    }
+
+    public Money getSpread() {
+        return spread;
+    }
+
+    public BigDecimal getTotalBidVolume() {
+        return totalBidVolume;
+    }
+
+    public BigDecimal getTotalAskVolume() {
+        return totalAskVolume;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public Optional<BidPriceLevel> getBestBid() {
+        return bidLevels.isEmpty() ? Optional.empty() : Optional.of(bidLevels.get(0));
+    }
+
+    public Optional<AskPriceLevel> getBestAsk() {
+        return askLevels.isEmpty() ? Optional.empty() : Optional.of(askLevels.get(0));
+    }
+
+    public boolean isEmpty() {
+        return bidLevels.isEmpty() && askLevels.isEmpty();
+    }
+
+    public int getLevelCount() {
+        return bidLevels.size() + askLevels.size();
+    }
+
+    private BigDecimal calculateBidVolume() {
+        return bidLevels.stream()
+                .map(BidPriceLevel::getTotalQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private BigDecimal calculateAskVolume() {
+        return askLevels.stream()
+                .map(AskPriceLevel::getTotalQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private Money calculateSpread() {
+        Optional<BidPriceLevel> bestBid = getBestBid();
+        Optional<AskPriceLevel> bestAsk = getBestAsk();
+
+        if (bestBid.isPresent() && bestAsk.isPresent()) {
+            return bestAsk.get().getPrice().subtract(bestBid.get().getPrice());
+        }
+        return null; // No spread when missing bid or ask
+    }
+}
+=== ./value_object/OrderMatch.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.shared.domain.Money;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+public class OrderMatch {
+    private final IBuyOrder buyOrder;
+    private final ISellOrder sellOrder;
+    private final BigDecimal matchableQuantity;
+    private final Money suggestedPrice;
+    private final LocalDateTime timestamp;
+
+    public OrderMatch(IBuyOrder buyOrder, ISellOrder sellOrder) {
+        this.buyOrder = Objects.requireNonNull(buyOrder, "Buy order cannot be null");
+        this.sellOrder = Objects.requireNonNull(sellOrder, "Sell order cannot be null");
+
+        validateMatchCompatibility();
+
+        this.matchableQuantity = calculateMatchableQuantity();
+        this.suggestedPrice = calculatePriceTimePriority(); // Changed to use price-time priority
+        this.timestamp = LocalDateTime.now();
+    }
+
+    public IBuyOrder getBuyOrder() {
+        return buyOrder;
+    }
+
+    public ISellOrder getSellOrder() {
+        return sellOrder;
+    }
+
+    public BigDecimal getMatchableQuantity() {
+        return matchableQuantity;
+    }
+
+    public Money getSuggestedPrice() {
+        return suggestedPrice;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public boolean isValid() {
+        return matchableQuantity.compareTo(BigDecimal.ZERO) > 0 &&
+                buyOrder.isActive() &&
+                sellOrder.isActive();
+    }
+
+    public Money getTotalValue() {
+        return suggestedPrice.multiply(matchableQuantity);
+    }
+
+    private BigDecimal calculateMatchableQuantity() {
+        BigDecimal buyRemaining = buyOrder.getRemainingQuantity();
+        BigDecimal sellRemaining = sellOrder.getRemainingQuantity();
+        return buyRemaining.min(sellRemaining);
+    }
+
+    /**
+     * Calculates execution price using midpoint pricing for fair execution.
+     * This method provides equal price improvement to both buyer and seller.
+     *
+     * @return midpoint price between buy and sell orders
+     */
+    private Money calculateMidpointPrice() {
+        Money buyPrice = buyOrder.getPrice();
+        Money sellPrice = sellOrder.getPrice();
+        return buyPrice.add(sellPrice).divide(new BigDecimal("2"));
+    }
+
+    /**
+     * Calculates execution price using price-time priority rules.
+     * The order that arrived first (resting order) gets filled at their preferred price.
+     * This reflects real-world market behavior where:
+     * - Resting orders get price protection
+     * - Aggressive orders pay the market price
+     * - Time priority rewards early orders
+     *
+     * @return execution price based on which order has time priority
+     */
+    private Money calculatePriceTimePriority() {
+        LocalDateTime buyOrderTime = buyOrder.getCreatedAt();
+        LocalDateTime sellOrderTime = sellOrder.getCreatedAt();
+
+        // Whoever was there first gets their preferred price
+        if (buyOrderTime.isBefore(sellOrderTime)) {
+            // Buy order was resting, seller is aggressive
+            // Seller accepts buyer's price
+            return buyOrder.getPrice();
+        } else if (sellOrderTime.isBefore(buyOrderTime)) {
+            // Sell order was resting, buyer is aggressive
+            // Buyer pays seller's price
+            return sellOrder.getPrice();
+        } else {
+            // Same timestamp (rare edge case) - fall back to midpoint for fairness
+            return calculateMidpointPrice();
+        }
+    }
+
+    /**
+     * Alternative price-time priority that considers order aggressiveness.
+     * An aggressive order is one that crosses the spread to make a trade happen.
+     *
+     * @param buyOrderIsAggressive whether the buy order crossed the spread
+     * @return execution price based on aggressor pays principle
+     */
+    public Money calculatePriceWithAggressor(boolean buyOrderIsAggressive) {
+        if (buyOrderIsAggressive) {
+            // Buyer is aggressive (lifted the ask), pays seller's price
+            return sellOrder.getPrice();
+        } else {
+            // Seller is aggressive (hit the bid), accepts buyer's price
+            return buyOrder.getPrice();
+        }
+    }
+
+    private void validateMatchCompatibility() {
+        if (!buyOrder.getSymbol().equals(sellOrder.getSymbol())) {
+            throw new IllegalArgumentException("Orders must have the same symbol");
+        }
+
+        if (buyOrder.getPrice().isLessThan(sellOrder.getPrice())) {
+            throw new IllegalArgumentException(
+                    "Buy price " + buyOrder.getPrice() + " must be >= sell price " + sellOrder.getPrice());
+        }
+
+        if (!buyOrder.isActive() || !sellOrder.isActive()) {
+            throw new IllegalArgumentException("Both orders must be active");
+        }
+    }
+}=== ./value_object/BuyOrderPriorityCalculator.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.shared.domain.Money;
+
+import java.util.Objects;
+
+public class BuyOrderPriorityCalculator extends AbstractPriorityCalculator<IBuyOrder> {
+
+    @Override
+    public boolean isPriceBetter(Money price1, Money price2) {
+        Objects.requireNonNull(price1, "First price cannot be null");
+        Objects.requireNonNull(price2, "Second price cannot be null");
+
+        return price1.isGreaterThan(price2);
+    }
+}=== ./value_object/AskPriceLevel.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.shared.domain.Money;
+
+import java.math.BigDecimal;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+public class AskPriceLevel extends AbstractPriceLevel<ISellOrder> {
+    private final LinkedList<ISellOrder> sellOrders; // Time-ordered queue
+
+    public AskPriceLevel(Money price) {
+        super(price);
+        this.sellOrders = new LinkedList<>();
+    }
+
+    public void addOrder(ISellOrder order) {
+        Objects.requireNonNull(order, "Sell order cannot be null");
+        validateOrderPrice(order);
+
+        sellOrders.addLast(order); // Time priority: first in, first out
+        recalculateTotals();
+    }
+
+    public boolean removeOrder(ISellOrder order) {
+        Objects.requireNonNull(order, "Sell order cannot be null");
+        boolean removed = sellOrders.remove(order);
+        if (removed) {
+            recalculateTotals();
+        }
+        return removed;
+    }
+
+    @Override
+    protected Stream<ISellOrder> getOrdersStream() {
+        return sellOrders.stream();
+    }
+    public List<ISellOrder> getOrders() {
+        return new ArrayList<>(sellOrders); // Defensive copy
+    }
+
+    /**
+     * Returns only active orders with remaining quantity > 0.
+     * This ensures that inactive or fully filled orders don't appear in order lists.
+     */
+    public List<ISellOrder> getActiveOrders() {
+        return sellOrders.stream()
+                .filter(order -> order.isActive() && order.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return sellOrders.isEmpty();
+    }
+
+    public Optional<ISellOrder> getFirstOrder() {
+        return sellOrders.isEmpty() ? Optional.empty() : Optional.of(sellOrders.getFirst());
+    }
+
+
+    @Override
+    protected void recalculateTotals() {
+        orderCount = sellOrders.size();
+    }
+
+    /**
+     * Removes all inactive orders from this price level.
+     * Should be called periodically to keep the order book clean.
+     */
+    public void removeInactiveOrders() {
+        sellOrders.removeIf(order -> !order.isActive());
+        recalculateTotals();
+    }
+}=== ./value_object/AbstractPriorityCalculator.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.shared.domain.Money;
+
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+public abstract class AbstractPriorityCalculator<T extends IOrder> implements IPriorityCalculator<T> {
+
+    @Override
+    public boolean isHigherPriority(T order1, T order2) {
+        Objects.requireNonNull(order1, "First order cannot be null");
+        Objects.requireNonNull(order2, "Second order cannot be null");
+
+        Money price1 = order1.getPrice();
+        Money price2 = order2.getPrice();
+
+        if (isPriceBetter(price1, price2)) {
+            return true;
+        }
+
+        if (isPriceBetter(price2, price1)) {
+            return false;
+        }
+
+        return isTimeBetter(order1.getCreatedAt(), order2.getCreatedAt());
+    }
+
+    @Override
+    public boolean isTimeBetter(LocalDateTime time1, LocalDateTime time2) {
+        return time1.isBefore(time2);
+    }
+
+    @Override
+    public Money calculatePriceDifference(Money price1, Money price2) {
+        Money difference = price1.subtract(price2);
+        return difference.isNegative() ? difference.negate() : difference;
+    }
+
+    @Override
+    public boolean hasSamePrice(T order1, T order2) {
+        Objects.requireNonNull(order1, "First order cannot be null");
+        Objects.requireNonNull(order2, "Second order cannot be null");
+
+        Money price1 = order1.getPrice();
+        Money price2 = order2.getPrice();
+
+        return price1.equals(price2);
+    }
+}
+=== ./value_object/MatchingStrategy.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order_book.domain.entities.OrderBook;
+
+import java.util.List;
+
+public interface MatchingStrategy {
+    /**
+     * Finds all possible matches in the given order book.
+     *
+     * @param orderBook the order book to analyze
+     * @return list of order matches found
+     */
+    List<OrderMatch> findMatches(OrderBook orderBook);
+
+    /**
+     * Determines if two orders can be matched together.
+     *
+     * @param buyOrder the buy order
+     * @param sellOrder the sell order
+     * @return true if orders can be matched
+     */
+    boolean canMatch(IBuyOrder buyOrder, ISellOrder sellOrder);
+}=== ./value_object/IPriceLevel.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.shared.domain.Money;
+
+import java.math.BigDecimal;
+
+public interface IPriceLevel {
+    Money getPrice();
+    BigDecimal getTotalQuantity();
+    int getOrderCount();
+    boolean isEmpty();
+    boolean hasQuantity(BigDecimal quantity);
+}=== ./value_object/SellOrderPriorityCalculator.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.shared.domain.Money;
+
+import java.util.Objects;
+
+public class SellOrderPriorityCalculator extends AbstractPriorityCalculator<ISellOrder> {
+
+    @Override
+    public boolean isPriceBetter(Money price1, Money price2) {
+        Objects.requireNonNull(price1, "First price cannot be null");
+        Objects.requireNonNull(price2, "Second price cannot be null");
+
+        return price1.isLessThan(price2);
+    }
+
+
+}=== ./value_object/BidPriceLevel.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.IOrder;
+import core.ms.shared.domain.Money;
+
+import java.math.BigDecimal;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+public class BidPriceLevel extends AbstractPriceLevel<IBuyOrder> {
+    private final LinkedList<IBuyOrder> buyOrders; // Time-ordered queue
+
+    public BidPriceLevel(Money price) {
+        super(price);
+        this.buyOrders = new LinkedList<>();
+    }
+
+    public void addOrder(IBuyOrder order) {
+        Objects.requireNonNull(order, "Buy order cannot be null");
+        validateOrderPrice(order);
+
+        buyOrders.addLast(order); // Time priority: first in, first out
+        recalculateTotals();
+    }
+
+    public boolean removeOrder(IBuyOrder order) {
+        Objects.requireNonNull(order, "Buy order cannot be null");
+        boolean removed = buyOrders.remove(order);
+        if (removed) {
+            recalculateTotals();
+        }
+        return removed;
+    }
+
+    public List<IBuyOrder> getOrders() {
+        return new ArrayList<>(buyOrders); // Defensive copy
+    }
+
+    /**
+     * Returns only active orders with remaining quantity > 0.
+     * This ensures that inactive or fully filled orders don't appear in order lists.
+     */
+    public List<IBuyOrder> getActiveOrders() {
+        return buyOrders.stream()
+                .filter(order -> order.isActive() && order.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0)
+                .collect(Collectors.toList());
+    }
+    @Override
+    protected Stream<IBuyOrder> getOrdersStream() {
+        return buyOrders.stream();
+    }
+    @Override
+    public boolean isEmpty() {
+        return buyOrders.isEmpty();
+    }
+
+    public Optional<IBuyOrder> getFirstOrder() {
+        return buyOrders.isEmpty() ? Optional.empty() : Optional.of(buyOrders.getFirst());
+    }
+
+    @Override
+    protected BigDecimal calculateCurrentTotal() {
+        return buyOrders.stream()
+                .filter(IOrder::isActive)
+                .map(IBuyOrder::getRemainingQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    @Override
+    protected void recalculateTotals() {
+        orderCount = buyOrders.size();
+    }
+
+    /**
+     * Removes all inactive orders from this price level.
+     * Should be called periodically to keep the order book clean.
+     */
+    public void removeInactiveOrders() {
+        buyOrders.removeIf(order -> !order.isActive());
+        recalculateTotals();
+    }
+}=== ./value_object/MatchFinder.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order_book.domain.entities.OrderBook;
+import core.ms.order_book.domain.value_object.PriceTimePriorityMatching;
+
+import java.util.List;
+import java.util.Objects;
+import java.math.BigDecimal;
+
+
+public class MatchFinder implements MatchingStrategy{
+    private final MatchingStrategy strategy;
+
+    public MatchFinder(MatchingStrategy strategy) {
+        this.strategy = Objects.requireNonNull(strategy, "Strategy cannot be null");
+    }
+
+    // Default constructor with default strategy
+    public MatchFinder() {
+        this.strategy = new PriceTimePriorityMatching();
+    }
+
+    public List<OrderMatch> findMatches(OrderBook orderBook) {
+        return strategy.findMatches(orderBook);
+    }
+
+    public boolean canMatch(IBuyOrder buyOrder, ISellOrder sellOrder) {
+        return strategy.canMatch(buyOrder, sellOrder);
+    }
+
+    public MatchingStrategy getStrategy() {
+        return strategy;
+    }
+
+    public String getStrategyName() {
+        return strategy.getClass().getSimpleName();
+    }
+
+
+}=== ./value_object/IPriorityCalculator.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.shared.domain.Money;
+
+import java.time.LocalDateTime;
+
+public interface IPriorityCalculator<T extends IOrder> {
+    boolean isHigherPriority(T order1, T order2);           // NOT compareOrders!
+    boolean isPriceBetter(Money price1, Money price2);      // ✅ Same
+    boolean isTimeBetter(LocalDateTime time1, LocalDateTime time2); // ✅ Same
+    Money calculatePriceDifference(Money price1, Money price2);     // NOT comparePrices!
+    boolean hasSamePrice(T order1, T order2);               // NEW method
+}=== ./value_object/AbstractPriceLevel.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.shared.domain.Money;
+
+import java.math.BigDecimal;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.stream.Stream;
+
+public abstract class AbstractPriceLevel<T extends IOrder> implements IPriceLevel {
+    protected final Money price;
+    protected int orderCount;
+
+    protected AbstractPriceLevel(Money price) {
+        this.price = Objects.requireNonNull(price, "Price cannot be null");
+        this.orderCount = 0;
+    }
+
+    @Override
+    public Money getPrice() {
+        return price;
+    }
+
+    @Override
+    public BigDecimal getTotalQuantity() {
+        return calculateCurrentTotal();
+    }
+
+    @Override
+    public int getOrderCount() {
+        return orderCount;
+    }
+
+    @Override
+    public boolean hasQuantity(BigDecimal quantity) {
+        return getTotalQuantity().compareTo(quantity) >= 0;
+    }
+
+    protected void validateOrderPrice(IOrder order) {
+        if (!price.equals(order.getPrice())) {
+            throw new IllegalArgumentException(
+                    "Order price " + order.getPrice() + " does not match level price " + price);
+        }
+    }
+
+    /**
+     * Calculates the current total quantity from all orders in this level.
+     * This method is called every time getTotalQuantity() is invoked to ensure
+     * the total always reflects the current state of orders, including any
+     * quantity changes due to transactions.
+     */
+    protected BigDecimal calculateCurrentTotal() {
+        // Basic business rule: price level shows quantity of all orders at this price
+        return getOrdersStream()
+                .map(IOrder::getRemainingQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    /**
+     * Updates cached values that don't change during transactions.
+     * Currently only updates order count since total quantity is calculated dynamically.
+     */
+    protected abstract void recalculateTotals();
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        AbstractPriceLevel<?> that = (AbstractPriceLevel<?>) obj;
+        return Objects.equals(price, that.price);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(price);
+    }
+    protected abstract Stream<T> getOrdersStream();
+
+    public Optional<T> getFirstActiveOrder() {
+        return getOrdersStream()
+                .filter(order -> order.isActive() && order.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0)
+                .findFirst();
+    }
+}=== ./value_object/MarketOverview.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.shared.domain.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.*;
+
+public class MarketOverview {
+    private final Set<Symbol> activeSymbols;
+    private final int totalOrderBooks;
+    private final int totalOrders;
+    private final Map<Symbol, BigDecimal> totalVolume;
+    private final LocalDateTime timestamp;
+
+    public MarketOverview(Set<Symbol> activeSymbols, int totalOrderBooks,
+                          int totalOrders, Map<Symbol, BigDecimal> totalVolume) {
+        this.activeSymbols = new HashSet<>(Objects.requireNonNull(activeSymbols, "Active symbols cannot be null"));
+        this.totalOrderBooks = totalOrderBooks;
+        this.totalOrders = totalOrders;
+        this.totalVolume = new HashMap<>(Objects.requireNonNull(totalVolume, "Total volume cannot be null"));
+        this.timestamp = LocalDateTime.now();
+    }
+
+    public Set<Symbol> getActiveSymbols() {
+        return new HashSet<>(activeSymbols);
+    }
+
+    public int getTotalOrderBooks() {
+        return totalOrderBooks;
+    }
+
+    public int getTotalOrders() {
+        return totalOrders;
+    }
+
+    public Map<Symbol, BigDecimal> getTotalVolume() {
+        return new HashMap<>(totalVolume);
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public BigDecimal getVolumeForSymbol(Symbol symbol) {
+        return totalVolume.getOrDefault(symbol, BigDecimal.ZERO);
+    }
+}
+=== ./value_object/PriceTimePriorityMatching.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order_book.domain.entities.OrderBook;
+import core.ms.shared.domain.Money;
+
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+
+public class PriceTimePriorityMatching implements MatchingStrategy {
+
+    @Override
+    public List<OrderMatch> findMatches(OrderBook orderBook) {
+        Objects.requireNonNull(orderBook, "OrderBook cannot be null");
+
+        List<OrderMatch> matches = new ArrayList<>();
+
+        Optional<Money> bestBidPrice = orderBook.getBestBid();
+        Optional<Money> bestAskPrice = orderBook.getBestAsk();
+
+        if (bestBidPrice.isPresent() && bestAskPrice.isPresent()) {
+            if (bestBidPrice.get().isGreaterThanOrEqual(bestAskPrice.get())) {
+                Optional<IBuyOrder> bestBuyOrder = orderBook.getBestBuyOrder();
+                Optional<ISellOrder> bestSellOrder = orderBook.getBestSellOrder();
+
+                if (bestBuyOrder.isPresent() && bestSellOrder.isPresent()) {
+                    if (canMatch(bestBuyOrder.get(), bestSellOrder.get())) {
+                        matches.add(new OrderMatch(bestBuyOrder.get(), bestSellOrder.get()));
+                    }
+                }
+            }
+        }
+
+        return matches;
+    }
+
+    @Override
+    public boolean canMatch(IBuyOrder buyOrder, ISellOrder sellOrder) {
+        return new MatchValidationBuilder(buyOrder, sellOrder)
+                .validateSymbolCompatibility()
+                .validatePriceCompatibility()
+                .validateOrdersActive()
+                .validateRemainingQuantity()
+                .build();
+    }
+
+    private static class MatchValidationBuilder {
+        private final IBuyOrder buyOrder;
+        private final ISellOrder sellOrder;
+        private boolean isValid = true;
+
+        public MatchValidationBuilder(IBuyOrder buyOrder, ISellOrder sellOrder) {
+            this.buyOrder = buyOrder;
+            this.sellOrder = sellOrder;
+        }
+
+        public MatchValidationBuilder validateSymbolCompatibility() {
+            if (isValid && !buyOrder.getSymbol().equals(sellOrder.getSymbol())) {
+                isValid = false;
+                // Could add logging here: log.debug("Symbol mismatch: {} vs {}", buyOrder.getSymbol(), sellOrder.getSymbol());
+            }
+            return this;
+        }
+
+        public MatchValidationBuilder validatePriceCompatibility() {
+            if (isValid && !buyOrder.getPrice().isGreaterThanOrEqual(sellOrder.getPrice())) {
+                isValid = false;
+                // Could add logging here: log.debug("Price incompatible: buy {} < sell {}", buyOrder.getPrice(), sellOrder.getPrice());
+            }
+            return this;
+        }
+
+        public MatchValidationBuilder validateOrdersActive() {
+            if (isValid && (!buyOrder.isActive() || !sellOrder.isActive())) {
+                isValid = false;
+                // Could add logging here: log.debug("Inactive orders: buy active={}, sell active={}", buyOrder.isActive(), sellOrder.isActive());
+            }
+            return this;
+        }
+
+        public MatchValidationBuilder validateRemainingQuantity() {
+            if (isValid && (buyOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0 ||
+                    sellOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0)) {
+                isValid = false;
+                // Could add logging here: log.debug("Insufficient quantity: buy={}, sell={}", buyOrder.getRemainingQuantity(), sellOrder.getRemainingQuantity());
+            }
+            return this;
+        }
+
+        public boolean build() {
+            return isValid;
+        }
+    }
+}=== ./entities/OrderBook.java ===
+package core.ms.order_book.domain.entities;
 
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.IOrder;
@@ -52,8 +864,6 @@ public class OrderBook {
     }
 
     public void addOrder(IOrder order) {
-        Objects.requireNonNull(order, "Order cannot be null");
-        validateOrder(order);
 
         orderIndex.put(order.getId(), order);
 
@@ -215,20 +1025,7 @@ public class OrderBook {
         return lastUpdate;
     }
 
-    private void validateOrder(IOrder order) {
-        if (!symbol.equals(order.getSymbol())) {
-            throw new IllegalArgumentException(
-                    "Order symbol " + order.getSymbol() + " does not match book symbol " + symbol);
-        }
 
-        if (!order.isActive()) {
-            throw new IllegalArgumentException("Only active orders can be added to order book");
-        }
-
-        if (orderIndex.containsKey(order.getId())) {
-            throw new IllegalArgumentException("Order " + order.getId() + " already exists in book");
-        }
-    }
 
     private void updateVolumeMetrics() {
         totalBidVolume = bidLevels.values().stream()
@@ -239,727 +1036,8 @@ public class OrderBook {
                 .map(AskPriceLevel::getTotalQuantity)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
-}=== ./domain/value_object/MarketDepth.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-
-public class MarketDepth {
-    private final Symbol symbol;
-    private final List<BidPriceLevel> bidLevels;
-    private final List<AskPriceLevel> askLevels;
-    private final Money spread;
-    private final BigDecimal totalBidVolume;
-    private final BigDecimal totalAskVolume;
-    private final LocalDateTime timestamp;
-
-    public MarketDepth(Symbol symbol, List<BidPriceLevel> bidLevels, List<AskPriceLevel> askLevels) {
-        this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");
-        this.bidLevels = new ArrayList<>(Objects.requireNonNull(bidLevels, "Bid levels cannot be null"));
-        this.askLevels = new ArrayList<>(Objects.requireNonNull(askLevels, "Ask levels cannot be null"));
-        this.timestamp = LocalDateTime.now();
-
-        this.totalBidVolume = calculateBidVolume();
-        this.totalAskVolume = calculateAskVolume();
-        this.spread = calculateSpread();
-    }
-
-    public Symbol getSymbol() {
-        return symbol;
-    }
-
-    public List<BidPriceLevel> getBidLevels() {
-        return new ArrayList<>(bidLevels);
-    }
-
-    public List<AskPriceLevel> getAskLevels() {
-        return new ArrayList<>(askLevels);
-    }
-
-    public Money getSpread() {
-        return spread;
-    }
-
-    public BigDecimal getTotalBidVolume() {
-        return totalBidVolume;
-    }
-
-    public BigDecimal getTotalAskVolume() {
-        return totalAskVolume;
-    }
-
-    public LocalDateTime getTimestamp() {
-        return timestamp;
-    }
-
-    public Optional<BidPriceLevel> getBestBid() {
-        return bidLevels.isEmpty() ? Optional.empty() : Optional.of(bidLevels.get(0));
-    }
-
-    public Optional<AskPriceLevel> getBestAsk() {
-        return askLevels.isEmpty() ? Optional.empty() : Optional.of(askLevels.get(0));
-    }
-
-    public boolean isEmpty() {
-        return bidLevels.isEmpty() && askLevels.isEmpty();
-    }
-
-    public int getLevelCount() {
-        return bidLevels.size() + askLevels.size();
-    }
-
-    private BigDecimal calculateBidVolume() {
-        return bidLevels.stream()
-                .map(BidPriceLevel::getTotalQuantity)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    private BigDecimal calculateAskVolume() {
-        return askLevels.stream()
-                .map(AskPriceLevel::getTotalQuantity)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    private Money calculateSpread() {
-        Optional<BidPriceLevel> bestBid = getBestBid();
-        Optional<AskPriceLevel> bestAsk = getBestAsk();
-
-        if (bestBid.isPresent() && bestAsk.isPresent()) {
-            return bestAsk.get().getPrice().subtract(bestBid.get().getPrice());
-        }
-        return null; // No spread when missing bid or ask
-    }
-}
-=== ./domain/value_object/OrderMatch.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.order.domain.entities.IBuyOrder;
-import core.ms.order.domain.entities.ISellOrder;
-import core.ms.shared.domain.Money;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.Objects;
-
-public class OrderMatch {
-    private final IBuyOrder buyOrder;
-    private final ISellOrder sellOrder;
-    private final BigDecimal matchableQuantity;
-    private final Money suggestedPrice;
-    private final LocalDateTime timestamp;
-
-    public OrderMatch(IBuyOrder buyOrder, ISellOrder sellOrder) {
-        this.buyOrder = Objects.requireNonNull(buyOrder, "Buy order cannot be null");
-        this.sellOrder = Objects.requireNonNull(sellOrder, "Sell order cannot be null");
-
-        validateMatchCompatibility();
-
-        this.matchableQuantity = calculateMatchableQuantity();
-        this.suggestedPrice = calculatePriceTimePriority(); // Changed to use price-time priority
-        this.timestamp = LocalDateTime.now();
-    }
-
-    public IBuyOrder getBuyOrder() {
-        return buyOrder;
-    }
-
-    public ISellOrder getSellOrder() {
-        return sellOrder;
-    }
-
-    public BigDecimal getMatchableQuantity() {
-        return matchableQuantity;
-    }
-
-    public Money getSuggestedPrice() {
-        return suggestedPrice;
-    }
-
-    public LocalDateTime getTimestamp() {
-        return timestamp;
-    }
-
-    public boolean isValid() {
-        return matchableQuantity.compareTo(BigDecimal.ZERO) > 0 &&
-                buyOrder.isActive() &&
-                sellOrder.isActive();
-    }
-
-    public Money getTotalValue() {
-        return suggestedPrice.multiply(matchableQuantity);
-    }
-
-    private BigDecimal calculateMatchableQuantity() {
-        BigDecimal buyRemaining = buyOrder.getRemainingQuantity();
-        BigDecimal sellRemaining = sellOrder.getRemainingQuantity();
-        return buyRemaining.min(sellRemaining);
-    }
-
-    /**
-     * Calculates execution price using midpoint pricing for fair execution.
-     * This method provides equal price improvement to both buyer and seller.
-     *
-     * @return midpoint price between buy and sell orders
-     */
-    private Money calculateMidpointPrice() {
-        Money buyPrice = buyOrder.getPrice();
-        Money sellPrice = sellOrder.getPrice();
-        return buyPrice.add(sellPrice).divide(new BigDecimal("2"));
-    }
-
-    /**
-     * Calculates execution price using price-time priority rules.
-     * The order that arrived first (resting order) gets filled at their preferred price.
-     * This reflects real-world market behavior where:
-     * - Resting orders get price protection
-     * - Aggressive orders pay the market price
-     * - Time priority rewards early orders
-     *
-     * @return execution price based on which order has time priority
-     */
-    private Money calculatePriceTimePriority() {
-        LocalDateTime buyOrderTime = buyOrder.getCreatedAt();
-        LocalDateTime sellOrderTime = sellOrder.getCreatedAt();
-
-        // Whoever was there first gets their preferred price
-        if (buyOrderTime.isBefore(sellOrderTime)) {
-            // Buy order was resting, seller is aggressive
-            // Seller accepts buyer's price
-            return buyOrder.getPrice();
-        } else if (sellOrderTime.isBefore(buyOrderTime)) {
-            // Sell order was resting, buyer is aggressive
-            // Buyer pays seller's price
-            return sellOrder.getPrice();
-        } else {
-            // Same timestamp (rare edge case) - fall back to midpoint for fairness
-            return calculateMidpointPrice();
-        }
-    }
-
-    /**
-     * Alternative price-time priority that considers order aggressiveness.
-     * An aggressive order is one that crosses the spread to make a trade happen.
-     *
-     * @param buyOrderIsAggressive whether the buy order crossed the spread
-     * @return execution price based on aggressor pays principle
-     */
-    public Money calculatePriceWithAggressor(boolean buyOrderIsAggressive) {
-        if (buyOrderIsAggressive) {
-            // Buyer is aggressive (lifted the ask), pays seller's price
-            return sellOrder.getPrice();
-        } else {
-            // Seller is aggressive (hit the bid), accepts buyer's price
-            return buyOrder.getPrice();
-        }
-    }
-
-    private void validateMatchCompatibility() {
-        if (!buyOrder.getSymbol().equals(sellOrder.getSymbol())) {
-            throw new IllegalArgumentException("Orders must have the same symbol");
-        }
-
-        if (buyOrder.getPrice().isLessThan(sellOrder.getPrice())) {
-            throw new IllegalArgumentException(
-                    "Buy price " + buyOrder.getPrice() + " must be >= sell price " + sellOrder.getPrice());
-        }
-
-        if (!buyOrder.isActive() || !sellOrder.isActive()) {
-            throw new IllegalArgumentException("Both orders must be active");
-        }
-    }
-}=== ./domain/value_object/BuyOrderPriorityCalculator.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.order.domain.entities.IBuyOrder;
-import core.ms.shared.domain.Money;
-
-import java.util.Objects;
-
-public class BuyOrderPriorityCalculator extends AbstractPriorityCalculator<IBuyOrder> {
-
-    @Override
-    public boolean isPriceBetter(Money price1, Money price2) {
-        Objects.requireNonNull(price1, "First price cannot be null");
-        Objects.requireNonNull(price2, "Second price cannot be null");
-
-        return price1.isGreaterThan(price2);
-    }
-}=== ./domain/value_object/AskPriceLevel.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.order.domain.entities.ISellOrder;
-import core.ms.shared.domain.Money;
-
-import java.math.BigDecimal;
-import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-public class AskPriceLevel extends AbstractPriceLevel<ISellOrder> {
-    private final LinkedList<ISellOrder> sellOrders; // Time-ordered queue
-
-    public AskPriceLevel(Money price) {
-        super(price);
-        this.sellOrders = new LinkedList<>();
-    }
-
-    public void addOrder(ISellOrder order) {
-        Objects.requireNonNull(order, "Sell order cannot be null");
-        validateOrderPrice(order);
-
-        sellOrders.addLast(order); // Time priority: first in, first out
-        recalculateTotals();
-    }
-
-    public boolean removeOrder(ISellOrder order) {
-        Objects.requireNonNull(order, "Sell order cannot be null");
-        boolean removed = sellOrders.remove(order);
-        if (removed) {
-            recalculateTotals();
-        }
-        return removed;
-    }
-
-    @Override
-    protected Stream<ISellOrder> getOrdersStream() {
-        return sellOrders.stream();
-    }
-    public List<ISellOrder> getOrders() {
-        return new ArrayList<>(sellOrders); // Defensive copy
-    }
-
-    /**
-     * Returns only active orders with remaining quantity > 0.
-     * This ensures that inactive or fully filled orders don't appear in order lists.
-     */
-    public List<ISellOrder> getActiveOrders() {
-        return sellOrders.stream()
-                .filter(order -> order.isActive() && order.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0)
-                .collect(Collectors.toList());
-    }
-
-    @Override
-    public boolean isEmpty() {
-        return sellOrders.isEmpty();
-    }
-
-    public Optional<ISellOrder> getFirstOrder() {
-        return sellOrders.isEmpty() ? Optional.empty() : Optional.of(sellOrders.getFirst());
-    }
-
-
-    @Override
-    protected void recalculateTotals() {
-        orderCount = sellOrders.size();
-    }
-
-    /**
-     * Removes all inactive orders from this price level.
-     * Should be called periodically to keep the order book clean.
-     */
-    public void removeInactiveOrders() {
-        sellOrders.removeIf(order -> !order.isActive());
-        recalculateTotals();
-    }
-}=== ./domain/value_object/AbstractPriorityCalculator.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.order.domain.entities.IOrder;
-import core.ms.shared.domain.Money;
-
-import java.time.LocalDateTime;
-import java.util.Objects;
-
-public abstract class AbstractPriorityCalculator<T extends IOrder> implements IPriorityCalculator<T> {
-
-    @Override
-    public boolean isHigherPriority(T order1, T order2) {
-        Objects.requireNonNull(order1, "First order cannot be null");
-        Objects.requireNonNull(order2, "Second order cannot be null");
-
-        Money price1 = order1.getPrice();
-        Money price2 = order2.getPrice();
-
-        if (isPriceBetter(price1, price2)) {
-            return true;
-        }
-
-        if (isPriceBetter(price2, price1)) {
-            return false;
-        }
-
-        return isTimeBetter(order1.getCreatedAt(), order2.getCreatedAt());
-    }
-
-    @Override
-    public boolean isTimeBetter(LocalDateTime time1, LocalDateTime time2) {
-        return time1.isBefore(time2);
-    }
-
-    @Override
-    public Money calculatePriceDifference(Money price1, Money price2) {
-        Money difference = price1.subtract(price2);
-        return difference.isNegative() ? difference.negate() : difference;
-    }
-
-    @Override
-    public boolean hasSamePrice(T order1, T order2) {
-        Objects.requireNonNull(order1, "First order cannot be null");
-        Objects.requireNonNull(order2, "Second order cannot be null");
-
-        Money price1 = order1.getPrice();
-        Money price2 = order2.getPrice();
-
-        return price1.equals(price2);
-    }
-}
-=== ./domain/value_object/IPriceLevel.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.shared.domain.Money;
-
-import java.math.BigDecimal;
-
-public interface IPriceLevel {
-    Money getPrice();
-    BigDecimal getTotalQuantity();
-    int getOrderCount();
-    boolean isEmpty();
-    boolean hasQuantity(BigDecimal quantity);
-}=== ./domain/value_object/SellOrderPriorityCalculator.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.order.domain.entities.ISellOrder;
-import core.ms.shared.domain.Money;
-
-import java.util.Objects;
-
-public class SellOrderPriorityCalculator extends AbstractPriorityCalculator<ISellOrder> {
-
-    @Override
-    public boolean isPriceBetter(Money price1, Money price2) {
-        Objects.requireNonNull(price1, "First price cannot be null");
-        Objects.requireNonNull(price2, "Second price cannot be null");
-
-        return price1.isLessThan(price2);
-    }
-
-
-}=== ./domain/value_object/BidPriceLevel.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.order.domain.entities.IBuyOrder;
-import core.ms.order.domain.entities.IOrder;
-import core.ms.shared.domain.Money;
-
-import java.math.BigDecimal;
-import java.util.*;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
-
-public class BidPriceLevel extends AbstractPriceLevel<IBuyOrder> {
-    private final LinkedList<IBuyOrder> buyOrders; // Time-ordered queue
-
-    public BidPriceLevel(Money price) {
-        super(price);
-        this.buyOrders = new LinkedList<>();
-    }
-
-    public void addOrder(IBuyOrder order) {
-        Objects.requireNonNull(order, "Buy order cannot be null");
-        validateOrderPrice(order);
-
-        buyOrders.addLast(order); // Time priority: first in, first out
-        recalculateTotals();
-    }
-
-    public boolean removeOrder(IBuyOrder order) {
-        Objects.requireNonNull(order, "Buy order cannot be null");
-        boolean removed = buyOrders.remove(order);
-        if (removed) {
-            recalculateTotals();
-        }
-        return removed;
-    }
-
-    public List<IBuyOrder> getOrders() {
-        return new ArrayList<>(buyOrders); // Defensive copy
-    }
-
-    /**
-     * Returns only active orders with remaining quantity > 0.
-     * This ensures that inactive or fully filled orders don't appear in order lists.
-     */
-    public List<IBuyOrder> getActiveOrders() {
-        return buyOrders.stream()
-                .filter(order -> order.isActive() && order.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0)
-                .collect(Collectors.toList());
-    }
-    @Override
-    protected Stream<IBuyOrder> getOrdersStream() {
-        return buyOrders.stream();
-    }
-    @Override
-    public boolean isEmpty() {
-        return buyOrders.isEmpty();
-    }
-
-    public Optional<IBuyOrder> getFirstOrder() {
-        return buyOrders.isEmpty() ? Optional.empty() : Optional.of(buyOrders.getFirst());
-    }
-
-    @Override
-    protected BigDecimal calculateCurrentTotal() {
-        return buyOrders.stream()
-                .filter(IOrder::isActive)
-                .map(IBuyOrder::getRemainingQuantity)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    @Override
-    protected void recalculateTotals() {
-        orderCount = buyOrders.size();
-    }
-
-    /**
-     * Removes all inactive orders from this price level.
-     * Should be called periodically to keep the order book clean.
-     */
-    public void removeInactiveOrders() {
-        buyOrders.removeIf(order -> !order.isActive());
-        recalculateTotals();
-    }
-}=== ./domain/value_object/MatchFinder.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.order.domain.entities.IBuyOrder;
-import core.ms.order.domain.entities.ISellOrder;
-import core.ms.order_book.domain.OrderBook;
-import core.ms.shared.domain.Money;
-
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Objects;
-import java.util.Optional;
-
-public class MatchFinder {
-
-    public List<OrderMatch> findMatches(OrderBook orderBook) {
-        Objects.requireNonNull(orderBook, "OrderBook cannot be null");
-
-        List<OrderMatch> matches = new ArrayList<>();
-
-        Optional<Money> bestBidPrice = orderBook.getBestBid();
-        Optional<Money> bestAskPrice = orderBook.getBestAsk();
-
-        if (bestBidPrice.isPresent() && bestAskPrice.isPresent()) {
-            if (bestBidPrice.get().isGreaterThanOrEqual(bestAskPrice.get())) {
-                Optional<IBuyOrder> bestBuyOrder = orderBook.getBestBuyOrder();
-                Optional<ISellOrder> bestSellOrder = orderBook.getBestSellOrder();
-
-                if (bestBuyOrder.isPresent() && bestSellOrder.isPresent()) {
-                    if (canMatch(bestBuyOrder.get(), bestSellOrder.get())) {
-                        matches.add(new OrderMatch(bestBuyOrder.get(), bestSellOrder.get()));
-                    }
-                }
-            }
-        }
-
-        return matches;
-    }
-
-    public boolean canMatch(IBuyOrder buyOrder, ISellOrder sellOrder) {
-        Objects.requireNonNull(buyOrder, "Buy order cannot be null");
-        Objects.requireNonNull(sellOrder, "Sell order cannot be null");
-
-        return buyOrder.getSymbol().equals(sellOrder.getSymbol()) &&
-                buyOrder.getPrice().isGreaterThanOrEqual(sellOrder.getPrice()) &&
-                buyOrder.isActive() &&
-                sellOrder.isActive() &&
-                buyOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0 &&
-                sellOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0;
-    }
-
-    public Money calculateMatchPrice(Money buyPrice, Money sellPrice) {
-        Objects.requireNonNull(buyPrice, "Buy price cannot be null");
-        Objects.requireNonNull(sellPrice, "Sell price cannot be null");
-
-        if (buyPrice.isLessThan(sellPrice)) {
-            throw new IllegalArgumentException("Buy price must be >= sell price for matching");
-        }
-
-        return buyPrice.add(sellPrice).divide(new BigDecimal("2"));
-    }
-
-    public BigDecimal calculateMatchQuantity(BigDecimal buyQuantity, BigDecimal sellQuantity) {
-        Objects.requireNonNull(buyQuantity, "Buy quantity cannot be null");
-        Objects.requireNonNull(sellQuantity, "Sell quantity cannot be null");
-
-        if (buyQuantity.compareTo(BigDecimal.ZERO) <= 0 || sellQuantity.compareTo(BigDecimal.ZERO) <= 0) {
-            throw new IllegalArgumentException("Quantities must be positive");
-        }
-
-        return buyQuantity.min(sellQuantity);
-    }
-}=== ./domain/value_object/IPriorityCalculator.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.order.domain.entities.IOrder;
-import core.ms.shared.domain.Money;
-
-import java.time.LocalDateTime;
-
-public interface IPriorityCalculator<T extends IOrder> {
-    boolean isHigherPriority(T order1, T order2);           // NOT compareOrders!
-    boolean isPriceBetter(Money price1, Money price2);      // ✅ Same
-    boolean isTimeBetter(LocalDateTime time1, LocalDateTime time2); // ✅ Same
-    Money calculatePriceDifference(Money price1, Money price2);     // NOT comparePrices!
-    boolean hasSamePrice(T order1, T order2);               // NEW method
-}=== ./domain/value_object/AbstractPriceLevel.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.order.domain.entities.IOrder;
-import core.ms.shared.domain.Money;
-
-import java.math.BigDecimal;
-import java.util.Objects;
-import java.util.Optional;
-import java.util.stream.Stream;
-
-public abstract class AbstractPriceLevel<T extends IOrder> implements IPriceLevel {
-    protected final Money price;
-    protected int orderCount;
-
-    protected AbstractPriceLevel(Money price) {
-        this.price = Objects.requireNonNull(price, "Price cannot be null");
-        this.orderCount = 0;
-    }
-
-    @Override
-    public Money getPrice() {
-        return price;
-    }
-
-    @Override
-    public BigDecimal getTotalQuantity() {
-        return calculateCurrentTotal();
-    }
-
-    @Override
-    public int getOrderCount() {
-        return orderCount;
-    }
-
-    @Override
-    public boolean hasQuantity(BigDecimal quantity) {
-        return getTotalQuantity().compareTo(quantity) >= 0;
-    }
-
-    protected void validateOrderPrice(IOrder order) {
-        if (!price.equals(order.getPrice())) {
-            throw new IllegalArgumentException(
-                    "Order price " + order.getPrice() + " does not match level price " + price);
-        }
-    }
-
-    /**
-     * Calculates the current total quantity from all orders in this level.
-     * This method is called every time getTotalQuantity() is invoked to ensure
-     * the total always reflects the current state of orders, including any
-     * quantity changes due to transactions.
-     */
-    protected BigDecimal calculateCurrentTotal() {
-        // Basic business rule: price level shows quantity of all orders at this price
-        return getOrdersStream()
-                .map(IOrder::getRemainingQuantity)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-    }
-
-    /**
-     * Updates cached values that don't change during transactions.
-     * Currently only updates order count since total quantity is calculated dynamically.
-     */
-    protected abstract void recalculateTotals();
-
-    @Override
-    public boolean equals(Object obj) {
-        if (this == obj) return true;
-        if (obj == null || getClass() != obj.getClass()) return false;
-        AbstractPriceLevel<?> that = (AbstractPriceLevel<?>) obj;
-        return Objects.equals(price, that.price);
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(price);
-    }
-    protected abstract Stream<T> getOrdersStream();
-
-    public Optional<T> getFirstActiveOrder() {
-        return getOrdersStream()
-                .filter(order -> order.isActive() && order.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0)
-                .findFirst();
-    }
-}=== ./domain/value_object/MarketOverview.java ===
-package core.ms.order_book.domain.value_object;
-
-import core.ms.shared.domain.Symbol;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.*;
-
-public class MarketOverview {
-    private final Set<Symbol> activeSymbols;
-    private final int totalOrderBooks;
-    private final int totalOrders;
-    private final Map<Symbol, BigDecimal> totalVolume;
-    private final LocalDateTime timestamp;
-
-    public MarketOverview(Set<Symbol> activeSymbols, int totalOrderBooks,
-                          int totalOrders, Map<Symbol, BigDecimal> totalVolume) {
-        this.activeSymbols = new HashSet<>(Objects.requireNonNull(activeSymbols, "Active symbols cannot be null"));
-        this.totalOrderBooks = totalOrderBooks;
-        this.totalOrders = totalOrders;
-        this.totalVolume = new HashMap<>(Objects.requireNonNull(totalVolume, "Total volume cannot be null"));
-        this.timestamp = LocalDateTime.now();
-    }
-
-    public Set<Symbol> getActiveSymbols() {
-        return new HashSet<>(activeSymbols);
-    }
-
-    public int getTotalOrderBooks() {
-        return totalOrderBooks;
-    }
-
-    public int getTotalOrders() {
-        return totalOrders;
-    }
-
-    public Map<Symbol, BigDecimal> getTotalVolume() {
-        return new HashMap<>(totalVolume);
-    }
-
-    public LocalDateTime getTimestamp() {
-        return timestamp;
-    }
-
-    public BigDecimal getVolumeForSymbol(Symbol symbol) {
-        return totalVolume.getOrDefault(symbol, BigDecimal.ZERO);
-    }
-}
-=== ./domain/OrderBookManager.java ===
-package core.ms.order_book.domain;
+}=== ./entities/OrderBookManager.java ===
+package core.ms.order_book.domain.entities;
 
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order_book.domain.value_object.MarketOverview;

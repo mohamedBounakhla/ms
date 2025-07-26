@@ -1,6 +1,7 @@
 package core.ms.order.infrastructure.persistence.mappers;
 
 import core.ms.order.domain.entities.BuyOrder;
+import core.ms.order.domain.factories.OrderFactory;
 import core.ms.order.infrastructure.persistence.entities.BuyOrderEntity;
 import core.ms.shared.domain.AssetType;
 import core.ms.shared.domain.Currency;
@@ -27,16 +28,28 @@ public class BuyOrderMapper {
     }
 
     public BuyOrder toDomain(BuyOrderEntity entity) {
-        Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
-        Money price = Money.of(entity.getPrice(), entity.getCurrency());
+        try {
+            // Reconstruct domain objects
+            Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
+            Money price = Money.of(entity.getPrice(), entity.getCurrency());
 
-        BuyOrder order = new BuyOrder(entity.getId(), symbol, price, entity.getQuantity());
+            // Use factory to create the order with proper validation
+            BuyOrder order = OrderFactory.createBuyOrderWithId(
+                    entity.getId(),
+                    symbol,
+                    price,
+                    entity.getQuantity()
+            );
 
-        // Reconstruct state
-        order.setExecutedQuantity(entity.getExecutedQuantity());
-        reconstructOrderState(order, entity);
+            // Reconstruct the persisted state (executed quantity and status)
+            order.setExecutedQuantity(entity.getExecutedQuantity());
+            reconstructOrderState(order, entity);
 
-        return order;
+            return order;
+
+        } catch (OrderFactory.OrderCreationException e) {
+            throw new IllegalStateException("Failed to reconstruct BuyOrder from persistence: " + e.getMessage(), e);
+        }
     }
 
     private void reconstructOrderState(BuyOrder order, BuyOrderEntity entity) {
@@ -44,7 +57,7 @@ public class BuyOrderMapper {
             case PARTIAL -> order.fillPartial();
             case FILLED -> order.complete();
             case CANCELLED -> order.cancel();
-            // PENDING is default
+            // PENDING is default state, no action needed
         }
     }
 
@@ -58,5 +71,3 @@ public class BuyOrderMapper {
         };
     }
 }
-
-

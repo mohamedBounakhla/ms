@@ -1,11 +1,11 @@
 package core.ms.order.domain.factories;
 
 import core.ms.order.domain.entities.BuyOrder;
-import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.entities.SellOrder;
 import core.ms.order.domain.validators.OrderBuilderValidation;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
+import core.ms.utils.IdGenerator;
 
 import java.math.BigDecimal;
 
@@ -21,7 +21,7 @@ public class OrderFactory {
 
     /**
      * Creates a validated buy order.
-     * All business rules are validated within the domain validation builder.
+     * ID generation is implicit - client doesn't need to worry about it.
      *
      * @param symbol The trading symbol
      * @param price The order price
@@ -32,10 +32,14 @@ public class OrderFactory {
     public static BuyOrder createBuyOrder(Symbol symbol, Money price, BigDecimal quantity) {
 
         try {
+            // Factory responsibility: Generate ID before validation
+            String orderId = IdGenerator.generateOrderId();
+
             // All validation happens in the builder
             OrderBuilderValidation.OrderValidationResult validation =
                     OrderBuilderValidation
-                            .builderWithGeneratedId()           // Auto-generates ID
+                            .builder()
+                            .withId(orderId)                    // ← Factory-generated ID
                             .withSymbol(symbol)                 // Progressive validation
                             .withPrice(price)                   // Progressive validation
                             .withQuantity(quantity)             // Progressive validation
@@ -60,7 +64,7 @@ public class OrderFactory {
 
     /**
      * Creates a validated sell order.
-     * All business rules are validated within the domain validation builder.
+     * ID generation is implicit - client doesn't need to worry about it.
      *
      * @param symbol The trading symbol
      * @param price The order price
@@ -71,10 +75,14 @@ public class OrderFactory {
     public static SellOrder createSellOrder(Symbol symbol, Money price, BigDecimal quantity) {
 
         try {
+            // Factory responsibility: Generate ID before validation
+            String orderId = IdGenerator.generateOrderId();
+
             // All validation happens in the builder
             OrderBuilderValidation.OrderValidationResult validation =
                     OrderBuilderValidation
-                            .builderWithGeneratedId()           // Auto-generates ID
+                            .builder()
+                            .withId(orderId)                    // ← Factory-generated ID
                             .withSymbol(symbol)                 // Progressive validation
                             .withPrice(price)                   // Progressive validation
                             .withQuantity(quantity)             // Progressive validation

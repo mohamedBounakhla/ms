@@ -3,6 +3,8 @@ package core.ms.order.infrastructure.persistence.mappers;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.entities.Transaction;
+import core.ms.order.domain.factories.TransactionFactory;
+import java.math.BigDecimal;
 import core.ms.order.infrastructure.persistence.entities.TransactionEntity;
 import core.ms.shared.domain.AssetType;
 import core.ms.shared.domain.Currency;
@@ -29,17 +31,24 @@ public class TransactionMapper {
     }
 
     public Transaction toDomain(TransactionEntity entity, IBuyOrder buyOrder, ISellOrder sellOrder) {
-        Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
-        Money price = Money.of(entity.getPrice(), entity.getCurrency());
+        try {
+            // Reconstruct domain objects
+            Money executionPrice = Money.of(entity.getPrice(), entity.getCurrency());
 
-        return new Transaction(
-                entity.getId(),
-                symbol,
-                buyOrder,
-                sellOrder,
-                price,
-                entity.getQuantity()
-        );
+            // Use TransactionFactory for proper domain object creation
+            Transaction transaction = TransactionFactory.create(
+                    buyOrder,
+                    sellOrder,
+                    entity.getQuantity()
+            );
+
+            return transaction;
+
+        } catch (TransactionFactory.TransactionCreationException e) {
+            throw new IllegalStateException("Failed to reconstruct Transaction from persistence: " + e.getMessage(), e);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to reconstruct Transaction from persistence: " + e.getMessage(), e);
+        }
     }
 
     private Symbol reconstructSymbol(String code, String name, Currency quoteCurrency) {

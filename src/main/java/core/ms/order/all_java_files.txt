@@ -2,11 +2,11 @@
 package core.ms.order.domain.factories;
 
 import core.ms.order.domain.entities.BuyOrder;
-import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.entities.SellOrder;
 import core.ms.order.domain.validators.OrderBuilderValidation;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
+import core.ms.utils.IdGenerator;
 
 import java.math.BigDecimal;
 
@@ -22,7 +22,7 @@ public class OrderFactory {
 
     /**
      * Creates a validated buy order.
-     * All business rules are validated within the domain validation builder.
+     * ID generation is implicit - client doesn't need to worry about it.
      *
      * @param symbol The trading symbol
      * @param price The order price
@@ -33,10 +33,14 @@ public class OrderFactory {
     public static BuyOrder createBuyOrder(Symbol symbol, Money price, BigDecimal quantity) {
 
         try {
+            // Factory responsibility: Generate ID before validation
+            String orderId = IdGenerator.generateOrderId();
+
             // All validation happens in the builder
             OrderBuilderValidation.OrderValidationResult validation =
                     OrderBuilderValidation
-                            .builderWithGeneratedId()           // Auto-generates ID
+                            .builder()
+                            .withId(orderId)                    // ← Factory-generated ID
                             .withSymbol(symbol)                 // Progressive validation
                             .withPrice(price)                   // Progressive validation
                             .withQuantity(quantity)             // Progressive validation
@@ -61,7 +65,7 @@ public class OrderFactory {
 
     /**
      * Creates a validated sell order.
-     * All business rules are validated within the domain validation builder.
+     * ID generation is implicit - client doesn't need to worry about it.
      *
      * @param symbol The trading symbol
      * @param price The order price
@@ -72,10 +76,14 @@ public class OrderFactory {
     public static SellOrder createSellOrder(Symbol symbol, Money price, BigDecimal quantity) {
 
         try {
+            // Factory responsibility: Generate ID before validation
+            String orderId = IdGenerator.generateOrderId();
+
             // All validation happens in the builder
             OrderBuilderValidation.OrderValidationResult validation =
                     OrderBuilderValidation
-                            .builderWithGeneratedId()           // Auto-generates ID
+                            .builder()
+                            .withId(orderId)                    // ← Factory-generated ID
                             .withSymbol(symbol)                 // Progressive validation
                             .withPrice(price)                   // Progressive validation
                             .withQuantity(quantity)             // Progressive validation
@@ -184,11 +192,10 @@ import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.entities.Transaction;
 import core.ms.order.domain.validators.TransactionBuilderValidation;
 import core.ms.order.domain.validators.ValidationErrorMessage;
-import core.ms.shared.domain.Money;
+import core.ms.utils.IdGenerator;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Domain factory for creating validated transactions.
@@ -202,28 +209,30 @@ public class TransactionFactory {
 
     /**
      * Creates a validated transaction from matching orders.
-     * All business rules are validated within the domain validation builder.
+     * ID generation is implicit - client doesn't need to worry about it.
      *
      * @param buyOrder The buy order
      * @param sellOrder The sell order
-     * @param executionPrice The agreed execution price
      * @param quantity The transaction quantity
      * @return A valid transaction
      * @throws TransactionCreationException if validation fails
      */
-    public static Transaction create(IBuyOrder buyOrder, ISellOrder sellOrder,
-                                     Money executionPrice, BigDecimal quantity) {
+    public static Transaction create(IBuyOrder buyOrder, ISellOrder sellOrder, BigDecimal quantity) {
 
         try {
+            // Factory responsibility: Generate ID before validation
+            String transactionId = IdGenerator.generateTransactionId();
+
             // All validation happens in the builder - factory just orchestrates
             TransactionBuilderValidation.TransactionValidationResult validation =
                     TransactionBuilderValidation
-                            .builderWithGeneratedId()                   // Auto-generates ID
-                            .withSymbol(buyOrder.getSymbol()) // Derive symbol from buy order
-                            .withBuyOrder(buyOrder)         // Progressive validation
-                            .withSellOrder(sellOrder)      // Progressive validation
-                            .withQuantity(quantity)                     // Progressive validation
-                            .build();                                   // Final state
+                            .builder()
+                            .withId(transactionId)              // ← Factory-generated ID
+                            .withSymbol(buyOrder.getSymbol())   // Derive symbol from buy order
+                            .withBuyOrder(buyOrder)             // Progressive validation
+                            .withSellOrder(sellOrder)           // Progressive validation
+                            .withQuantity(quantity)             // Progressive validation
+                            .build();                           // Final state
 
             // Pure entity creation - NO validation needed here
             Transaction transaction = new Transaction(
@@ -248,11 +257,6 @@ public class TransactionFactory {
     }
 
     /**
-     * Creates a transaction with optimal pricing determined by domain validation logic.
-     */
-
-
-    /**
      * Updates order execution quantity as part of transaction creation.
      * This is domain logic that belongs in the factory.
      */
@@ -264,13 +268,6 @@ public class TransactionFactory {
                     "Failed to update order execution: " + e.getMessage()
             );
         }
-    }
-
-    /**
-     * Generates unique transaction ID following domain conventions.
-     */
-    private static String generateTransactionId() {
-        return "TXN_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
     }
 
     // ===== DOMAIN EXCEPTION =====
@@ -291,6 +288,7 @@ public class TransactionFactory {
             super(message);
             this.validationErrors = validationErrors;
         }
+
         public TransactionCreationException(String message, Throwable cause) {
             super(message, cause);
             this.validationErrors = List.of();
@@ -322,87 +320,10 @@ public class TransactionFactory {
             return sb.toString();
         }
     }
-}=== ./domain/ports/inbound/OrderOperationResult.java ===
-package core.ms.order.domain.ports.inbound;
-
-import java.time.LocalDateTime;
-import java.util.List;
-
-/**
- * Result type for order domain operations (create, cancel, update)
- * Different from market_engine.OrderResult which is for trade execution results
- */
-public class OrderOperationResult {
-    private final boolean success;
-    private final String orderId;
-    private final String message;
-    private final LocalDateTime timestamp;
-    private final List<String> errors;
-
-    public OrderOperationResult(boolean success, String orderId, String message, List<String> errors) {
-        this.success = success;
-        this.orderId = orderId;
-        this.message = message;
-        this.timestamp = LocalDateTime.now();
-        this.errors = errors != null ? errors : List.of();
-    }
-
-    public static OrderOperationResult success(String orderId, String message) {
-        return new OrderOperationResult(true, orderId, message, null);
-    }
-
-    public static OrderOperationResult failure(String orderId, String message, List<String> errors) {
-        return new OrderOperationResult(false, orderId, message, errors);
-    }
-
-    // Getters
-    public boolean isSuccess() { return success; }
-    public String getOrderId() { return orderId; }
-    public String getMessage() { return message; }
-    public LocalDateTime getTimestamp() { return timestamp; }
-    public List<String> getErrors() { return errors; }
-}=== ./domain/ports/inbound/TransactionResult.java ===
-package core.ms.order.domain.ports.inbound;
-
-import java.time.LocalDateTime;
-import java.util.List;
-
-/**
- * Result type for transaction operations
- */
-public class TransactionResult {
-    private final boolean success;
-    private final String transactionId;
-    private final String message;
-    private final LocalDateTime timestamp;
-    private final List<String> errors;
-
-    public TransactionResult(boolean success, String transactionId, String message, List<String> errors) {
-        this.success = success;
-        this.transactionId = transactionId;
-        this.message = message;
-        this.timestamp = LocalDateTime.now();
-        this.errors = errors != null ? errors : List.of();
-    }
-
-    public static TransactionResult success(String transactionId, String message) {
-        return new TransactionResult(true, transactionId, message, null);
-    }
-
-    public static TransactionResult failure(String transactionId, String message, List<String> errors) {
-        return new TransactionResult(false, transactionId, message, errors);
-    }
-
-    // Getters
-    public boolean isSuccess() { return success; }
-    public String getTransactionId() { return transactionId; }
-    public String getMessage() { return message; }
-    public LocalDateTime getTimestamp() { return timestamp; }
-    public List<String> getErrors() { return errors; }
 }=== ./domain/ports/inbound/OrderService.java ===
 package core.ms.order.domain.ports.inbound;
 
-
+import core.ms.order.application.dto.query.OrderOperationResultDTO;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.entities.ISellOrder;
@@ -423,28 +344,28 @@ public interface OrderService {
     /**
      * Creates a new buy order
      */
-    OrderOperationResult createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
+    OrderOperationResultDTO createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
 
     /**
      * Creates a new sell order
      */
-    OrderOperationResult createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
+    OrderOperationResultDTO createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
 
     // ===== ORDER MANAGEMENT =====
     /**
      * Cancels an existing order
      */
-    OrderOperationResult cancelOrder(String orderId);
+    OrderOperationResultDTO cancelOrder(String orderId);
 
     /**
      * Updates the price of an existing order
      */
-    OrderOperationResult updateOrderPrice(String orderId, Money newPrice);
+    OrderOperationResultDTO updateOrderPrice(String orderId, Money newPrice);
 
     /**
      * Cancels partial quantity of an order
      */
-    OrderOperationResult cancelPartialOrder(String orderId, BigDecimal quantityToCancel);
+    OrderOperationResultDTO cancelPartialOrder(String orderId, BigDecimal quantityToCancel);
 
     // ===== ORDER QUERIES =====
     /**
@@ -472,166 +393,13 @@ public interface OrderService {
      */
     List<IOrder> findOrdersByStatus(OrderStatusEnum status);
 
-    // ===== ORDER VALIDATION =====
-    /**
-     * Validates if an order can be created
-     */
-    ValidationResult validateOrderCreation(String userId, Symbol symbol, Money price, BigDecimal quantity);
-
-    /**
-     * Validates if an order can be cancelled
-     */
-    ValidationResult validateOrderCancellation(String orderId);
-}=== ./domain/ports/inbound/TransactionStatistics.java ===
-package core.ms.order.domain.ports.inbound;
-
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-
-/**
- * Value object for transaction statistics
- */
-public class TransactionStatistics {
-    private final Symbol symbol;
-    private final long totalTransactions;
-    private final BigDecimal totalVolume;
-    private final Money averagePrice;
-    private final Money highestPrice;
-    private final Money lowestPrice;
-    private final LocalDateTime periodStart;
-    private final LocalDateTime periodEnd;
-
-    public TransactionStatistics(Symbol symbol, long totalTransactions, BigDecimal totalVolume,
-                                 Money averagePrice, Money highestPrice, Money lowestPrice,
-                                 LocalDateTime periodStart, LocalDateTime periodEnd) {
-        this.symbol = symbol;
-        this.totalTransactions = totalTransactions;
-        this.totalVolume = totalVolume;
-        this.averagePrice = averagePrice;
-        this.highestPrice = highestPrice;
-        this.lowestPrice = lowestPrice;
-        this.periodStart = periodStart;
-        this.periodEnd = periodEnd;
-    }
-
-    // Getters
-    public Symbol getSymbol() { return symbol; }
-    public long getTotalTransactions() { return totalTransactions; }
-    public BigDecimal getTotalVolume() { return totalVolume; }
-    public Money getAveragePrice() { return averagePrice; }
-    public Money getHighestPrice() { return highestPrice; }
-    public Money getLowestPrice() { return lowestPrice; }
-    public LocalDateTime getPeriodStart() { return periodStart; }
-    public LocalDateTime getPeriodEnd() { return periodEnd; }
-}=== ./domain/ports/inbound/OrderValidationService.java ===
-package core.ms.order.domain.ports.inbound;
-
-
-import core.ms.order.domain.entities.IOrder;
-import core.ms.order.domain.validators.ValidationErrorMessage;
-import core.ms.shared.domain.Symbol;
-import core.ms.shared.domain.Money;
-import java.math.BigDecimal;
-import java.util.List;
-
-/**
- * Service interface for order validation operations.
- * Handles complex validation logic that spans multiple entities.
- */
-public interface OrderValidationService {
-
-    /**
-     * Validates order creation parameters
-     */
-    List<ValidationErrorMessage> validateOrderCreation(String userId, Symbol symbol,
-                                                       Money price, BigDecimal quantity);
-
-    /**
-     * Validates order state transitions
-     */
-    List<ValidationErrorMessage> validateOrderStateTransition(IOrder order, String newState);
-
-    /**
-     * Validates order modification
-     */
-    List<ValidationErrorMessage> validateOrderModification(IOrder order, Money newPrice);
-
-    /**
-     * Validates order cancellation
-     */
-    List<ValidationErrorMessage> validateOrderCancellation(IOrder order);
-
-    /**
-     * Validates transaction creation
-     */
-    List<ValidationErrorMessage> validateTransactionCreation(IOrder buyOrder, IOrder sellOrder,
-                                                             Money price, BigDecimal quantity);
-}
-=== ./domain/ports/inbound/ValidationResult.java ===
-package core.ms.order.domain.ports.inbound;
-
-import core.ms.order.domain.validators.ValidationErrorMessage;
-import java.util.List;
-
-/**
- * Result type for validation operations
- */
-public class ValidationResult {
-    private final boolean valid;
-    private final List<ValidationErrorMessage> errors;
-
-    public ValidationResult(boolean valid, List<ValidationErrorMessage> errors) {
-        this.valid = valid;
-        this.errors = errors != null ? errors : List.of();
-    }
-
-    public static ValidationResult valid() {
-        return new ValidationResult(true, null);
-    }
-
-    public static ValidationResult invalid(List<ValidationErrorMessage> errors) {
-        return new ValidationResult(false, errors);
-    }
-
-    // Getters
-    public boolean isValid() { return valid; }
-    public List<ValidationErrorMessage> getErrors() { return errors; }
-}
-=== ./domain/ports/inbound/TransactionVolume.java ===
-package core.ms.order.domain.ports.inbound;
-
-import core.ms.shared.domain.Symbol;
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-
-/**
- * Value object for transaction volume information
- */
-public class TransactionVolume {
-    private final Symbol symbol;
-    private final BigDecimal volume;
-    private final LocalDateTime periodStart;
-    private final LocalDateTime periodEnd;
-
-    public TransactionVolume(Symbol symbol, BigDecimal volume,
-                             LocalDateTime periodStart, LocalDateTime periodEnd) {
-        this.symbol = symbol;
-        this.volume = volume;
-        this.periodStart = periodStart;
-        this.periodEnd = periodEnd;
-    }
-
-    // Getters
-    public Symbol getSymbol() { return symbol; }
-    public BigDecimal getVolume() { return volume; }
-    public LocalDateTime getPeriodStart() { return periodStart; }
-    public LocalDateTime getPeriodEnd() { return periodEnd; }
+    // ===== ORDER VALIDATION (Optional - for internal use) =====
+    // These are now optional helper methods, not part of the main contract
 }=== ./domain/ports/inbound/TransactionService.java ===
 package core.ms.order.domain.ports.inbound;
 
-
+import core.ms.order.application.dto.query.TransactionResultDTO;
+import core.ms.order.application.dto.query.TransactionStatisticsDTO;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.entities.ITransaction;
@@ -652,14 +420,14 @@ public interface TransactionService {
     /**
      * Creates a transaction from matching orders
      */
-    TransactionResult createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
-                                        Money executionPrice, BigDecimal quantity);
+    TransactionResultDTO createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
+                                           Money executionPrice, BigDecimal quantity);
 
     /**
      * Creates a transaction using order IDs
      */
-    TransactionResult createTransactionByOrderIds(String buyOrderId, String sellOrderId,
-                                                  Money executionPrice, BigDecimal quantity);
+    TransactionResultDTO createTransactionByOrderIds(String buyOrderId, String sellOrderId,
+                                                     Money executionPrice, BigDecimal quantity);
 
     // ===== TRANSACTION QUERIES =====
     /**
@@ -696,53 +464,8 @@ public interface TransactionService {
     /**
      * Gets transaction statistics for a symbol
      */
-    TransactionStatistics getTransactionStatistics(Symbol symbol);
-
-    /**
-     * Gets transaction volume for a time period
-     */
-    TransactionVolume getTransactionVolume(Symbol symbol, LocalDateTime startDate, LocalDateTime endDate);
-}
-=== ./domain/ports/outbound/UserRepository.java ===
-package core.ms.order.domain.ports.outbound;
-
-import java.util.Optional;
-
-
-public interface UserRepository {
-    boolean existsById(String userId);
-    boolean canPlaceOrders(String userId);
-    Optional<UserTradingLimits> getTradingLimits(String userId);
-}=== ./domain/ports/outbound/UserTradingLimits.java ===
-package core.ms.order.domain.ports.outbound;
-
-import core.ms.shared.domain.Money;
-import java.math.BigDecimal;
-
-/**
- * Value object representing user trading limits
- */
-public class UserTradingLimits {
-    private final Money maxOrderValue;
-    private final BigDecimal maxOrderQuantity;
-    private final Money dailyTradingLimit;
-    private final int maxActiveOrders;
-
-    public UserTradingLimits(Money maxOrderValue, BigDecimal maxOrderQuantity,
-                             Money dailyTradingLimit, int maxActiveOrders) {
-        this.maxOrderValue = maxOrderValue;
-        this.maxOrderQuantity = maxOrderQuantity;
-        this.dailyTradingLimit = dailyTradingLimit;
-        this.maxActiveOrders = maxActiveOrders;
-    }
-
-    // Getters
-    public Money getMaxOrderValue() { return maxOrderValue; }
-    public BigDecimal getMaxOrderQuantity() { return maxOrderQuantity; }
-    public Money getDailyTradingLimit() { return dailyTradingLimit; }
-    public int getMaxActiveOrders() { return maxActiveOrders; }
-}
-=== ./domain/ports/outbound/TransactionRepository.java ===
+    TransactionStatisticsDTO getTransactionStatistics(Symbol symbol);
+}=== ./domain/ports/outbound/TransactionRepository.java ===
 package core.ms.order.domain.ports.outbound;
 
 import core.ms.order.domain.entities.ITransaction;
@@ -1088,7 +811,6 @@ public abstract class AbstractOrder implements IOrder {
     protected BigDecimal executedQuantity;
 
     protected AbstractOrder(String id, Symbol symbol, Money price, BigDecimal quantity) {
-        // Pure assignment - NO validation, NO null checks
         this.id = id;
         this.symbol = symbol;
         this.price = price;
@@ -1458,10 +1180,10 @@ package core.ms.order.domain.validators;
 import core.ms.order.domain.value_objects.OrderStatus;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
+import core.ms.utils.IdGenerator;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 /**
  * Progressive order builder with incremental validation.
@@ -1605,7 +1327,7 @@ public class OrderBuilderValidation {
 
     // ===== HELPER =====
     private static String generateOrderId() {
-        return "ORDER_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+        return IdGenerator.generateOrderId();
     }
 }=== ./domain/validators/annotation/OrderNotFinal.java ===
 package core.ms.order.domain.validators.annotation;
@@ -1756,12 +1478,11 @@ package core.ms.order.domain.validators;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.validators.annotation.OrderNotFinal;
-import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
+import core.ms.utils.IdGenerator;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 /**
  * Progressive transaction builder with incremental validation.
@@ -1926,8 +1647,6 @@ public class TransactionBuilderValidation {
         return new TransactionBuilder().withId(generateTransactionId());
     }
 
-
-
     // ===== VALIDATION RESULT =====
     public static class TransactionValidationResult {
         private final TransactionBuilderValidation validatedData;
@@ -1954,7 +1673,7 @@ public class TransactionBuilderValidation {
 
     // ===== HELPER =====
     private static String generateTransactionId() {
-        return "TXN_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+        return IdGenerator.generateTransactionId();
     }
 }=== ./domain/validators/MethodChecker.java ===
 package core.ms.order.domain.validators;
@@ -2396,9 +2115,9 @@ import core.ms.order.application.dto.command.*;
 import core.ms.order.application.dto.query.OrderDTO;
 import core.ms.order.application.dto.query.OrderOperationResultDTO;
 import core.ms.order.domain.entities.*;
-import core.ms.order.domain.ports.inbound.*;
+import core.ms.order.domain.ports.inbound.OrderService;
+import core.ms.order.domain.factories.OrderFactory;
 import core.ms.order.domain.ports.outbound.OrderRepository;
-import core.ms.order.domain.validators.ValidationErrorMessage;
 import core.ms.order.domain.value_objects.OrderStatusEnum;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
@@ -2406,6 +2125,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -2416,90 +2136,69 @@ public class OrderApplicationService implements OrderService {
 
     // Inject infrastructure services (outbound port implementations)
     @Autowired
-    private OrderRepository orderRepository; // This will be OrderRepositoryService
-
-    @Autowired
-    private OrderValidationService orderValidationService; // This will be OrderValidationApplicationService
+    private OrderRepository orderRepository;
 
     // ===== ORDER CREATION =====
 
     @Override
-    public OrderOperationResult createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
+    public OrderOperationResultDTO createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
         try {
-            // Validate order creation
-            ValidationResult validationResult = validateOrderCreation(userId, symbol, price, quantity);
-            if (!validationResult.isValid()) {
-                List<String> errorMessages = validationResult.getErrors().stream()
-                        .map(ValidationErrorMessage::getMessage)
-                        .toList();
-                return OrderOperationResult.failure(null, "Order validation failed", errorMessages);
-            }
-
-            // Generate order ID
-            String orderId = generateOrderId();
-
-            // Create buy order (Domain Entity)
-            BuyOrder buyOrder = new BuyOrder(orderId, symbol, price, quantity);
+            // Create buy order using factory (includes validation)
+            BuyOrder buyOrder = OrderFactory.createBuyOrder(symbol, price, quantity);
 
             // Save order (Using Infrastructure Service)
             IOrder savedOrder = orderRepository.save(buyOrder);
 
-            return OrderOperationResult.success(savedOrder.getId(), "Buy order created successfully");
+            return new OrderOperationResultDTO(true, savedOrder.getId(), "Buy order created successfully",
+                    LocalDateTime.now(), null);
 
+        } catch (OrderFactory.OrderCreationException e) {
+            return new OrderOperationResultDTO(false, null, "Order creation failed: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         } catch (Exception e) {
-            return OrderOperationResult.failure(null, "Failed to create buy order: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new OrderOperationResultDTO(false, null, "Failed to create buy order: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
     @Override
-    public OrderOperationResult createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
+    public OrderOperationResultDTO createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
         try {
-            // Validate order creation
-            ValidationResult validationResult = validateOrderCreation(userId, symbol, price, quantity);
-            if (!validationResult.isValid()) {
-                List<String> errorMessages = validationResult.getErrors().stream()
-                        .map(ValidationErrorMessage::getMessage)
-                        .toList();
-                return OrderOperationResult.failure(null, "Order validation failed", errorMessages);
-            }
-
-            // Generate order ID
-            String orderId = generateOrderId();
-
-            // Create sell order (Domain Entity)
-            SellOrder sellOrder = new SellOrder(orderId, symbol, price, quantity);
+            // Create sell order using factory (includes validation)
+            SellOrder sellOrder = OrderFactory.createSellOrder(symbol, price, quantity);
 
             // Save order (Using Infrastructure Service)
             IOrder savedOrder = orderRepository.save(sellOrder);
 
-            return OrderOperationResult.success(savedOrder.getId(), "Sell order created successfully");
+            return new OrderOperationResultDTO(true, savedOrder.getId(), "Sell order created successfully",
+                    LocalDateTime.now(), null);
 
+        } catch (OrderFactory.OrderCreationException e) {
+            return new OrderOperationResultDTO(false, null, "Order creation failed: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         } catch (Exception e) {
-            return OrderOperationResult.failure(null, "Failed to create sell order: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new OrderOperationResultDTO(false, null, "Failed to create sell order: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
     // ===== ORDER MANAGEMENT =====
 
     @Override
-    public OrderOperationResult cancelOrder(String orderId) {
+    public OrderOperationResultDTO cancelOrder(String orderId) {
         try {
             Optional<IOrder> orderOpt = orderRepository.findById(orderId);
             if (orderOpt.isEmpty()) {
-                return OrderOperationResult.failure(orderId, "Order not found", List.of("Order not found"));
+                return new OrderOperationResultDTO(false, orderId, "Order not found",
+                        LocalDateTime.now(), List.of("Order not found"));
             }
 
             IOrder order = orderOpt.get();
 
-            // Validate cancellation
-            ValidationResult validationResult = validateOrderCancellation(orderId);
-            if (!validationResult.isValid()) {
-                List<String> errorMessages = validationResult.getErrors().stream()
-                        .map(ValidationErrorMessage::getMessage)
-                        .toList();
-                return OrderOperationResult.failure(orderId, "Order cancellation validation failed", errorMessages);
+            // Check if order can be cancelled (simple domain validation)
+            if (order.getStatus().isTerminal()) {
+                return new OrderOperationResultDTO(false, orderId, "Cannot cancel order in terminal state",
+                        LocalDateTime.now(), List.of("Order is in terminal state"));
             }
 
             // Cancel the order (Domain Logic)
@@ -2508,31 +2207,40 @@ public class OrderApplicationService implements OrderService {
             // Save updated order (Using Infrastructure Service)
             orderRepository.save(order);
 
-            return OrderOperationResult.success(orderId, "Order cancelled successfully");
+            return new OrderOperationResultDTO(true, orderId, "Order cancelled successfully",
+                    LocalDateTime.now(), null);
 
         } catch (Exception e) {
-            return OrderOperationResult.failure(orderId, "Failed to cancel order: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new OrderOperationResultDTO(false, orderId, "Failed to cancel order: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
     @Override
-    public OrderOperationResult updateOrderPrice(String orderId, Money newPrice) {
+    public OrderOperationResultDTO updateOrderPrice(String orderId, Money newPrice) {
         try {
             Optional<IOrder> orderOpt = orderRepository.findById(orderId);
             if (orderOpt.isEmpty()) {
-                return OrderOperationResult.failure(orderId, "Order not found", List.of("Order not found"));
+                return new OrderOperationResultDTO(false, orderId, "Order not found",
+                        LocalDateTime.now(), List.of("Order not found"));
             }
 
             IOrder order = orderOpt.get();
 
-            // Validate price update
-            List<ValidationErrorMessage> errors = orderValidationService.validateOrderModification(order, newPrice);
-            if (!errors.isEmpty()) {
-                List<String> errorMessages = errors.stream()
-                        .map(ValidationErrorMessage::getMessage)
-                        .toList();
-                return OrderOperationResult.failure(orderId, "Order price update validation failed", errorMessages);
+            // Simple validation
+            if (order.getStatus().isTerminal()) {
+                return new OrderOperationResultDTO(false, orderId, "Cannot modify order in terminal state",
+                        LocalDateTime.now(), List.of("Order is in terminal state"));
+            }
+
+            if (newPrice.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                return new OrderOperationResultDTO(false, orderId, "Price must be positive",
+                        LocalDateTime.now(), List.of("Price must be positive"));
+            }
+
+            if (!newPrice.getCurrency().equals(order.getPrice().getCurrency())) {
+                return new OrderOperationResultDTO(false, orderId, "Currency mismatch",
+                        LocalDateTime.now(), List.of("New price currency must match order currency"));
             }
 
             // Update price (Domain Logic)
@@ -2541,28 +2249,30 @@ public class OrderApplicationService implements OrderService {
             // Save updated order (Using Infrastructure Service)
             orderRepository.save(order);
 
-            return OrderOperationResult.success(orderId, "Order price updated successfully");
+            return new OrderOperationResultDTO(true, orderId, "Order price updated successfully",
+                    LocalDateTime.now(), null);
 
         } catch (Exception e) {
-            return OrderOperationResult.failure(orderId, "Failed to update order price: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new OrderOperationResultDTO(false, orderId, "Failed to update order price: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
     @Override
-    public OrderOperationResult cancelPartialOrder(String orderId, BigDecimal quantityToCancel) {
+    public OrderOperationResultDTO cancelPartialOrder(String orderId, BigDecimal quantityToCancel) {
         try {
             Optional<IOrder> orderOpt = orderRepository.findById(orderId);
             if (orderOpt.isEmpty()) {
-                return OrderOperationResult.failure(orderId, "Order not found", List.of("Order not found"));
+                return new OrderOperationResultDTO(false, orderId, "Order not found",
+                        LocalDateTime.now(), List.of("Order not found"));
             }
 
             IOrder order = orderOpt.get();
 
             // Validate partial cancellation
             if (quantityToCancel.compareTo(order.getRemainingQuantity()) > 0) {
-                return OrderOperationResult.failure(orderId, "Cannot cancel more than remaining quantity",
-                        List.of("Quantity to cancel exceeds remaining quantity"));
+                return new OrderOperationResultDTO(false, orderId, "Cannot cancel more than remaining quantity",
+                        LocalDateTime.now(), List.of("Quantity to cancel exceeds remaining quantity"));
             }
 
             // For partial cancellation (Domain Logic)
@@ -2571,11 +2281,12 @@ public class OrderApplicationService implements OrderService {
             // Save updated order (Using Infrastructure Service)
             orderRepository.save(order);
 
-            return OrderOperationResult.success(orderId, "Order partially cancelled successfully");
+            return new OrderOperationResultDTO(true, orderId, "Order partially cancelled successfully",
+                    LocalDateTime.now(), null);
 
         } catch (Exception e) {
-            return OrderOperationResult.failure(orderId, "Failed to cancel partial order: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new OrderOperationResultDTO(false, orderId, "Failed to cancel partial order: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
@@ -2585,7 +2296,6 @@ public class OrderApplicationService implements OrderService {
     public Optional<IOrder> findOrderById(String orderId) {
         return orderRepository.findById(orderId);
     }
-
 
     @Override
     public List<IOrder> findActiveOrdersBySymbol(Symbol symbol) {
@@ -2610,33 +2320,17 @@ public class OrderApplicationService implements OrderService {
         return orderRepository.findByStatus(status);
     }
 
-    // ===== ORDER VALIDATION =====
+    // ===== ORDER VALIDATION (Simplified) =====
 
-    @Override
-    public ValidationResult validateOrderCreation(String userId, Symbol symbol, Money price, BigDecimal quantity) {
-        List<ValidationErrorMessage> errors = orderValidationService.validateOrderCreation(userId, symbol, price, quantity);
-
-        if (errors.isEmpty()) {
-            return ValidationResult.valid();
-        } else {
-            return ValidationResult.invalid(errors);
-        }
+    public boolean validateOrderCreation(String userId, Symbol symbol, Money price, BigDecimal quantity) {
+        // Basic validation - most validation is handled by the factory
+        return userId != null && !userId.trim().isEmpty() &&
+                symbol != null && price != null && quantity != null;
     }
 
-    @Override
-    public ValidationResult validateOrderCancellation(String orderId) {
+    public boolean validateOrderCancellation(String orderId) {
         Optional<IOrder> orderOpt = orderRepository.findById(orderId);
-        if (orderOpt.isEmpty()) {
-            return ValidationResult.invalid(List.of(new ValidationErrorMessage("Order not found")));
-        }
-
-        List<ValidationErrorMessage> errors = orderValidationService.validateOrderCancellation(orderOpt.get());
-
-        if (errors.isEmpty()) {
-            return ValidationResult.valid();
-        } else {
-            return ValidationResult.invalid(errors);
-        }
+        return orderOpt.isPresent() && !orderOpt.get().getStatus().isTerminal();
     }
 
     // ===== DTO ORCHESTRATION METHODS =====
@@ -2645,53 +2339,44 @@ public class OrderApplicationService implements OrderService {
         Symbol symbol = createSymbol(command.getSymbolCode());
         Money price = Money.of(command.getPrice(), command.getCurrency());
 
-        OrderOperationResult result = createBuyOrder(
+        return createBuyOrder(
                 command.getUserId(),
                 symbol,
                 price,
                 command.getQuantity()
         );
-
-        return mapToOrderOperationResultDTO(result);
     }
 
     public OrderOperationResultDTO createSellOrder(CreateSellOrderCommand command) {
         Symbol symbol = createSymbol(command.getSymbolCode());
         Money price = Money.of(command.getPrice(), command.getCurrency());
 
-        OrderOperationResult result = createSellOrder(
+        return createSellOrder(
                 command.getUserId(),
                 symbol,
                 price,
                 command.getQuantity()
         );
-
-        return mapToOrderOperationResultDTO(result);
     }
 
     public OrderOperationResultDTO updateOrderPrice(UpdateOrderPriceCommand command) {
         Money newPrice = Money.of(command.getNewPrice(), command.getCurrency());
 
-        OrderOperationResult result = updateOrderPrice(
+        return updateOrderPrice(
                 command.getOrderId(),
                 newPrice
         );
-
-        return mapToOrderOperationResultDTO(result);
     }
 
     public OrderOperationResultDTO cancelOrder(CancelOrderCommand command) {
-        OrderOperationResult result = cancelOrder(command.getOrderId());
-        return mapToOrderOperationResultDTO(result);
+        return cancelOrder(command.getOrderId());
     }
 
     public OrderOperationResultDTO cancelPartialOrder(CancelPartialOrderCommand command) {
-        OrderOperationResult result = cancelPartialOrder(
+        return cancelPartialOrder(
                 command.getOrderId(),
                 command.getQuantityToCancel()
         );
-
-        return mapToOrderOperationResultDTO(result);
     }
 
     // DTO Query Methods
@@ -2734,20 +2419,6 @@ public class OrderApplicationService implements OrderService {
 
     // ===== PRIVATE HELPER METHODS =====
 
-    private String generateOrderId() {
-        return "ORDER_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
-    }
-
-    private OrderOperationResultDTO mapToOrderOperationResultDTO(OrderOperationResult result) {
-        return new OrderOperationResultDTO(
-                result.isSuccess(),
-                result.getOrderId(),
-                result.getMessage(),
-                result.getTimestamp(),
-                result.getErrors()
-        );
-    }
-
     private OrderDTO mapToOrderDTO(IOrder order) {
         String orderType = order instanceof IBuyOrder ? "BUY" : "SELL";
 
@@ -2776,258 +2447,6 @@ public class OrderApplicationService implements OrderService {
             default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
         };
     }
-}
-=== ./application/services/OrderValidationApplicationService.java ===
-package core.ms.order.application.services;
-
-import core.ms.order.domain.entities.IBuyOrder;
-import core.ms.order.domain.entities.IOrder;
-import core.ms.order.domain.entities.ISellOrder;
-import core.ms.order.domain.ports.inbound.OrderValidationService;
-import core.ms.order.domain.validators.ValidationErrorMessage;
-import core.ms.order.domain.value_objects.OrderStatusEnum;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
-import org.springframework.stereotype.Service;
-
-import java.math.BigDecimal;
-import java.util.ArrayList;
-import java.util.List;
-
-@Service
-public class OrderValidationApplicationService implements OrderValidationService {
-
-    // ===== ORDER CREATION VALIDATION =====
-
-    @Override
-    public List<ValidationErrorMessage> validateOrderCreation(String userId, Symbol symbol,
-                                                              Money price, BigDecimal quantity) {
-        List<ValidationErrorMessage> errors = new ArrayList<>();
-
-        // Basic parameter validation
-        if (userId == null || userId.trim().isEmpty()) {
-            errors.add(new ValidationErrorMessage("User ID cannot be null or empty"));
-        }
-        if (symbol == null) {
-            errors.add(new ValidationErrorMessage("Symbol cannot be null"));
-        }
-        if (price == null) {
-            errors.add(new ValidationErrorMessage("Price cannot be null"));
-        }
-        if (quantity == null) {
-            errors.add(new ValidationErrorMessage("Quantity cannot be null"));
-        }
-
-        // Early return if basic validation fails
-        if (!errors.isEmpty()) {
-            return errors;
-        }
-
-        // Price validation
-        if (price.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            errors.add(new ValidationErrorMessage("Price must be positive"));
-        }
-
-        // Quantity validation
-        if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
-            errors.add(new ValidationErrorMessage("Quantity must be positive"));
-        }
-
-        // Symbol-price currency validation
-        if (!price.getCurrency().equals(symbol.getQuoteCurrency())) {
-            errors.add(new ValidationErrorMessage(
-                    String.format("Price currency %s does not match symbol quote currency %s",
-                            price.getCurrency(), symbol.getQuoteCurrency())));
-        }
-
-        return errors;
-    }
-
-    @Override
-    public List<ValidationErrorMessage> validateOrderStateTransition(IOrder order, String newState) {
-        List<ValidationErrorMessage> errors = new ArrayList<>();
-
-        if (order == null) {
-            errors.add(new ValidationErrorMessage("Order cannot be null"));
-            return errors;
-        }
-
-        if (newState == null || newState.trim().isEmpty()) {
-            errors.add(new ValidationErrorMessage("New state cannot be null or empty"));
-            return errors;
-        }
-
-        OrderStatusEnum currentStatus = order.getStatus().getStatus();
-        OrderStatusEnum targetStatus;
-
-        try {
-            targetStatus = OrderStatusEnum.valueOf(newState.toUpperCase());
-        } catch (IllegalArgumentException e) {
-            errors.add(new ValidationErrorMessage("Invalid order state: " + newState));
-            return errors;
-        }
-
-        // Validate state transitions
-        switch (currentStatus) {
-            case PENDING -> {
-                if (targetStatus != OrderStatusEnum.PARTIAL &&
-                        targetStatus != OrderStatusEnum.FILLED &&
-                        targetStatus != OrderStatusEnum.CANCELLED) {
-                    errors.add(new ValidationErrorMessage(
-                            String.format("Cannot transition from %s to %s", currentStatus, targetStatus)));
-                }
-            }
-            case PARTIAL -> {
-                if (targetStatus != OrderStatusEnum.FILLED &&
-                        targetStatus != OrderStatusEnum.CANCELLED) {
-                    errors.add(new ValidationErrorMessage(
-                            String.format("Cannot transition from %s to %s", currentStatus, targetStatus)));
-                }
-            }
-            case FILLED, CANCELLED -> {
-                errors.add(new ValidationErrorMessage(
-                        String.format("Cannot transition from terminal state %s", currentStatus)));
-            }
-        }
-
-        return errors;
-    }
-
-    @Override
-    public List<ValidationErrorMessage> validateOrderModification(IOrder order, Money newPrice) {
-        List<ValidationErrorMessage> errors = new ArrayList<>();
-
-        if (order == null) {
-            errors.add(new ValidationErrorMessage("Order cannot be null"));
-            return errors;
-        }
-
-        if (newPrice == null) {
-            errors.add(new ValidationErrorMessage("New price cannot be null"));
-            return errors;
-        }
-
-        // Check if order can be modified
-        if (order.getStatus().isTerminal()) {
-            errors.add(new ValidationErrorMessage("Cannot modify order in terminal state"));
-        }
-
-        // Price validation
-        if (newPrice.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            errors.add(new ValidationErrorMessage("New price must be positive"));
-        }
-
-        // Currency validation
-        if (!newPrice.getCurrency().equals(order.getPrice().getCurrency())) {
-            errors.add(new ValidationErrorMessage(
-                    String.format("New price currency %s does not match order currency %s",
-                            newPrice.getCurrency(), order.getPrice().getCurrency())));
-        }
-
-        return errors;
-    }
-
-    @Override
-    public List<ValidationErrorMessage> validateOrderCancellation(IOrder order) {
-        List<ValidationErrorMessage> errors = new ArrayList<>();
-
-        if (order == null) {
-            errors.add(new ValidationErrorMessage("Order cannot be null"));
-            return errors;
-        }
-
-        // Check if order can be cancelled
-        if (order.getStatus().isTerminal()) {
-            errors.add(new ValidationErrorMessage("Cannot cancel order in terminal state"));
-        }
-
-        return errors;
-    }
-
-    @Override
-    public List<ValidationErrorMessage> validateTransactionCreation(IOrder buyOrder, IOrder sellOrder,
-                                                                    Money price, BigDecimal quantity) {
-        List<ValidationErrorMessage> errors = new ArrayList<>();
-
-        // Basic parameter validation
-        if (buyOrder == null) {
-            errors.add(new ValidationErrorMessage("Buy order cannot be null"));
-        }
-        if (sellOrder == null) {
-            errors.add(new ValidationErrorMessage("Sell order cannot be null"));
-        }
-        if (price == null) {
-            errors.add(new ValidationErrorMessage("Transaction price cannot be null"));
-        }
-        if (quantity == null) {
-            errors.add(new ValidationErrorMessage("Transaction quantity cannot be null"));
-        }
-
-        // Early return if basic validation fails
-        if (!errors.isEmpty()) {
-            return errors;
-        }
-
-        // Validate order types
-        if (!(buyOrder instanceof IBuyOrder)) {
-            errors.add(new ValidationErrorMessage("First order must be a buy order"));
-        }
-        if (!(sellOrder instanceof ISellOrder)) {
-            errors.add(new ValidationErrorMessage("Second order must be a sell order"));
-        }
-
-        // Symbol compatibility validation
-        if (!buyOrder.getSymbol().equals(sellOrder.getSymbol())) {
-            errors.add(new ValidationErrorMessage("Buy and sell orders must have the same symbol"));
-        }
-
-        // Order status validation
-        if (buyOrder.getStatus().isTerminal()) {
-            errors.add(new ValidationErrorMessage("Buy order is in terminal state and cannot be used for transaction"));
-        }
-        if (sellOrder.getStatus().isTerminal()) {
-            errors.add(new ValidationErrorMessage("Sell order is in terminal state and cannot be used for transaction"));
-        }
-
-        // Price validation
-        if (price.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-            errors.add(new ValidationErrorMessage("Transaction price must be positive"));
-        }
-
-        // Quantity validation
-        if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
-            errors.add(new ValidationErrorMessage("Transaction quantity must be positive"));
-        }
-
-        // Currency validation
-        if (!price.getCurrency().equals(buyOrder.getPrice().getCurrency()) ||
-                !price.getCurrency().equals(sellOrder.getPrice().getCurrency())) {
-            errors.add(new ValidationErrorMessage("Transaction price currency must match order currencies"));
-        }
-
-        // Order matching validation
-        IBuyOrder buyOrderTyped = (IBuyOrder) buyOrder;
-        ISellOrder sellOrderTyped = (ISellOrder) sellOrder;
-
-        if (buyOrderTyped.getPrice().isLessThan(sellOrderTyped.getPrice())) {
-            errors.add(new ValidationErrorMessage("Buy order price must be greater than or equal to sell order price"));
-        }
-
-        // Execution price range validation
-        if (price.isLessThan(sellOrderTyped.getPrice()) || price.isGreaterThan(buyOrderTyped.getPrice())) {
-            errors.add(new ValidationErrorMessage("Execution price must be between sell price and buy price"));
-        }
-
-        // Quantity constraints validation
-        if (quantity.compareTo(buyOrderTyped.getRemainingQuantity()) > 0) {
-            errors.add(new ValidationErrorMessage("Transaction quantity cannot exceed buy order remaining quantity"));
-        }
-        if (quantity.compareTo(sellOrderTyped.getRemainingQuantity()) > 0) {
-            errors.add(new ValidationErrorMessage("Transaction quantity cannot exceed sell order remaining quantity"));
-        }
-
-        return errors;
-    }
 }=== ./application/services/TransactionApplicationService.java ===
 package core.ms.order.application.services;
 
@@ -3036,7 +2455,8 @@ import core.ms.order.application.dto.query.TransactionDTO;
 import core.ms.order.application.dto.query.TransactionResultDTO;
 import core.ms.order.application.dto.query.TransactionStatisticsDTO;
 import core.ms.order.domain.entities.*;
-import core.ms.order.domain.ports.inbound.*;
+import core.ms.order.domain.factories.TransactionFactory;
+import core.ms.order.domain.ports.inbound.TransactionService;
 import core.ms.order.domain.ports.outbound.OrderRepository;
 import core.ms.order.domain.ports.outbound.TransactionRepository;
 import core.ms.order.domain.validators.ValidationErrorMessage;
@@ -3056,43 +2476,19 @@ public class TransactionApplicationService implements TransactionService {
 
     // Inject infrastructure services (outbound port implementations)
     @Autowired
-    private TransactionRepository transactionRepository; // This will be TransactionRepositoryService
+    private TransactionRepository transactionRepository;
 
     @Autowired
-    private OrderRepository orderRepository; // This will be OrderRepositoryService
-
-    @Autowired
-    private OrderValidationService orderValidationService; // This will be OrderValidationApplicationService
+    private OrderRepository orderRepository;
 
     // ===== TRANSACTION CREATION =====
 
     @Override
-    public TransactionResult createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
-                                               Money executionPrice, BigDecimal quantity) {
+    public TransactionResultDTO createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
+                                                  Money executionPrice, BigDecimal quantity) {
         try {
-            // Validate transaction creation
-            List<ValidationErrorMessage> errors = orderValidationService.validateTransactionCreation(
-                    buyOrder, sellOrder, executionPrice, quantity);
-
-            if (!errors.isEmpty()) {
-                List<String> errorMessages = errors.stream()
-                        .map(ValidationErrorMessage::getMessage)
-                        .toList();
-                return TransactionResult.failure(null, "Transaction validation failed", errorMessages);
-            }
-
-            // Generate transaction ID
-            String transactionId = generateTransactionId();
-
-            // Create transaction (Domain Entity)
-            Transaction transaction = new Transaction(
-                    transactionId,
-                    buyOrder.getSymbol(),
-                    buyOrder,
-                    sellOrder,
-                    executionPrice,
-                    quantity
-            );
+            // Create transaction using factory (includes validation)
+            Transaction transaction = TransactionFactory.create(buyOrder, sellOrder, quantity);
 
             // Save transaction (Using Infrastructure Service)
             ITransaction savedTransaction = transactionRepository.save(transaction);
@@ -3101,35 +2497,43 @@ public class TransactionApplicationService implements TransactionService {
             orderRepository.save(buyOrder);
             orderRepository.save(sellOrder);
 
-            return TransactionResult.success(savedTransaction.getId(), "Transaction created successfully");
+            return new TransactionResultDTO(true, savedTransaction.getId(), "Transaction created successfully",
+                    LocalDateTime.now(), null);
 
+        } catch (TransactionFactory.TransactionCreationException e) {
+            return new TransactionResultDTO(false, null, "Transaction creation failed: " + e.getMessage(),
+                    LocalDateTime.now(), e.hasValidationErrors() ? e.getErrors() : List.of(e.getMessage()));
         } catch (Exception e) {
-            return TransactionResult.failure(null, "Failed to create transaction: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new TransactionResultDTO(false, null, "Failed to create transaction: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
     @Override
-    public TransactionResult createTransactionByOrderIds(String buyOrderId, String sellOrderId,
-                                                         Money executionPrice, BigDecimal quantity) {
+    public TransactionResultDTO createTransactionByOrderIds(String buyOrderId, String sellOrderId,
+                                                            Money executionPrice, BigDecimal quantity) {
         try {
             // Fetch orders (Using Infrastructure Service)
             Optional<IOrder> buyOrderOpt = orderRepository.findById(buyOrderId);
             Optional<IOrder> sellOrderOpt = orderRepository.findById(sellOrderId);
 
             if (buyOrderOpt.isEmpty()) {
-                return TransactionResult.failure(null, "Buy order not found", List.of("Buy order not found"));
+                return new TransactionResultDTO(false, null, "Buy order not found",
+                        LocalDateTime.now(), List.of("Buy order not found"));
             }
             if (sellOrderOpt.isEmpty()) {
-                return TransactionResult.failure(null, "Sell order not found", List.of("Sell order not found"));
+                return new TransactionResultDTO(false, null, "Sell order not found",
+                        LocalDateTime.now(), List.of("Sell order not found"));
             }
 
             // Validate order types
             if (!(buyOrderOpt.get() instanceof IBuyOrder)) {
-                return TransactionResult.failure(null, "Invalid buy order type", List.of("Invalid buy order type"));
+                return new TransactionResultDTO(false, null, "Invalid buy order type",
+                        LocalDateTime.now(), List.of("Invalid buy order type"));
             }
             if (!(sellOrderOpt.get() instanceof ISellOrder)) {
-                return TransactionResult.failure(null, "Invalid sell order type", List.of("Invalid sell order type"));
+                return new TransactionResultDTO(false, null, "Invalid sell order type",
+                        LocalDateTime.now(), List.of("Invalid sell order type"));
             }
 
             IBuyOrder buyOrder = (IBuyOrder) buyOrderOpt.get();
@@ -3139,8 +2543,8 @@ public class TransactionApplicationService implements TransactionService {
             return createTransaction(buyOrder, sellOrder, executionPrice, quantity);
 
         } catch (Exception e) {
-            return TransactionResult.failure(null, "Failed to create transaction: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new TransactionResultDTO(false, null, "Failed to create transaction: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
@@ -3174,7 +2578,6 @@ public class TransactionApplicationService implements TransactionService {
 
     @Override
     public List<ITransaction> findTransactionsByPriceRange(Money minPrice, Money maxPrice) {
-        // FIXED: Use correct Money method names
         return transactionRepository.findAll().stream()
                 .filter(t -> t.getPrice().isGreaterThanOrEqual(minPrice) &&
                         t.getPrice().isLessThanOrEqual(maxPrice))
@@ -3184,17 +2587,18 @@ public class TransactionApplicationService implements TransactionService {
     // ===== TRANSACTION ANALYTICS =====
 
     @Override
-    public TransactionStatistics getTransactionStatistics(Symbol symbol) {
+    public TransactionStatisticsDTO getTransactionStatistics(Symbol symbol) {
         List<ITransaction> transactions = transactionRepository.findBySymbol(symbol);
 
         if (transactions.isEmpty()) {
-            return new TransactionStatistics(
-                    symbol,
+            return new TransactionStatisticsDTO(
+                    symbol.getCode(),
                     0L,
                     BigDecimal.ZERO,
-                    Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()),
-                    Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()),
-                    Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()),
+                    BigDecimal.ZERO,
+                    symbol.getQuoteCurrency(),
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
                     LocalDateTime.now(),
                     LocalDateTime.now()
             );
@@ -3210,21 +2614,17 @@ public class TransactionApplicationService implements TransactionService {
                 .map(t -> t.getPrice().getAmount().multiply(t.getQuantity()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        Money averagePrice = Money.of(
-                totalValue.divide(totalVolume, 8, RoundingMode.HALF_UP),
-                symbol.getQuoteCurrency()
-        );
+        BigDecimal averagePrice = totalValue.divide(totalVolume, 8, RoundingMode.HALF_UP);
 
-        // FIXED: Use proper Money comparison with custom comparator
-        Money highestPrice = transactions.stream()
-                .map(ITransaction::getPrice)
-                .max(Comparator.comparing(Money::getAmount))
-                .orElse(Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()));
+        BigDecimal highestPrice = transactions.stream()
+                .map(t -> t.getPrice().getAmount())
+                .max(BigDecimal::compareTo)
+                .orElse(BigDecimal.ZERO);
 
-        Money lowestPrice = transactions.stream()
-                .map(ITransaction::getPrice)
-                .min(Comparator.comparing(Money::getAmount))
-                .orElse(Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()));
+        BigDecimal lowestPrice = transactions.stream()
+                .map(t -> t.getPrice().getAmount())
+                .min(BigDecimal::compareTo)
+                .orElse(BigDecimal.ZERO);
 
         LocalDateTime periodStart = transactions.stream()
                 .map(ITransaction::getCreatedAt)
@@ -3236,11 +2636,12 @@ public class TransactionApplicationService implements TransactionService {
                 .max(LocalDateTime::compareTo)
                 .orElse(LocalDateTime.now());
 
-        return new TransactionStatistics(
-                symbol,
+        return new TransactionStatisticsDTO(
+                symbol.getCode(),
                 totalTransactions,
                 totalVolume,
                 averagePrice,
+                symbol.getQuoteCurrency(),
                 highestPrice,
                 lowestPrice,
                 periodStart,
@@ -3248,33 +2649,17 @@ public class TransactionApplicationService implements TransactionService {
         );
     }
 
-    @Override
-    public TransactionVolume getTransactionVolume(Symbol symbol, LocalDateTime startDate, LocalDateTime endDate) {
-        List<ITransaction> transactions = transactionRepository.findByDateRange(startDate, endDate)
-                .stream()
-                .filter(t -> t.getSymbol().equals(symbol))
-                .collect(Collectors.toList());
-
-        BigDecimal totalVolume = transactions.stream()
-                .map(ITransaction::getQuantity)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        return new TransactionVolume(symbol, totalVolume, startDate, endDate);
-    }
-
     // ===== DTO ORCHESTRATION METHODS =====
 
     public TransactionResultDTO createTransaction(CreateTransactionCommand command) {
         Money executionPrice = Money.of(command.getExecutionPrice(), command.getCurrency());
 
-        TransactionResult result = createTransactionByOrderIds(
+        return createTransactionByOrderIds(
                 command.getBuyOrderId(),
                 command.getSellOrderId(),
                 executionPrice,
                 command.getQuantity()
         );
-
-        return mapToTransactionResultDTO(result);
     }
 
     // DTO Query Methods
@@ -3307,25 +2692,10 @@ public class TransactionApplicationService implements TransactionService {
 
     public TransactionStatisticsDTO getTransactionStatisticsAsDTO(String symbolCode) {
         Symbol symbol = createSymbol(symbolCode);
-        TransactionStatistics stats = getTransactionStatistics(symbol);
-        return mapToTransactionStatisticsDTO(stats);
+        return getTransactionStatistics(symbol);
     }
 
     // ===== PRIVATE HELPER METHODS =====
-
-    private String generateTransactionId() {
-        return "TXN_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
-    }
-
-    private TransactionResultDTO mapToTransactionResultDTO(TransactionResult result) {
-        return new TransactionResultDTO(
-                result.isSuccess(),
-                result.getTransactionId(),
-                result.getMessage(),
-                result.getTimestamp(),
-                result.getErrors()
-        );
-    }
 
     private TransactionDTO mapToTransactionDTO(ITransaction transaction) {
         return new TransactionDTO(
@@ -3339,20 +2709,6 @@ public class TransactionApplicationService implements TransactionService {
                 transaction.getQuantity(),
                 transaction.getTotalValue().getAmount(),
                 transaction.getCreatedAt()
-        );
-    }
-
-    private TransactionStatisticsDTO mapToTransactionStatisticsDTO(TransactionStatistics stats) {
-        return new TransactionStatisticsDTO(
-                stats.getSymbol().getCode(),
-                stats.getTotalTransactions(),
-                stats.getTotalVolume(),
-                stats.getAveragePrice().getAmount(),
-                stats.getAveragePrice().getCurrency(),
-                stats.getHighestPrice().getAmount(),
-                stats.getLowestPrice().getAmount(),
-                stats.getPeriodStart(),
-                stats.getPeriodEnd()
         );
     }
 
@@ -4720,6 +4076,8 @@ package core.ms.order.infrastructure.persistence.mappers;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.entities.Transaction;
+import core.ms.order.domain.factories.TransactionFactory;
+import java.math.BigDecimal;
 import core.ms.order.infrastructure.persistence.entities.TransactionEntity;
 import core.ms.shared.domain.AssetType;
 import core.ms.shared.domain.Currency;
@@ -4746,17 +4104,24 @@ public class TransactionMapper {
     }
 
     public Transaction toDomain(TransactionEntity entity, IBuyOrder buyOrder, ISellOrder sellOrder) {
-        Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
-        Money price = Money.of(entity.getPrice(), entity.getCurrency());
+        try {
+            // Reconstruct domain objects
+            Money executionPrice = Money.of(entity.getPrice(), entity.getCurrency());
 
-        return new Transaction(
-                entity.getId(),
-                symbol,
-                buyOrder,
-                sellOrder,
-                price,
-                entity.getQuantity()
-        );
+            // Use TransactionFactory for proper domain object creation
+            Transaction transaction = TransactionFactory.create(
+                    buyOrder,
+                    sellOrder,
+                    entity.getQuantity()
+            );
+
+            return transaction;
+
+        } catch (TransactionFactory.TransactionCreationException e) {
+            throw new IllegalStateException("Failed to reconstruct Transaction from persistence: " + e.getMessage(), e);
+        } catch (Exception e) {
+            throw new IllegalStateException("Failed to reconstruct Transaction from persistence: " + e.getMessage(), e);
+        }
     }
 
     private Symbol reconstructSymbol(String code, String name, Currency quoteCurrency) {
@@ -4871,13 +4236,13 @@ public abstract class AbstractOrderMapper <T extends IOrder, E extends AbstractO
 package core.ms.order.infrastructure.persistence.mappers;
 
 import core.ms.order.domain.entities.SellOrder;
+import core.ms.order.domain.factories.OrderFactory;
 import core.ms.order.infrastructure.persistence.entities.SellOrderEntity;
 import core.ms.shared.domain.AssetType;
 import core.ms.shared.domain.Currency;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
 import org.springframework.stereotype.Component;
-
 
 @Component
 public class SellOrderMapper {
@@ -4898,16 +4263,28 @@ public class SellOrderMapper {
     }
 
     public SellOrder toDomain(SellOrderEntity entity) {
-        Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
-        Money price = Money.of(entity.getPrice(), entity.getCurrency());
+        try {
+            // Reconstruct domain objects
+            Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
+            Money price = Money.of(entity.getPrice(), entity.getCurrency());
 
-        SellOrder order = new SellOrder(entity.getId(), symbol, price, entity.getQuantity());
+            // Use factory to create the order with proper validation
+            SellOrder order = OrderFactory.createSellOrderWithId(
+                    entity.getId(),
+                    symbol,
+                    price,
+                    entity.getQuantity()
+            );
 
-        // Reconstruct state
-        order.setExecutedQuantity(entity.getExecutedQuantity());
-        reconstructOrderState(order, entity);
+            // Reconstruct the persisted state (executed quantity and status)
+            order.setExecutedQuantity(entity.getExecutedQuantity());
+            reconstructOrderState(order, entity);
 
-        return order;
+            return order;
+
+        } catch (OrderFactory.OrderCreationException e) {
+            throw new IllegalStateException("Failed to reconstruct SellOrder from persistence: " + e.getMessage(), e);
+        }
     }
 
     private void reconstructOrderState(SellOrder order, SellOrderEntity entity) {
@@ -4915,7 +4292,7 @@ public class SellOrderMapper {
             case PARTIAL -> order.fillPartial();
             case FILLED -> order.complete();
             case CANCELLED -> order.cancel();
-            // PENDING is default
+            // PENDING is default state, no action needed
         }
     }
 
@@ -4928,11 +4305,11 @@ public class SellOrderMapper {
             default -> new Symbol(code, name, AssetType.STOCK, Currency.USD, quoteCurrency);
         };
     }
-}
-=== ./infrastructure/persistence/mappers/BuyOrderMapper.java ===
+}=== ./infrastructure/persistence/mappers/BuyOrderMapper.java ===
 package core.ms.order.infrastructure.persistence.mappers;
 
 import core.ms.order.domain.entities.BuyOrder;
+import core.ms.order.domain.factories.OrderFactory;
 import core.ms.order.infrastructure.persistence.entities.BuyOrderEntity;
 import core.ms.shared.domain.AssetType;
 import core.ms.shared.domain.Currency;
@@ -4959,16 +4336,28 @@ public class BuyOrderMapper {
     }
 
     public BuyOrder toDomain(BuyOrderEntity entity) {
-        Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
-        Money price = Money.of(entity.getPrice(), entity.getCurrency());
+        try {
+            // Reconstruct domain objects
+            Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
+            Money price = Money.of(entity.getPrice(), entity.getCurrency());
 
-        BuyOrder order = new BuyOrder(entity.getId(), symbol, price, entity.getQuantity());
+            // Use factory to create the order with proper validation
+            BuyOrder order = OrderFactory.createBuyOrderWithId(
+                    entity.getId(),
+                    symbol,
+                    price,
+                    entity.getQuantity()
+            );
 
-        // Reconstruct state
-        order.setExecutedQuantity(entity.getExecutedQuantity());
-        reconstructOrderState(order, entity);
+            // Reconstruct the persisted state (executed quantity and status)
+            order.setExecutedQuantity(entity.getExecutedQuantity());
+            reconstructOrderState(order, entity);
 
-        return order;
+            return order;
+
+        } catch (OrderFactory.OrderCreationException e) {
+            throw new IllegalStateException("Failed to reconstruct BuyOrder from persistence: " + e.getMessage(), e);
+        }
     }
 
     private void reconstructOrderState(BuyOrder order, BuyOrderEntity entity) {
@@ -4976,7 +4365,7 @@ public class BuyOrderMapper {
             case PARTIAL -> order.fillPartial();
             case FILLED -> order.complete();
             case CANCELLED -> order.cancel();
-            // PENDING is default
+            // PENDING is default state, no action needed
         }
     }
 
@@ -4990,5 +4379,3 @@ public class BuyOrderMapper {
         };
     }
 }
-
-

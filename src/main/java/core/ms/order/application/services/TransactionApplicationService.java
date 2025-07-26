@@ -5,7 +5,8 @@ import core.ms.order.application.dto.query.TransactionDTO;
 import core.ms.order.application.dto.query.TransactionResultDTO;
 import core.ms.order.application.dto.query.TransactionStatisticsDTO;
 import core.ms.order.domain.entities.*;
-import core.ms.order.domain.ports.inbound.*;
+import core.ms.order.domain.factories.TransactionFactory;
+import core.ms.order.domain.ports.inbound.TransactionService;
 import core.ms.order.domain.ports.outbound.OrderRepository;
 import core.ms.order.domain.ports.outbound.TransactionRepository;
 import core.ms.order.domain.validators.ValidationErrorMessage;
@@ -25,43 +26,19 @@ public class TransactionApplicationService implements TransactionService {
 
     // Inject infrastructure services (outbound port implementations)
     @Autowired
-    private TransactionRepository transactionRepository; // This will be TransactionRepositoryService
+    private TransactionRepository transactionRepository;
 
     @Autowired
-    private OrderRepository orderRepository; // This will be OrderRepositoryService
-
-    @Autowired
-    private OrderValidationService orderValidationService; // This will be OrderValidationApplicationService
+    private OrderRepository orderRepository;
 
     // ===== TRANSACTION CREATION =====
 
     @Override
-    public TransactionResult createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
-                                               Money executionPrice, BigDecimal quantity) {
+    public TransactionResultDTO createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
+                                                  Money executionPrice, BigDecimal quantity) {
         try {
-            // Validate transaction creation
-            List<ValidationErrorMessage> errors = orderValidationService.validateTransactionCreation(
-                    buyOrder, sellOrder, executionPrice, quantity);
-
-            if (!errors.isEmpty()) {
-                List<String> errorMessages = errors.stream()
-                        .map(ValidationErrorMessage::getMessage)
-                        .toList();
-                return TransactionResult.failure(null, "Transaction validation failed", errorMessages);
-            }
-
-            // Generate transaction ID
-            String transactionId = generateTransactionId();
-
-            // Create transaction (Domain Entity)
-            Transaction transaction = new Transaction(
-                    transactionId,
-                    buyOrder.getSymbol(),
-                    buyOrder,
-                    sellOrder,
-                    executionPrice,
-                    quantity
-            );
+            // Create transaction using factory (includes validation)
+            Transaction transaction = TransactionFactory.create(buyOrder, sellOrder, quantity);
 
             // Save transaction (Using Infrastructure Service)
             ITransaction savedTransaction = transactionRepository.save(transaction);
@@ -70,35 +47,43 @@ public class TransactionApplicationService implements TransactionService {
             orderRepository.save(buyOrder);
             orderRepository.save(sellOrder);
 
-            return TransactionResult.success(savedTransaction.getId(), "Transaction created successfully");
+            return new TransactionResultDTO(true, savedTransaction.getId(), "Transaction created successfully",
+                    LocalDateTime.now(), null);
 
+        } catch (TransactionFactory.TransactionCreationException e) {
+            return new TransactionResultDTO(false, null, "Transaction creation failed: " + e.getMessage(),
+                    LocalDateTime.now(), e.hasValidationErrors() ? e.getErrors() : List.of(e.getMessage()));
         } catch (Exception e) {
-            return TransactionResult.failure(null, "Failed to create transaction: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new TransactionResultDTO(false, null, "Failed to create transaction: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
     @Override
-    public TransactionResult createTransactionByOrderIds(String buyOrderId, String sellOrderId,
-                                                         Money executionPrice, BigDecimal quantity) {
+    public TransactionResultDTO createTransactionByOrderIds(String buyOrderId, String sellOrderId,
+                                                            Money executionPrice, BigDecimal quantity) {
         try {
             // Fetch orders (Using Infrastructure Service)
             Optional<IOrder> buyOrderOpt = orderRepository.findById(buyOrderId);
             Optional<IOrder> sellOrderOpt = orderRepository.findById(sellOrderId);
 
             if (buyOrderOpt.isEmpty()) {
-                return TransactionResult.failure(null, "Buy order not found", List.of("Buy order not found"));
+                return new TransactionResultDTO(false, null, "Buy order not found",
+                        LocalDateTime.now(), List.of("Buy order not found"));
             }
             if (sellOrderOpt.isEmpty()) {
-                return TransactionResult.failure(null, "Sell order not found", List.of("Sell order not found"));
+                return new TransactionResultDTO(false, null, "Sell order not found",
+                        LocalDateTime.now(), List.of("Sell order not found"));
             }
 
             // Validate order types
             if (!(buyOrderOpt.get() instanceof IBuyOrder)) {
-                return TransactionResult.failure(null, "Invalid buy order type", List.of("Invalid buy order type"));
+                return new TransactionResultDTO(false, null, "Invalid buy order type",
+                        LocalDateTime.now(), List.of("Invalid buy order type"));
             }
             if (!(sellOrderOpt.get() instanceof ISellOrder)) {
-                return TransactionResult.failure(null, "Invalid sell order type", List.of("Invalid sell order type"));
+                return new TransactionResultDTO(false, null, "Invalid sell order type",
+                        LocalDateTime.now(), List.of("Invalid sell order type"));
             }
 
             IBuyOrder buyOrder = (IBuyOrder) buyOrderOpt.get();
@@ -108,8 +93,8 @@ public class TransactionApplicationService implements TransactionService {
             return createTransaction(buyOrder, sellOrder, executionPrice, quantity);
 
         } catch (Exception e) {
-            return TransactionResult.failure(null, "Failed to create transaction: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new TransactionResultDTO(false, null, "Failed to create transaction: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
@@ -143,7 +128,6 @@ public class TransactionApplicationService implements TransactionService {
 
     @Override
     public List<ITransaction> findTransactionsByPriceRange(Money minPrice, Money maxPrice) {
-        // FIXED: Use correct Money method names
         return transactionRepository.findAll().stream()
                 .filter(t -> t.getPrice().isGreaterThanOrEqual(minPrice) &&
                         t.getPrice().isLessThanOrEqual(maxPrice))
@@ -153,17 +137,18 @@ public class TransactionApplicationService implements TransactionService {
     // ===== TRANSACTION ANALYTICS =====
 
     @Override
-    public TransactionStatistics getTransactionStatistics(Symbol symbol) {
+    public TransactionStatisticsDTO getTransactionStatistics(Symbol symbol) {
         List<ITransaction> transactions = transactionRepository.findBySymbol(symbol);
 
         if (transactions.isEmpty()) {
-            return new TransactionStatistics(
-                    symbol,
+            return new TransactionStatisticsDTO(
+                    symbol.getCode(),
                     0L,
                     BigDecimal.ZERO,
-                    Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()),
-                    Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()),
-                    Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()),
+                    BigDecimal.ZERO,
+                    symbol.getQuoteCurrency(),
+                    BigDecimal.ZERO,
+                    BigDecimal.ZERO,
                     LocalDateTime.now(),
                     LocalDateTime.now()
             );
@@ -179,21 +164,17 @@ public class TransactionApplicationService implements TransactionService {
                 .map(t -> t.getPrice().getAmount().multiply(t.getQuantity()))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        Money averagePrice = Money.of(
-                totalValue.divide(totalVolume, 8, RoundingMode.HALF_UP),
-                symbol.getQuoteCurrency()
-        );
+        BigDecimal averagePrice = totalValue.divide(totalVolume, 8, RoundingMode.HALF_UP);
 
-        // FIXED: Use proper Money comparison with custom comparator
-        Money highestPrice = transactions.stream()
-                .map(ITransaction::getPrice)
-                .max(Comparator.comparing(Money::getAmount))
-                .orElse(Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()));
+        BigDecimal highestPrice = transactions.stream()
+                .map(t -> t.getPrice().getAmount())
+                .max(BigDecimal::compareTo)
+                .orElse(BigDecimal.ZERO);
 
-        Money lowestPrice = transactions.stream()
-                .map(ITransaction::getPrice)
-                .min(Comparator.comparing(Money::getAmount))
-                .orElse(Money.of(BigDecimal.ZERO, symbol.getQuoteCurrency()));
+        BigDecimal lowestPrice = transactions.stream()
+                .map(t -> t.getPrice().getAmount())
+                .min(BigDecimal::compareTo)
+                .orElse(BigDecimal.ZERO);
 
         LocalDateTime periodStart = transactions.stream()
                 .map(ITransaction::getCreatedAt)
@@ -205,11 +186,12 @@ public class TransactionApplicationService implements TransactionService {
                 .max(LocalDateTime::compareTo)
                 .orElse(LocalDateTime.now());
 
-        return new TransactionStatistics(
-                symbol,
+        return new TransactionStatisticsDTO(
+                symbol.getCode(),
                 totalTransactions,
                 totalVolume,
                 averagePrice,
+                symbol.getQuoteCurrency(),
                 highestPrice,
                 lowestPrice,
                 periodStart,
@@ -217,33 +199,17 @@ public class TransactionApplicationService implements TransactionService {
         );
     }
 
-    @Override
-    public TransactionVolume getTransactionVolume(Symbol symbol, LocalDateTime startDate, LocalDateTime endDate) {
-        List<ITransaction> transactions = transactionRepository.findByDateRange(startDate, endDate)
-                .stream()
-                .filter(t -> t.getSymbol().equals(symbol))
-                .collect(Collectors.toList());
-
-        BigDecimal totalVolume = transactions.stream()
-                .map(ITransaction::getQuantity)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        return new TransactionVolume(symbol, totalVolume, startDate, endDate);
-    }
-
     // ===== DTO ORCHESTRATION METHODS =====
 
     public TransactionResultDTO createTransaction(CreateTransactionCommand command) {
         Money executionPrice = Money.of(command.getExecutionPrice(), command.getCurrency());
 
-        TransactionResult result = createTransactionByOrderIds(
+        return createTransactionByOrderIds(
                 command.getBuyOrderId(),
                 command.getSellOrderId(),
                 executionPrice,
                 command.getQuantity()
         );
-
-        return mapToTransactionResultDTO(result);
     }
 
     // DTO Query Methods
@@ -276,25 +242,10 @@ public class TransactionApplicationService implements TransactionService {
 
     public TransactionStatisticsDTO getTransactionStatisticsAsDTO(String symbolCode) {
         Symbol symbol = createSymbol(symbolCode);
-        TransactionStatistics stats = getTransactionStatistics(symbol);
-        return mapToTransactionStatisticsDTO(stats);
+        return getTransactionStatistics(symbol);
     }
 
     // ===== PRIVATE HELPER METHODS =====
-
-    private String generateTransactionId() {
-        return "TXN_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
-    }
-
-    private TransactionResultDTO mapToTransactionResultDTO(TransactionResult result) {
-        return new TransactionResultDTO(
-                result.isSuccess(),
-                result.getTransactionId(),
-                result.getMessage(),
-                result.getTimestamp(),
-                result.getErrors()
-        );
-    }
 
     private TransactionDTO mapToTransactionDTO(ITransaction transaction) {
         return new TransactionDTO(
@@ -308,20 +259,6 @@ public class TransactionApplicationService implements TransactionService {
                 transaction.getQuantity(),
                 transaction.getTotalValue().getAmount(),
                 transaction.getCreatedAt()
-        );
-    }
-
-    private TransactionStatisticsDTO mapToTransactionStatisticsDTO(TransactionStatistics stats) {
-        return new TransactionStatisticsDTO(
-                stats.getSymbol().getCode(),
-                stats.getTotalTransactions(),
-                stats.getTotalVolume(),
-                stats.getAveragePrice().getAmount(),
-                stats.getAveragePrice().getCurrency(),
-                stats.getHighestPrice().getAmount(),
-                stats.getLowestPrice().getAmount(),
-                stats.getPeriodStart(),
-                stats.getPeriodEnd()
         );
     }
 

@@ -35,7 +35,6 @@ public abstract class AbstractOrder implements IOrder {
     protected BigDecimal executedQuantity;
 
     protected AbstractOrder(String id, Symbol symbol, Money price, BigDecimal quantity) {
-        // Pure assignment - NO validation, NO null checks
         this.id = id;
         this.symbol = symbol;
         this.price = price;

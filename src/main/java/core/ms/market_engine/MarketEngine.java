@@ -5,7 +5,7 @@ import core.ms.market_engine.event.OrderExecutedEvent;
 import core.ms.market_engine.event.TransactionCreatedEvent;
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.entities.ITransaction;
-import core.ms.order_book.domain.OrderBookManager;
+import core.ms.order_book.domain.entities.OrderBookManager;
 import core.ms.order_book.domain.value_object.OrderMatch;
 
 import java.time.LocalDateTime;

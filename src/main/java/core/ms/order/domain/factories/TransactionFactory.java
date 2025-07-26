@@ -6,11 +6,10 @@ import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.entities.Transaction;
 import core.ms.order.domain.validators.TransactionBuilderValidation;
 import core.ms.order.domain.validators.ValidationErrorMessage;
-import core.ms.shared.domain.Money;
+import core.ms.utils.IdGenerator;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.UUID;
 
 /**
  * Domain factory for creating validated transactions.
@@ -24,28 +23,30 @@ public class TransactionFactory {
 
     /**
      * Creates a validated transaction from matching orders.
-     * All business rules are validated within the domain validation builder.
+     * ID generation is implicit - client doesn't need to worry about it.
      *
      * @param buyOrder The buy order
      * @param sellOrder The sell order
-     * @param executionPrice The agreed execution price
      * @param quantity The transaction quantity
      * @return A valid transaction
      * @throws TransactionCreationException if validation fails
      */
-    public static Transaction create(IBuyOrder buyOrder, ISellOrder sellOrder,
-                                     Money executionPrice, BigDecimal quantity) {
+    public static Transaction create(IBuyOrder buyOrder, ISellOrder sellOrder, BigDecimal quantity) {
 
         try {
+            // Factory responsibility: Generate ID before validation
+            String transactionId = IdGenerator.generateTransactionId();
+
             // All validation happens in the builder - factory just orchestrates
             TransactionBuilderValidation.TransactionValidationResult validation =
                     TransactionBuilderValidation
-                            .builderWithGeneratedId()                   // Auto-generates ID
-                            .withSymbol(buyOrder.getSymbol()) // Derive symbol from buy order
-                            .withBuyOrder(buyOrder)         // Progressive validation
-                            .withSellOrder(sellOrder)      // Progressive validation
-                            .withQuantity(quantity)                     // Progressive validation
-                            .build();                                   // Final state
+                            .builder()
+                            .withId(transactionId)              // ← Factory-generated ID
+                            .withSymbol(buyOrder.getSymbol())   // Derive symbol from buy order
+                            .withBuyOrder(buyOrder)             // Progressive validation
+                            .withSellOrder(sellOrder)           // Progressive validation
+                            .withQuantity(quantity)             // Progressive validation
+                            .build();                           // Final state
 
             // Pure entity creation - NO validation needed here
             Transaction transaction = new Transaction(
@@ -70,11 +71,6 @@ public class TransactionFactory {
     }
 
     /**
-     * Creates a transaction with optimal pricing determined by domain validation logic.
-     */
-
-
-    /**
      * Updates order execution quantity as part of transaction creation.
      * This is domain logic that belongs in the factory.
      */
@@ -86,13 +82,6 @@ public class TransactionFactory {
                     "Failed to update order execution: " + e.getMessage()
             );
         }
-    }
-
-    /**
-     * Generates unique transaction ID following domain conventions.
-     */
-    private static String generateTransactionId() {
-        return "TXN_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
     }
 
     // ===== DOMAIN EXCEPTION =====
@@ -113,6 +102,7 @@ public class TransactionFactory {
             super(message);
             this.validationErrors = validationErrors;
         }
+
         public TransactionCreationException(String message, Throwable cause) {
             super(message, cause);
             this.validationErrors = List.of();

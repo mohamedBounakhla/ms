@@ -1,6 +1,6 @@
 package core.ms.order.domain.ports.inbound;
 
-
+import core.ms.order.application.dto.query.OrderOperationResultDTO;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.entities.ISellOrder;
@@ -21,28 +21,28 @@ public interface OrderService {
     /**
      * Creates a new buy order
      */
-    OrderOperationResult createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
+    OrderOperationResultDTO createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
 
     /**
      * Creates a new sell order
      */
-    OrderOperationResult createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
+    OrderOperationResultDTO createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
 
     // ===== ORDER MANAGEMENT =====
     /**
      * Cancels an existing order
      */
-    OrderOperationResult cancelOrder(String orderId);
+    OrderOperationResultDTO cancelOrder(String orderId);
 
     /**
      * Updates the price of an existing order
      */
-    OrderOperationResult updateOrderPrice(String orderId, Money newPrice);
+    OrderOperationResultDTO updateOrderPrice(String orderId, Money newPrice);
 
     /**
      * Cancels partial quantity of an order
      */
-    OrderOperationResult cancelPartialOrder(String orderId, BigDecimal quantityToCancel);
+    OrderOperationResultDTO cancelPartialOrder(String orderId, BigDecimal quantityToCancel);
 
     // ===== ORDER QUERIES =====
     /**
@@ -70,14 +70,6 @@ public interface OrderService {
      */
     List<IOrder> findOrdersByStatus(OrderStatusEnum status);
 
-    // ===== ORDER VALIDATION =====
-    /**
-     * Validates if an order can be created
-     */
-    ValidationResult validateOrderCreation(String userId, Symbol symbol, Money price, BigDecimal quantity);
-
-    /**
-     * Validates if an order can be cancelled
-     */
-    ValidationResult validateOrderCancellation(String orderId);
+    // ===== ORDER VALIDATION (Optional - for internal use) =====
+    // These are now optional helper methods, not part of the main contract
 }

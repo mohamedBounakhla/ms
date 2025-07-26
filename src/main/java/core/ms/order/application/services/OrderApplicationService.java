@@ -4,9 +4,9 @@ import core.ms.order.application.dto.command.*;
 import core.ms.order.application.dto.query.OrderDTO;
 import core.ms.order.application.dto.query.OrderOperationResultDTO;
 import core.ms.order.domain.entities.*;
-import core.ms.order.domain.ports.inbound.*;
+import core.ms.order.domain.ports.inbound.OrderService;
+import core.ms.order.domain.factories.OrderFactory;
 import core.ms.order.domain.ports.outbound.OrderRepository;
-import core.ms.order.domain.validators.ValidationErrorMessage;
 import core.ms.order.domain.value_objects.OrderStatusEnum;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
@@ -14,6 +14,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -24,90 +25,69 @@ public class OrderApplicationService implements OrderService {
 
     // Inject infrastructure services (outbound port implementations)
     @Autowired
-    private OrderRepository orderRepository; // This will be OrderRepositoryService
-
-    @Autowired
-    private OrderValidationService orderValidationService; // This will be OrderValidationApplicationService
+    private OrderRepository orderRepository;
 
     // ===== ORDER CREATION =====
 
     @Override
-    public OrderOperationResult createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
+    public OrderOperationResultDTO createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
         try {
-            // Validate order creation
-            ValidationResult validationResult = validateOrderCreation(userId, symbol, price, quantity);
-            if (!validationResult.isValid()) {
-                List<String> errorMessages = validationResult.getErrors().stream()
-                        .map(ValidationErrorMessage::getMessage)
-                        .toList();
-                return OrderOperationResult.failure(null, "Order validation failed", errorMessages);
-            }
-
-            // Generate order ID
-            String orderId = generateOrderId();
-
-            // Create buy order (Domain Entity)
-            BuyOrder buyOrder = new BuyOrder(orderId, symbol, price, quantity);
+            // Create buy order using factory (includes validation)
+            BuyOrder buyOrder = OrderFactory.createBuyOrder(symbol, price, quantity);
 
             // Save order (Using Infrastructure Service)
             IOrder savedOrder = orderRepository.save(buyOrder);
 
-            return OrderOperationResult.success(savedOrder.getId(), "Buy order created successfully");
+            return new OrderOperationResultDTO(true, savedOrder.getId(), "Buy order created successfully",
+                    LocalDateTime.now(), null);
 
+        } catch (OrderFactory.OrderCreationException e) {
+            return new OrderOperationResultDTO(false, null, "Order creation failed: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         } catch (Exception e) {
-            return OrderOperationResult.failure(null, "Failed to create buy order: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new OrderOperationResultDTO(false, null, "Failed to create buy order: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
     @Override
-    public OrderOperationResult createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
+    public OrderOperationResultDTO createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
         try {
-            // Validate order creation
-            ValidationResult validationResult = validateOrderCreation(userId, symbol, price, quantity);
-            if (!validationResult.isValid()) {
-                List<String> errorMessages = validationResult.getErrors().stream()
-                        .map(ValidationErrorMessage::getMessage)
-                        .toList();
-                return OrderOperationResult.failure(null, "Order validation failed", errorMessages);
-            }
-
-            // Generate order ID
-            String orderId = generateOrderId();
-
-            // Create sell order (Domain Entity)
-            SellOrder sellOrder = new SellOrder(orderId, symbol, price, quantity);
+            // Create sell order using factory (includes validation)
+            SellOrder sellOrder = OrderFactory.createSellOrder(symbol, price, quantity);
 
             // Save order (Using Infrastructure Service)
             IOrder savedOrder = orderRepository.save(sellOrder);
 
-            return OrderOperationResult.success(savedOrder.getId(), "Sell order created successfully");
+            return new OrderOperationResultDTO(true, savedOrder.getId(), "Sell order created successfully",
+                    LocalDateTime.now(), null);
 
+        } catch (OrderFactory.OrderCreationException e) {
+            return new OrderOperationResultDTO(false, null, "Order creation failed: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         } catch (Exception e) {
-            return OrderOperationResult.failure(null, "Failed to create sell order: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new OrderOperationResultDTO(false, null, "Failed to create sell order: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
     // ===== ORDER MANAGEMENT =====
 
     @Override
-    public OrderOperationResult cancelOrder(String orderId) {
+    public OrderOperationResultDTO cancelOrder(String orderId) {
         try {
             Optional<IOrder> orderOpt = orderRepository.findById(orderId);
             if (orderOpt.isEmpty()) {
-                return OrderOperationResult.failure(orderId, "Order not found", List.of("Order not found"));
+                return new OrderOperationResultDTO(false, orderId, "Order not found",
+                        LocalDateTime.now(), List.of("Order not found"));
             }
 
             IOrder order = orderOpt.get();
 
-            // Validate cancellation
-            ValidationResult validationResult = validateOrderCancellation(orderId);
-            if (!validationResult.isValid()) {
-                List<String> errorMessages = validationResult.getErrors().stream()
-                        .map(ValidationErrorMessage::getMessage)
-                        .toList();
-                return OrderOperationResult.failure(orderId, "Order cancellation validation failed", errorMessages);
+            // Check if order can be cancelled (simple domain validation)
+            if (order.getStatus().isTerminal()) {
+                return new OrderOperationResultDTO(false, orderId, "Cannot cancel order in terminal state",
+                        LocalDateTime.now(), List.of("Order is in terminal state"));
             }
 
             // Cancel the order (Domain Logic)
@@ -116,31 +96,40 @@ public class OrderApplicationService implements OrderService {
             // Save updated order (Using Infrastructure Service)
             orderRepository.save(order);
 
-            return OrderOperationResult.success(orderId, "Order cancelled successfully");
+            return new OrderOperationResultDTO(true, orderId, "Order cancelled successfully",
+                    LocalDateTime.now(), null);
 
         } catch (Exception e) {
-            return OrderOperationResult.failure(orderId, "Failed to cancel order: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new OrderOperationResultDTO(false, orderId, "Failed to cancel order: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
     @Override
-    public OrderOperationResult updateOrderPrice(String orderId, Money newPrice) {
+    public OrderOperationResultDTO updateOrderPrice(String orderId, Money newPrice) {
         try {
             Optional<IOrder> orderOpt = orderRepository.findById(orderId);
             if (orderOpt.isEmpty()) {
-                return OrderOperationResult.failure(orderId, "Order not found", List.of("Order not found"));
+                return new OrderOperationResultDTO(false, orderId, "Order not found",
+                        LocalDateTime.now(), List.of("Order not found"));
             }
 
             IOrder order = orderOpt.get();
 
-            // Validate price update
-            List<ValidationErrorMessage> errors = orderValidationService.validateOrderModification(order, newPrice);
-            if (!errors.isEmpty()) {
-                List<String> errorMessages = errors.stream()
-                        .map(ValidationErrorMessage::getMessage)
-                        .toList();
-                return OrderOperationResult.failure(orderId, "Order price update validation failed", errorMessages);
+            // Simple validation
+            if (order.getStatus().isTerminal()) {
+                return new OrderOperationResultDTO(false, orderId, "Cannot modify order in terminal state",
+                        LocalDateTime.now(), List.of("Order is in terminal state"));
+            }
+
+            if (newPrice.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
+                return new OrderOperationResultDTO(false, orderId, "Price must be positive",
+                        LocalDateTime.now(), List.of("Price must be positive"));
+            }
+
+            if (!newPrice.getCurrency().equals(order.getPrice().getCurrency())) {
+                return new OrderOperationResultDTO(false, orderId, "Currency mismatch",
+                        LocalDateTime.now(), List.of("New price currency must match order currency"));
             }
 
             // Update price (Domain Logic)
@@ -149,28 +138,30 @@ public class OrderApplicationService implements OrderService {
             // Save updated order (Using Infrastructure Service)
             orderRepository.save(order);
 
-            return OrderOperationResult.success(orderId, "Order price updated successfully");
+            return new OrderOperationResultDTO(true, orderId, "Order price updated successfully",
+                    LocalDateTime.now(), null);
 
         } catch (Exception e) {
-            return OrderOperationResult.failure(orderId, "Failed to update order price: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new OrderOperationResultDTO(false, orderId, "Failed to update order price: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
     @Override
-    public OrderOperationResult cancelPartialOrder(String orderId, BigDecimal quantityToCancel) {
+    public OrderOperationResultDTO cancelPartialOrder(String orderId, BigDecimal quantityToCancel) {
         try {
             Optional<IOrder> orderOpt = orderRepository.findById(orderId);
             if (orderOpt.isEmpty()) {
-                return OrderOperationResult.failure(orderId, "Order not found", List.of("Order not found"));
+                return new OrderOperationResultDTO(false, orderId, "Order not found",
+                        LocalDateTime.now(), List.of("Order not found"));
             }
 
             IOrder order = orderOpt.get();
 
             // Validate partial cancellation
             if (quantityToCancel.compareTo(order.getRemainingQuantity()) > 0) {
-                return OrderOperationResult.failure(orderId, "Cannot cancel more than remaining quantity",
-                        List.of("Quantity to cancel exceeds remaining quantity"));
+                return new OrderOperationResultDTO(false, orderId, "Cannot cancel more than remaining quantity",
+                        LocalDateTime.now(), List.of("Quantity to cancel exceeds remaining quantity"));
             }
 
             // For partial cancellation (Domain Logic)
@@ -179,11 +170,12 @@ public class OrderApplicationService implements OrderService {
             // Save updated order (Using Infrastructure Service)
             orderRepository.save(order);
 
-            return OrderOperationResult.success(orderId, "Order partially cancelled successfully");
+            return new OrderOperationResultDTO(true, orderId, "Order partially cancelled successfully",
+                    LocalDateTime.now(), null);
 
         } catch (Exception e) {
-            return OrderOperationResult.failure(orderId, "Failed to cancel partial order: " + e.getMessage(),
-                    List.of(e.getMessage()));
+            return new OrderOperationResultDTO(false, orderId, "Failed to cancel partial order: " + e.getMessage(),
+                    LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
 
@@ -193,7 +185,6 @@ public class OrderApplicationService implements OrderService {
     public Optional<IOrder> findOrderById(String orderId) {
         return orderRepository.findById(orderId);
     }
-
 
     @Override
     public List<IOrder> findActiveOrdersBySymbol(Symbol symbol) {
@@ -218,33 +209,17 @@ public class OrderApplicationService implements OrderService {
         return orderRepository.findByStatus(status);
     }
 
-    // ===== ORDER VALIDATION =====
+    // ===== ORDER VALIDATION (Simplified) =====
 
-    @Override
-    public ValidationResult validateOrderCreation(String userId, Symbol symbol, Money price, BigDecimal quantity) {
-        List<ValidationErrorMessage> errors = orderValidationService.validateOrderCreation(userId, symbol, price, quantity);
-
-        if (errors.isEmpty()) {
-            return ValidationResult.valid();
-        } else {
-            return ValidationResult.invalid(errors);
-        }
+    public boolean validateOrderCreation(String userId, Symbol symbol, Money price, BigDecimal quantity) {
+        // Basic validation - most validation is handled by the factory
+        return userId != null && !userId.trim().isEmpty() &&
+                symbol != null && price != null && quantity != null;
     }
 
-    @Override
-    public ValidationResult validateOrderCancellation(String orderId) {
+    public boolean validateOrderCancellation(String orderId) {
         Optional<IOrder> orderOpt = orderRepository.findById(orderId);
-        if (orderOpt.isEmpty()) {
-            return ValidationResult.invalid(List.of(new ValidationErrorMessage("Order not found")));
-        }
-
-        List<ValidationErrorMessage> errors = orderValidationService.validateOrderCancellation(orderOpt.get());
-
-        if (errors.isEmpty()) {
-            return ValidationResult.valid();
-        } else {
-            return ValidationResult.invalid(errors);
-        }
+        return orderOpt.isPresent() && !orderOpt.get().getStatus().isTerminal();
     }
 
     // ===== DTO ORCHESTRATION METHODS =====
@@ -253,53 +228,44 @@ public class OrderApplicationService implements OrderService {
         Symbol symbol = createSymbol(command.getSymbolCode());
         Money price = Money.of(command.getPrice(), command.getCurrency());
 
-        OrderOperationResult result = createBuyOrder(
+        return createBuyOrder(
                 command.getUserId(),
                 symbol,
                 price,
                 command.getQuantity()
         );
-
-        return mapToOrderOperationResultDTO(result);
     }
 
     public OrderOperationResultDTO createSellOrder(CreateSellOrderCommand command) {
         Symbol symbol = createSymbol(command.getSymbolCode());
         Money price = Money.of(command.getPrice(), command.getCurrency());
 
-        OrderOperationResult result = createSellOrder(
+        return createSellOrder(
                 command.getUserId(),
                 symbol,
                 price,
                 command.getQuantity()
         );
-
-        return mapToOrderOperationResultDTO(result);
     }
 
     public OrderOperationResultDTO updateOrderPrice(UpdateOrderPriceCommand command) {
         Money newPrice = Money.of(command.getNewPrice(), command.getCurrency());
 
-        OrderOperationResult result = updateOrderPrice(
+        return updateOrderPrice(
                 command.getOrderId(),
                 newPrice
         );
-
-        return mapToOrderOperationResultDTO(result);
     }
 
     public OrderOperationResultDTO cancelOrder(CancelOrderCommand command) {
-        OrderOperationResult result = cancelOrder(command.getOrderId());
-        return mapToOrderOperationResultDTO(result);
+        return cancelOrder(command.getOrderId());
     }
 
     public OrderOperationResultDTO cancelPartialOrder(CancelPartialOrderCommand command) {
-        OrderOperationResult result = cancelPartialOrder(
+        return cancelPartialOrder(
                 command.getOrderId(),
                 command.getQuantityToCancel()
         );
-
-        return mapToOrderOperationResultDTO(result);
     }
 
     // DTO Query Methods
@@ -341,20 +307,6 @@ public class OrderApplicationService implements OrderService {
     }
 
     // ===== PRIVATE HELPER METHODS =====
-
-    private String generateOrderId() {
-        return "ORDER_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
-    }
-
-    private OrderOperationResultDTO mapToOrderOperationResultDTO(OrderOperationResult result) {
-        return new OrderOperationResultDTO(
-                result.isSuccess(),
-                result.getOrderId(),
-                result.getMessage(),
-                result.getTimestamp(),
-                result.getErrors()
-        );
-    }
 
     private OrderDTO mapToOrderDTO(IOrder order) {
         String orderType = order instanceof IBuyOrder ? "BUY" : "SELL";

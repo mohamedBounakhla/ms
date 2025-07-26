@@ -2,8 +2,8 @@ package core.ms.order_book;
 
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.ISellOrder;
-import core.ms.order_book.domain.OrderBook;
-import core.ms.order_book.domain.OrderBookManager;
+import core.ms.order_book.domain.entities.OrderBook;
+import core.ms.order_book.domain.entities.OrderBookManager;
 import core.ms.order_book.domain.value_object.MarketOverview;
 import core.ms.order_book.domain.value_object.OrderMatch;
 import core.ms.shared.domain.Currency;

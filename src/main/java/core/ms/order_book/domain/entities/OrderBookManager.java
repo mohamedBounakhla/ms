@@ -1,4 +1,4 @@
-package core.ms.order_book.domain;
+package core.ms.order_book.domain.entities;
 
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order_book.domain.value_object.MarketOverview;

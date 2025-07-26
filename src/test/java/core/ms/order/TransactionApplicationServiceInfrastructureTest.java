@@ -6,8 +6,6 @@ import core.ms.order.application.dto.query.TransactionResultDTO;
 import core.ms.order.application.dto.query.TransactionStatisticsDTO;
 import core.ms.order.application.services.TransactionApplicationService;
 import core.ms.order.domain.entities.*;
-import core.ms.order.domain.ports.inbound.OrderValidationService;
-import core.ms.order.domain.ports.inbound.TransactionVolume;
 import core.ms.order.domain.ports.outbound.OrderRepository;
 import core.ms.order.domain.ports.outbound.TransactionRepository;
 import core.ms.order.domain.validators.ValidationErrorMessage;
@@ -15,7 +13,6 @@ import core.ms.shared.domain.Currency;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

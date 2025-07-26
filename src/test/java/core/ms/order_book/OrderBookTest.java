@@ -1,6 +1,6 @@
 package core.ms.order_book;
 
-import core.ms.order_book.domain.OrderBook;
+import core.ms.order_book.domain.entities.OrderBook;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

@@ -1,8 +1,9 @@
-package core.ms.order_book.domain;
+package core.ms.order_book.domain.entities;
 
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order_book.domain.factory.OrderMatchFactory;
 import core.ms.order_book.domain.value_object.*;
 import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
@@ -23,7 +24,6 @@ public class OrderBook {
 
     private final BuyOrderPriorityCalculator buyOrderCalculator;
     private final SellOrderPriorityCalculator sellOrderCalculator;
-    private final MatchFinder matchFinder;
 
     public OrderBook(Symbol symbol) {
         this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");
@@ -47,13 +47,9 @@ public class OrderBook {
         this.lastUpdate = LocalDateTime.now();
         this.totalBidVolume = BigDecimal.ZERO;
         this.totalAskVolume = BigDecimal.ZERO;
-        this.matchFinder = new MatchFinder();
     }
 
     public void addOrder(IOrder order) {
-        Objects.requireNonNull(order, "Order cannot be null");
-        validateOrder(order);
-
         orderIndex.put(order.getId(), order);
 
         Money price = order.getPrice();
@@ -122,6 +118,9 @@ public class OrderBook {
         }
     }
 
+    // ============ PURE DATA ACCESS METHODS ============
+    // The OrderBook now focuses solely on providing data
+
     public Optional<Money> getBestBid() {
         return bidLevels.isEmpty() ? Optional.empty() : Optional.of(bidLevels.firstKey());
     }
@@ -156,6 +155,38 @@ public class OrderBook {
                 .findFirst();
     }
 
+    // ============ MATCHING DELEGATION ============
+    // OrderBook delegates ALL matching logic to the factory
+
+    /**
+     * Finds matches using the default strategy.
+     * The OrderBook simply passes itself to the factory and doesn't care about the details.
+     */
+    public List<OrderMatch> findMatches() {
+        // Clean up inactive orders before finding matches
+        removeInactiveOrders();
+        return OrderMatchFactory.findMatches(this);
+    }
+
+    /**
+     * Finds matches using a specific strategy.
+     * Still completely delegated to the factory.
+     */
+    public List<OrderMatch> findMatches(MatchingStrategy strategy) {
+        removeInactiveOrders();
+        return OrderMatchFactory.findMatches(this, strategy);
+    }
+
+    /**
+     * Convenience method to check if there are any potential matches.
+     * Uses the factory to determine this.
+     */
+    public boolean hasMatches() {
+        return !findMatches().isEmpty();
+    }
+
+    // ============ DATA METHODS ============
+
     public MarketDepth getMarketDepth(int levels) {
         if (levels <= 0) {
             throw new IllegalArgumentException("Levels must be positive");
@@ -170,12 +201,6 @@ public class OrderBook {
                 .collect(Collectors.toList());
 
         return new MarketDepth(symbol, topBids, topAsks);
-    }
-
-    public List<OrderMatch> findMatches() {
-        // Clean up inactive orders before finding matches
-        removeInactiveOrders();
-        return matchFinder.findMatches(this);
     }
 
     public Collection<BidPriceLevel> getBidLevels() {
@@ -212,21 +237,6 @@ public class OrderBook {
 
     public LocalDateTime getLastUpdate() {
         return lastUpdate;
-    }
-
-    private void validateOrder(IOrder order) {
-        if (!symbol.equals(order.getSymbol())) {
-            throw new IllegalArgumentException(
-                    "Order symbol " + order.getSymbol() + " does not match book symbol " + symbol);
-        }
-
-        if (!order.isActive()) {
-            throw new IllegalArgumentException("Only active orders can be added to order book");
-        }
-
-        if (orderIndex.containsKey(order.getId())) {
-            throw new IllegalArgumentException("Order " + order.getId() + " already exists in book");
-        }
     }
 
     private void updateVolumeMetrics() {

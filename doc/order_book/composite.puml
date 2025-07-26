@@ -1,0 +1,195 @@
+@startuml CompositeValidators
+!theme plain
+skinparam backgroundColor white
+skinparam classAttributeIconSize 0
+skinparam classFontSize 12
+skinparam packageStyle rectangle
+
+package "Core Framework" {
+  abstract class ValidationComponent {
+    # children: List<ValidationComponent>
+    # validatorName: String
+    __
+    + abstract validateSelf(context): ValidationResult
+    + accept(visitor): void
+    + addChild(child): ValidationComponent
+    + getChildren(): List<ValidationComponent>
+    + isLeaf(): boolean
+    + isComposite(): boolean
+  }
+}
+
+package "Composite Validators" {
+  class OrderBookValidator extends ValidationComponent {
+    + OrderBookValidator()
+    + validateSelf(context): ValidationResult
+    __
+    Validates OrderBook creation context
+    - Requires Symbol context
+    - Contains SymbolValidityValidator
+    - Contains BookStateConsistencyValidator
+  }
+
+  class OrderAdditionValidator extends ValidationComponent {
+    + OrderAdditionValidator()
+    + validateSelf(context): ValidationResult
+    __
+    Validates order addition to book
+    - Requires OrderBook and Order context
+    - Contains multiple order validation rules
+    - Contains PriceLevelValidator composite
+  }
+
+  class OrderMatchValidator extends ValidationComponent {
+    + OrderMatchValidator()
+    + validateSelf(context): ValidationResult
+    __
+    Validates order matching scenarios
+    - Requires buy and sell order context
+    - Contains matching-specific validators
+  }
+
+  class PriceLevelValidator extends ValidationComponent {
+    + PriceLevelValidator()
+    + validateSelf(context): ValidationResult
+    __
+    Validates price level operations
+    - Requires Order context
+    - Contains price-specific validators
+    - Contains BookStateValidator composite
+  }
+
+  class BookStateValidator extends ValidationComponent {
+    + BookStateValidator()
+    + validateSelf(context): ValidationResult
+    __
+    Validates book state consistency
+    - Requires OrderBook context
+    - Contains state consistency validators
+  }
+
+  class OrderBookManagerValidator extends ValidationComponent {
+    + OrderBookManagerValidator()
+    + validateSelf(context): ValidationResult
+    __
+    Validates manager-level operations
+    - Requires OrderBook context
+    - Contains manager-specific validators
+  }
+}
+
+package "Leaf Validators (Referenced by Composites)" {
+  class SymbolValidityValidator extends ValidationComponent
+  class BookStateConsistencyValidator extends ValidationComponent
+  class OrderNotNullValidator extends ValidationComponent
+  class OrderActivityValidator extends ValidationComponent
+  class SymbolCompatibilityValidator extends ValidationComponent
+  class OrderUniquenessValidator extends ValidationComponent
+  class OrderTypeCompatibilityValidator extends ValidationComponent
+  class PriceNotNullValidator extends ValidationComponent
+  class PriceCompatibilityValidator extends ValidationComponent
+  class OrderTypePlacementValidator extends ValidationComponent
+  class TimePriorityValidator extends ValidationComponent
+  class VolumeConsistencyValidator extends ValidationComponent
+  class MarketStructureValidator extends ValidationComponent
+  class SpreadIntegrityValidator extends ValidationComponent
+  class IndexConsistencyValidator extends ValidationComponent
+  class OrdersActiveValidator extends ValidationComponent
+  class QuantityAvailabilityValidator extends ValidationComponent
+  class TimePriorityRulesValidator extends ValidationComponent
+  class SymbolUniquenessValidator extends ValidationComponent
+  class OrderBookConsistencyValidator extends ValidationComponent
+}
+
+' Composite Structure Relationships
+OrderBookValidator ||--o{ SymbolValidityValidator : contains
+OrderBookValidator ||--o{ BookStateConsistencyValidator : contains
+
+OrderAdditionValidator ||--o{ OrderNotNullValidator : contains
+OrderAdditionValidator ||--o{ OrderActivityValidator : contains
+OrderAdditionValidator ||--o{ SymbolCompatibilityValidator : contains
+OrderAdditionValidator ||--o{ OrderUniquenessValidator : contains
+OrderAdditionValidator ||--o{ OrderTypeCompatibilityValidator : contains
+OrderAdditionValidator ||--o{ PriceLevelValidator : contains
+
+PriceLevelValidator ||--o{ PriceNotNullValidator : contains
+PriceLevelValidator ||--o{ PriceCompatibilityValidator : contains
+PriceLevelValidator ||--o{ OrderTypePlacementValidator : contains
+PriceLevelValidator ||--o{ TimePriorityValidator : contains
+PriceLevelValidator ||--o{ BookStateValidator : contains
+
+BookStateValidator ||--o{ VolumeConsistencyValidator : contains
+BookStateValidator ||--o{ MarketStructureValidator : contains
+BookStateValidator ||--o{ SpreadIntegrityValidator : contains
+BookStateValidator ||--o{ IndexConsistencyValidator : contains
+
+OrderMatchValidator ||--o{ OrderNotNullValidator : contains
+OrderMatchValidator ||--o{ OrdersActiveValidator : contains
+OrderMatchValidator ||--o{ SymbolCompatibilityValidator : contains
+OrderMatchValidator ||--o{ PriceCompatibilityValidator : contains
+OrderMatchValidator ||--o{ QuantityAvailabilityValidator : contains
+OrderMatchValidator ||--o{ TimePriorityRulesValidator : contains
+
+OrderBookManagerValidator ||--o{ SymbolUniquenessValidator : contains
+OrderBookManagerValidator ||--o{ OrderBookConsistencyValidator : contains
+
+' Composite-to-Composite relationships
+OrderAdditionValidator --> PriceLevelValidator : delegates to
+PriceLevelValidator --> BookStateValidator : delegates to
+
+note right of OrderBookValidator
+**Responsibility:**
+Creates OrderBook validation context
+Ensures Symbol validity
+end note
+
+note right of OrderAdditionValidator
+**Responsibility:**
+Validates order addition workflow
+Orchestrates multiple validation stages
+Delegates to PriceLevelValidator
+end note
+
+note right of PriceLevelValidator
+**Responsibility:**
+Validates price level operations
+Manages order placement rules
+Delegates to BookStateValidator
+end note
+
+note right of BookStateValidator
+**Responsibility:**
+Ensures book state consistency
+Validates market structure integrity
+Terminal composite (no further delegation)
+end note
+
+note right of OrderMatchValidator
+**Responsibility:**
+Validates order matching logic
+Ensures matching rules compliance
+Independent validation path
+end note
+
+note right of OrderBookManagerValidator
+**Responsibility:**
+Validates manager-level operations
+Ensures system-wide consistency
+Independent validation path
+end note
+
+note as CompositeHierarchy
+**Composite Validation Hierarchy:**
+
+**Level 1:** OrderAdditionValidator
+**Level 2:** ├─ PriceLevelValidator
+**Level 3:** │  └─ BookStateValidator
+**Level 1:** OrderMatchValidator (independent)
+**Level 1:** OrderBookValidator (independent)
+**Level 1:** OrderBookManagerValidator (independent)
+
+Each composite validates its own context
+then delegates to appropriate children.
+end note
+
+@enduml

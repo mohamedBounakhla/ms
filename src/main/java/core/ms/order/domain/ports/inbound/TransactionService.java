@@ -1,6 +1,7 @@
 package core.ms.order.domain.ports.inbound;
 
-
+import core.ms.order.application.dto.query.TransactionResultDTO;
+import core.ms.order.application.dto.query.TransactionStatisticsDTO;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.entities.ITransaction;
@@ -21,14 +22,14 @@ public interface TransactionService {
     /**
      * Creates a transaction from matching orders
      */
-    TransactionResult createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
-                                        Money executionPrice, BigDecimal quantity);
+    TransactionResultDTO createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
+                                           Money executionPrice, BigDecimal quantity);
 
     /**
      * Creates a transaction using order IDs
      */
-    TransactionResult createTransactionByOrderIds(String buyOrderId, String sellOrderId,
-                                                  Money executionPrice, BigDecimal quantity);
+    TransactionResultDTO createTransactionByOrderIds(String buyOrderId, String sellOrderId,
+                                                     Money executionPrice, BigDecimal quantity);
 
     // ===== TRANSACTION QUERIES =====
     /**
@@ -65,10 +66,5 @@ public interface TransactionService {
     /**
      * Gets transaction statistics for a symbol
      */
-    TransactionStatistics getTransactionStatistics(Symbol symbol);
-
-    /**
-     * Gets transaction volume for a time period
-     */
-    TransactionVolume getTransactionVolume(Symbol symbol, LocalDateTime startDate, LocalDateTime endDate);
+    TransactionStatisticsDTO getTransactionStatistics(Symbol symbol);
 }

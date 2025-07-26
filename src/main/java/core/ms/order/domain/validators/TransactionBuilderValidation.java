@@ -3,12 +3,11 @@ package core.ms.order.domain.validators;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.validators.annotation.OrderNotFinal;
-import core.ms.shared.domain.Money;
 import core.ms.shared.domain.Symbol;
+import core.ms.utils.IdGenerator;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.UUID;
 
 /**
  * Progressive transaction builder with incremental validation.
@@ -173,8 +172,6 @@ public class TransactionBuilderValidation {
         return new TransactionBuilder().withId(generateTransactionId());
     }
 
-
-
     // ===== VALIDATION RESULT =====
     public static class TransactionValidationResult {
         private final TransactionBuilderValidation validatedData;
@@ -201,6 +198,6 @@ public class TransactionBuilderValidation {
 
     // ===== HELPER =====
     private static String generateTransactionId() {
-        return "TXN_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12).toUpperCase();
+        return IdGenerator.generateTransactionId();
     }
 }
