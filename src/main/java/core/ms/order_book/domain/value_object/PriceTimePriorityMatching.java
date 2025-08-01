@@ -33,9 +33,6 @@ public class PriceTimePriorityMatching implements MatchingStrategy {
                 .isValid();
     }
 
-
-
-
     // ============ EMBEDDED MATCH CANDIDATE ============
 
     public static class MatchCandidate implements MatchCandidateExtractor {

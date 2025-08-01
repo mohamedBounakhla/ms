@@ -56,6 +56,7 @@ public class OrderBook {
 
     private List<OrderMatch> checkForMatches() {
         if (hasSpreadCrossed()) {
+            // Delegate to factory with default algorithm and strategy
             return OrderMatchFactory.findMatches(bidSide, askSide);
         }
         return Collections.emptyList();
