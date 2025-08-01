@@ -1,6 +1,8 @@
 package core.ms.order_book.domain.entities;
 
+import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order_book.domain.value_object.MarketOverview;
 import core.ms.order_book.domain.value_object.OrderMatch;
 import core.ms.shared.domain.Symbol;
@@ -16,6 +18,8 @@ public class OrderBookManager {
     public OrderBookManager() {
         this.orderBooks = new ConcurrentHashMap<>();
     }
+
+    // ============ ORDER BOOK MANAGEMENT ============
 
     public OrderBook getOrderBook(Symbol symbol) {
         Objects.requireNonNull(symbol, "Symbol cannot be null");
@@ -36,10 +40,47 @@ public class OrderBookManager {
 
     public boolean removeOrderBook(Symbol symbol) {
         Objects.requireNonNull(symbol, "Symbol cannot be null");
-
         OrderBook removed = orderBooks.remove(symbol);
         return removed != null;
     }
+
+    // ============ ORDER MANAGEMENT WITH TYPE INTROSPECTION ============
+
+    public synchronized void addOrderToBook(IOrder order) {
+        Objects.requireNonNull(order, "Order cannot be null");
+
+        OrderBook orderBook = getOrderBook(order.getSymbol());
+
+        // Handle type introspection and casting here
+        if (order instanceof IBuyOrder) {
+            orderBook.addOrder((IBuyOrder) order);
+        } else if (order instanceof ISellOrder) {
+            orderBook.addOrder((ISellOrder) order);
+        } else {
+            throw new IllegalArgumentException("Unknown order type: " + order.getClass());
+        }
+    }
+
+    public synchronized boolean removeOrderFromBook(IOrder order, Symbol symbol) {
+        Objects.requireNonNull(order, "Order cannot be null");
+        Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+        OrderBook orderBook = orderBooks.get(symbol);
+        if (orderBook == null) {
+            return false;
+        }
+
+        // Handle type introspection and casting here
+        if (order instanceof IBuyOrder) {
+            return orderBook.removeOrder((IBuyOrder) order);
+        } else if (order instanceof ISellOrder) {
+            return orderBook.removeOrder((ISellOrder) order);
+        } else {
+            throw new IllegalArgumentException("Unknown order type: " + order.getClass());
+        }
+    }
+
+    // ============ QUERY METHODS ============
 
     public Collection<OrderBook> getAllOrderBooks() {
         return new ArrayList<>(orderBooks.values());
@@ -51,26 +92,6 @@ public class OrderBookManager {
 
     public int getTotalOrderBooks() {
         return orderBooks.size();
-    }
-
-    public synchronized void addOrderToBook(IOrder order) {
-        Objects.requireNonNull(order, "Order cannot be null");
-        OrderBook orderBook = getOrderBook(order.getSymbol());
-        orderBook.addOrder(order);
-    }
-
-    public synchronized boolean removeOrderFromBook(IOrder order, Symbol symbol) {
-        Objects.requireNonNull(order, "Order ID cannot be null");
-        Objects.requireNonNull(symbol, "Symbol cannot be null");
-
-        OrderBook orderBook = orderBooks.get(symbol);
-        return orderBook != null && orderBook.removeOrder(order);
-    }
-
-    public List<OrderMatch> findAllMatches() {
-        return orderBooks.values().stream()
-                .flatMap(orderBook -> orderBook.findMatches().stream())
-                .collect(Collectors.toList());
     }
 
     public MarketOverview getMarketOverview() {
@@ -91,6 +112,4 @@ public class OrderBookManager {
                 totalVolumes
         );
     }
-
-
 }

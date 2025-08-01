@@ -15,118 +15,92 @@ import java.util.stream.Collectors;
 
 public class OrderBook {
     private final Symbol symbol;
-    private final TreeMap<Money, BidPriceLevel> bidLevels;
-    private final TreeMap<Money, AskPriceLevel> askLevels;
+    private final BidSideManager bidSide;
+    private final AskSideManager askSide;
     private final Map<String, IOrder> orderIndex;
     private LocalDateTime lastUpdate;
-    private BigDecimal totalBidVolume;
-    private BigDecimal totalAskVolume;
-
-    private final BuyOrderPriorityCalculator buyOrderCalculator;
-    private final SellOrderPriorityCalculator sellOrderCalculator;
 
     public OrderBook(Symbol symbol) {
         this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");
-
-        this.buyOrderCalculator = new BuyOrderPriorityCalculator();
-        this.sellOrderCalculator = new SellOrderPriorityCalculator();
-
-        this.bidLevels = new TreeMap<>((price1, price2) -> {
-            if (buyOrderCalculator.isPriceBetter(price2, price1)) return 1;
-            if (buyOrderCalculator.isPriceBetter(price1, price2)) return -1;
-            return 0;
-        });
-
-        this.askLevels = new TreeMap<>((price1, price2) -> {
-            if (sellOrderCalculator.isPriceBetter(price1, price2)) return -1;
-            if (sellOrderCalculator.isPriceBetter(price2, price1)) return 1;
-            return 0;
-        });
-
+        this.bidSide = new BidSideManager();
+        this.askSide = new AskSideManager();
         this.orderIndex = new HashMap<>();
         this.lastUpdate = LocalDateTime.now();
-        this.totalBidVolume = BigDecimal.ZERO;
-        this.totalAskVolume = BigDecimal.ZERO;
     }
 
-    public void addOrder(IOrder order) {
+    // ============ ORDER OPERATIONS WITH MATCHING ============
+
+    public List<OrderMatch> addOrder(IBuyOrder order) {
+        Objects.requireNonNull(order, "Buy order cannot be null");
+
         orderIndex.put(order.getId(), order);
-
-        Money price = order.getPrice();
-
-        if (order instanceof IBuyOrder) {
-            BidPriceLevel level = bidLevels.computeIfAbsent(price, BidPriceLevel::new);
-            level.addOrder((IBuyOrder) order);
-        } else if (order instanceof ISellOrder) {
-            AskPriceLevel level = askLevels.computeIfAbsent(price, AskPriceLevel::new);
-            level.addOrder((ISellOrder) order);
-        } else {
-            throw new IllegalArgumentException("Unknown order type: " + order.getClass());
-        }
-
-        updateVolumeMetrics();
+        bidSide.addOrder(order);
         lastUpdate = LocalDateTime.now();
+
+        // Check for matches after adding order
+        return checkForMatches();
     }
 
-    public boolean removeOrder(IOrder order) {
-        Objects.requireNonNull(order, "Order cannot be null");
+    public List<OrderMatch> addOrder(ISellOrder order) {
+        Objects.requireNonNull(order, "Sell order cannot be null");
+
+        orderIndex.put(order.getId(), order);
+        askSide.addOrder(order);
+        lastUpdate = LocalDateTime.now();
+
+        // Check for matches after adding order
+        return checkForMatches();
+    }
+
+    // ============ MATCHING LOGIC ============
+
+    private List<OrderMatch> checkForMatches() {
+        if (hasSpreadCrossed()) {
+            return OrderMatchFactory.findMatches(bidSide, askSide);
+        }
+        return Collections.emptyList();
+    }
+
+    private boolean hasSpreadCrossed() {
+        Optional<Money> bestBid = getBestBid();
+        Optional<Money> bestAsk = getBestAsk();
+
+        return bestBid.isPresent() && bestAsk.isPresent() &&
+                bestBid.get().isGreaterThanOrEqual(bestAsk.get());
+    }
+
+    // ============ REMOVE METHODS ============
+
+    public boolean removeOrder(IBuyOrder order) {
+        Objects.requireNonNull(order, "Buy order cannot be null");
 
         if (orderIndex.remove(order.getId()) != null) {
-            Money price = order.getPrice();
-
-            if (order instanceof IBuyOrder) {
-                BidPriceLevel level = bidLevels.get(price);
-                if (level != null) {
-                    level.removeOrder((IBuyOrder) order);
-                    if (level.isEmpty()) {
-                        bidLevels.remove(price);
-                    }
-                }
-            } else if (order instanceof ISellOrder) {
-                AskPriceLevel level = askLevels.get(price);
-                if (level != null) {
-                    level.removeOrder((ISellOrder) order);
-                    if (level.isEmpty()) {
-                        askLevels.remove(price);
-                    }
-                }
-            } else {
-                throw new IllegalArgumentException("Unknown order type: " + order.getClass());
-            }
-
-            updateVolumeMetrics();
+            boolean removed = bidSide.removeOrder(order);
             lastUpdate = LocalDateTime.now();
-            return true;
+            return removed;
         }
         return false;
     }
 
-    /**
-     * Removes all inactive (filled or cancelled) orders from the order book.
-     * This method should be called after transactions to maintain a clean order book
-     * containing only tradeable orders.
-     */
-    public void removeInactiveOrders() {
-        // Collect inactive orders to avoid concurrent modification
-        List<IOrder> inactiveOrders = orderIndex.values().stream()
-                .filter(order -> !order.isActive())
-                .collect(Collectors.toList());
+    public boolean removeOrder(ISellOrder order) {
+        Objects.requireNonNull(order, "Sell order cannot be null");
 
-        // Remove each inactive order
-        for (IOrder inactiveOrder : inactiveOrders) {
-            removeOrder(inactiveOrder);
+        if (orderIndex.remove(order.getId()) != null) {
+            boolean removed = askSide.removeOrder(order);
+            lastUpdate = LocalDateTime.now();
+            return removed;
         }
+        return false;
     }
 
-    // ============ PURE DATA ACCESS METHODS ============
-    // The OrderBook now focuses solely on providing data
+    // ============ QUERY METHODS ============
 
     public Optional<Money> getBestBid() {
-        return bidLevels.isEmpty() ? Optional.empty() : Optional.of(bidLevels.firstKey());
+        return bidSide.getBestPrice();
     }
 
     public Optional<Money> getBestAsk() {
-        return askLevels.isEmpty() ? Optional.empty() : Optional.of(askLevels.firstKey());
+        return askSide.getBestPrice();
     }
 
     public Optional<Money> getSpread() {
@@ -140,96 +114,67 @@ public class OrderBook {
     }
 
     public Optional<IBuyOrder> getBestBuyOrder() {
-        return bidLevels.values().stream()
-                .map(BidPriceLevel::getFirstActiveOrder)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .findFirst();
+        return bidSide.getBestOrder();
     }
 
     public Optional<ISellOrder> getBestSellOrder() {
-        return askLevels.values().stream()
-                .map(AskPriceLevel::getFirstActiveOrder)
-                .filter(Optional::isPresent)
-                .map(Optional::get)
-                .findFirst();
+        return askSide.getBestOrder();
     }
 
-    // ============ MATCHING DELEGATION ============
-    // OrderBook delegates ALL matching logic to the factory
-
-    /**
-     * Finds matches using the default strategy.
-     * The OrderBook simply passes itself to the factory and doesn't care about the details.
-     */
-    public List<OrderMatch> findMatches() {
-        // Clean up inactive orders before finding matches
-        removeInactiveOrders();
-        return OrderMatchFactory.findMatches(this);
+    public BigDecimal getTotalBidVolume() {
+        return bidSide.getTotalVolume();
     }
 
-    /**
-     * Finds matches using a specific strategy.
-     * Still completely delegated to the factory.
-     */
-    public List<OrderMatch> findMatches(MatchingStrategy strategy) {
-        removeInactiveOrders();
-        return OrderMatchFactory.findMatches(this, strategy);
+    public BigDecimal getTotalAskVolume() {
+        return askSide.getTotalVolume();
     }
 
-    /**
-     * Convenience method to check if there are any potential matches.
-     * Uses the factory to determine this.
-     */
-    public boolean hasMatches() {
-        return !findMatches().isEmpty();
+    public boolean isEmpty() {
+        return bidSide.isEmpty() && askSide.isEmpty();
     }
 
-    // ============ DATA METHODS ============
+    public int getOrderCount() {
+        return orderIndex.size();
+    }
+
+    // ============ DATA ACCESS METHODS ============
 
     public MarketDepth getMarketDepth(int levels) {
         if (levels <= 0) {
             throw new IllegalArgumentException("Levels must be positive");
         }
 
-        List<BidPriceLevel> topBids = bidLevels.values().stream()
-                .limit(levels)
-                .collect(Collectors.toList());
-
-        List<AskPriceLevel> topAsks = askLevels.values().stream()
-                .limit(levels)
-                .collect(Collectors.toList());
+        List<BidPriceLevel> topBids = bidSide.getTopLevels(levels);
+        List<AskPriceLevel> topAsks = askSide.getTopLevels(levels);
 
         return new MarketDepth(symbol, topBids, topAsks);
     }
 
     public Collection<BidPriceLevel> getBidLevels() {
-        return new ArrayList<>(bidLevels.values());
+        return bidSide.getLevels();
     }
 
     public Collection<AskPriceLevel> getAskLevels() {
-        return new ArrayList<>(askLevels.values());
+        return askSide.getLevels();
     }
 
-    public BigDecimal getTotalBidVolume() {
-        return totalBidVolume;
+    // ============ CLEANUP METHODS ============
+
+    public void removeInactiveOrders() {
+        List<IOrder> inactiveOrders = orderIndex.values().stream()
+                .filter(order -> !order.isActive())
+                .collect(Collectors.toList());
+
+        for (IOrder inactiveOrder : inactiveOrders) {
+            orderIndex.remove(inactiveOrder.getId());
+        }
+
+        bidSide.removeInactiveOrders();
+        askSide.removeInactiveOrders();
+        lastUpdate = LocalDateTime.now();
     }
 
-    public BigDecimal getTotalAskVolume() {
-        return totalAskVolume;
-    }
-
-    public boolean isEmpty() {
-        return bidLevels.isEmpty() && askLevels.isEmpty();
-    }
-
-    public boolean hasOrders() {
-        return !isEmpty();
-    }
-
-    public int getOrderCount() {
-        return orderIndex.size();
-    }
+    // ============ GETTERS ============
 
     public Symbol getSymbol() {
         return symbol;
@@ -237,15 +182,5 @@ public class OrderBook {
 
     public LocalDateTime getLastUpdate() {
         return lastUpdate;
-    }
-
-    private void updateVolumeMetrics() {
-        totalBidVolume = bidLevels.values().stream()
-                .map(BidPriceLevel::getTotalQuantity)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        totalAskVolume = askLevels.values().stream()
-                .map(AskPriceLevel::getTotalQuantity)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 }

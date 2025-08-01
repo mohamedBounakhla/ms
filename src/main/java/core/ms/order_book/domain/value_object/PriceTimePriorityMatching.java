@@ -8,16 +8,18 @@ import core.ms.shared.domain.Money;
 import java.math.BigDecimal;
 import java.util.*;
 
-public class PriceTimePriorityMatching implements MatchingStrategy<PriceTimePriorityMatching.MatchCandidate> {
+public class PriceTimePriorityMatching implements MatchingStrategy {
 
     @Override
-    public List<MatchCandidate> findMatchCandidates(OrderBook orderBook) {
-        return new MatchFindingBuilder(orderBook)
-                .extractBestOrders()
-                .validateSpreadCrossed()
-                .validateCanMatch()
-                .createCandidates()
+    public List<MatchCandidate> findMatchCandidates(IBuyOrder buyOrder, ISellOrder sellOrder) {
+        MatchCandidate candidate = new MatchValidationBuilder(buyOrder, sellOrder)
+                .validateSymbolCompatibility()
+                .validatePriceCompatibility()
+                .validateOrdersActive()
+                .validateRemainingQuantity()
                 .build();
+
+        return candidate.isValid() ? List.of(candidate) : Collections.emptyList();
     }
 
     @Override
@@ -27,15 +29,15 @@ public class PriceTimePriorityMatching implements MatchingStrategy<PriceTimePrio
                 .validatePriceCompatibility()
                 .validateOrdersActive()
                 .validateRemainingQuantity()
-                .build();
+                .build()
+                .isValid();
     }
+
+
+
 
     // ============ EMBEDDED MATCH CANDIDATE ============
 
-    /**
-     * Intermediate storage object specific to PriceTimePriorityMatching.
-     * Contains validated matching order pairs and context specific to this strategy.
-     */
     public static class MatchCandidate implements MatchCandidateExtractor {
         private final IBuyOrder buyOrder;
         private final ISellOrder sellOrder;
@@ -58,23 +60,21 @@ public class PriceTimePriorityMatching implements MatchingStrategy<PriceTimePrio
             );
         }
 
-        public static MatchCandidate validWithContext(IBuyOrder buyOrder, ISellOrder sellOrder, String context) {
-            return new MatchCandidate(
-                    Objects.requireNonNull(buyOrder, "Buy order cannot be null"),
-                    Objects.requireNonNull(sellOrder, "Sell order cannot be null"),
-                    true,
-                    context
-            );
+        public static MatchCandidate invalid(IBuyOrder buyOrder, ISellOrder sellOrder, String reason) {
+            return new MatchCandidate(buyOrder, sellOrder, false, reason);
         }
 
+        @Override
         public IBuyOrder getBuyOrder() {
             return buyOrder;
         }
 
+        @Override
         public ISellOrder getSellOrder() {
             return sellOrder;
         }
 
+        @Override
         public boolean isValid() {
             return isValid;
         }
@@ -82,86 +82,15 @@ public class PriceTimePriorityMatching implements MatchingStrategy<PriceTimePrio
         public String getValidationContext() {
             return validationContext;
         }
-
-        @Override
-        public String toString() {
-            return String.format("PriceTimePriorityMatchCandidate{valid=%s, buy=%s, sell=%s, context='%s'}",
-                    isValid,
-                    buyOrder != null ? buyOrder.getId() : "null",
-                    sellOrder != null ? sellOrder.getId() : "null",
-                    validationContext);
-        }
     }
 
-    // ============ MATCH FINDING BUILDER ============
-
-    private static class MatchFindingBuilder {
-        private final OrderBook orderBook;
-        private Optional<IBuyOrder> bestBuyOrder = Optional.empty();
-        private Optional<ISellOrder> bestSellOrder = Optional.empty();
-        private boolean spreadCrossed = false;
-        private boolean canMatch = false;
-        private List<MatchCandidate> candidates = new ArrayList<>();
-
-        public MatchFindingBuilder(OrderBook orderBook) {
-            this.orderBook = Objects.requireNonNull(orderBook, "OrderBook cannot be null");
-        }
-
-        public MatchFindingBuilder extractBestOrders() {
-            bestBuyOrder = orderBook.getBestBuyOrder();
-            bestSellOrder = orderBook.getBestSellOrder();
-            return this;
-        }
-
-        public MatchFindingBuilder validateSpreadCrossed() {
-            Optional<Money> bestBid = orderBook.getBestBid();
-            Optional<Money> bestAsk = orderBook.getBestAsk();
-
-            if (bestBid.isPresent() && bestAsk.isPresent()) {
-                spreadCrossed = bestBid.get().isGreaterThanOrEqual(bestAsk.get());
-                // Could add logging here: log.debug("Spread crossed: {} >= {}", bestBid.get(), bestAsk.get());
-            }
-            return this;
-        }
-
-        public MatchFindingBuilder validateCanMatch() {
-            if (spreadCrossed && bestBuyOrder.isPresent() && bestSellOrder.isPresent()) {
-                // Use the validation builder for consistency
-                canMatch = new MatchValidationBuilder(bestBuyOrder.get(), bestSellOrder.get())
-                        .validateSymbolCompatibility()
-                        .validatePriceCompatibility()
-                        .validateOrdersActive()
-                        .validateRemainingQuantity()
-                        .build();
-                // Could add logging here: log.debug("Orders can match: {}", canMatch);
-            }
-            return this;
-        }
-
-        public MatchFindingBuilder createCandidates() {
-            if (canMatch) {
-                MatchCandidate candidate = MatchCandidate.validWithContext(
-                        bestBuyOrder.get(),
-                        bestSellOrder.get(),
-                        "Price-time priority validation passed"
-                );
-                candidates.add(candidate);
-                // Could add logging here: log.debug("Created candidate: buy={}, sell={}", bestBuyOrder.get().getId(), bestSellOrder.get().getId());
-            }
-            return this;
-        }
-
-        public List<MatchCandidate> build() {
-            return candidates.isEmpty() ? Collections.emptyList() : new ArrayList<>(candidates);
-        }
-    }
-
-    // ============ MATCH VALIDATION BUILDER ============
+    // ============ MATCH VALIDATION BUILDER (DSL) ============
 
     private static class MatchValidationBuilder {
         private final IBuyOrder buyOrder;
         private final ISellOrder sellOrder;
         private boolean isValid = true;
+        private String failureReason = "";
 
         public MatchValidationBuilder(IBuyOrder buyOrder, ISellOrder sellOrder) {
             this.buyOrder = buyOrder;
@@ -171,15 +100,15 @@ public class PriceTimePriorityMatching implements MatchingStrategy<PriceTimePrio
         public MatchValidationBuilder validateSymbolCompatibility() {
             if (isValid && !buyOrder.getSymbol().equals(sellOrder.getSymbol())) {
                 isValid = false;
-                // Could add logging here: log.debug("Symbol mismatch: {} vs {}", buyOrder.getSymbol(), sellOrder.getSymbol());
+                failureReason = "Symbol mismatch: " + buyOrder.getSymbol() + " vs " + sellOrder.getSymbol();
             }
             return this;
         }
 
         public MatchValidationBuilder validatePriceCompatibility() {
-            if (isValid && !buyOrder.getPrice().isGreaterThanOrEqual(sellOrder.getPrice())) {
+            if (isValid && buyOrder.getPrice().isLessThan(sellOrder.getPrice())) {
                 isValid = false;
-                // Could add logging here: log.debug("Price incompatible: buy {} < sell {}", buyOrder.getPrice(), sellOrder.getPrice());
+                failureReason = "Price incompatible: buy " + buyOrder.getPrice() + " < sell " + sellOrder.getPrice();
             }
             return this;
         }
@@ -187,7 +116,7 @@ public class PriceTimePriorityMatching implements MatchingStrategy<PriceTimePrio
         public MatchValidationBuilder validateOrdersActive() {
             if (isValid && (!buyOrder.isActive() || !sellOrder.isActive())) {
                 isValid = false;
-                // Could add logging here: log.debug("Inactive orders: buy active={}, sell active={}", buyOrder.isActive(), sellOrder.isActive());
+                failureReason = "Inactive orders: buy active=" + buyOrder.isActive() + ", sell active=" + sellOrder.isActive();
             }
             return this;
         }
@@ -196,13 +125,17 @@ public class PriceTimePriorityMatching implements MatchingStrategy<PriceTimePrio
             if (isValid && (buyOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0 ||
                     sellOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0)) {
                 isValid = false;
-                // Could add logging here: log.debug("Insufficient quantity: buy={}, sell={}", buyOrder.getRemainingQuantity(), sellOrder.getRemainingQuantity());
+                failureReason = "Insufficient quantity: buy=" + buyOrder.getRemainingQuantity() + ", sell=" + sellOrder.getRemainingQuantity();
             }
             return this;
         }
 
-        public boolean build() {
-            return isValid;
+        public MatchCandidate build() {
+            if (isValid) {
+                return MatchCandidate.valid(buyOrder, sellOrder);
+            } else {
+                return MatchCandidate.invalid(buyOrder, sellOrder, failureReason);
+            }
         }
     }
 }
