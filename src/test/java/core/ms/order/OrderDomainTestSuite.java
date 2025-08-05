@@ -2,9 +2,9 @@ package core.ms.order;
 
 import core.ms.order.domain.entities.*;
 import core.ms.order.domain.value_objects.OrderStatusEnum;
-import core.ms.shared.domain.Currency;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Currency;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 import org.junit.jupiter.api.*;
 
 import java.math.BigDecimal;

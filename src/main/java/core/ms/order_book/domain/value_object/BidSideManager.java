@@ -1,7 +1,7 @@
 package core.ms.order_book.domain.value_object;
 
 import core.ms.order.domain.entities.IBuyOrder;
-import core.ms.shared.domain.Money;
+import core.ms.shared.money.Money;
 
 public class BidSideManager extends AbstractPriceLevelManager<IBuyOrder,BidPriceLevel>{
     public BidSideManager() {

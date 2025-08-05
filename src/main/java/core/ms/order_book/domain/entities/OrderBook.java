@@ -3,10 +3,11 @@ package core.ms.order_book.domain.entities;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.entities.ISellOrder;
-import core.ms.order_book.domain.factory.OrderMatchFactory;
+import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.domain.factory.OrderMatchEventFactory;
 import core.ms.order_book.domain.value_object.*;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -19,6 +20,7 @@ public class OrderBook {
     private final AskSideManager askSide;
     private final Map<String, IOrder> orderIndex;
     private LocalDateTime lastUpdate;
+    private final List<OrderMatchedEvent> recentMatchEvents = new ArrayList<>();
 
     public OrderBook(Symbol symbol) {
         this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");
@@ -30,36 +32,30 @@ public class OrderBook {
 
     // ============ ORDER OPERATIONS WITH MATCHING ============
 
-    public List<OrderMatch> addOrder(IBuyOrder order) {
-        Objects.requireNonNull(order, "Buy order cannot be null");
-
+    public void addOrder(IBuyOrder order) {
         orderIndex.put(order.getId(), order);
         bidSide.addOrder(order);
         lastUpdate = LocalDateTime.now();
 
-        // Check for matches after adding order
-        return checkForMatches();
+        checkForMatches();
     }
 
-    public List<OrderMatch> addOrder(ISellOrder order) {
-        Objects.requireNonNull(order, "Sell order cannot be null");
+    public void addOrder(ISellOrder order) {
 
         orderIndex.put(order.getId(), order);
         askSide.addOrder(order);
         lastUpdate = LocalDateTime.now();
 
-        // Check for matches after adding order
-        return checkForMatches();
+        checkForMatches();
     }
 
     // ============ MATCHING LOGIC ============
 
-    private List<OrderMatch> checkForMatches() {
+    private void checkForMatches() {
         if (hasSpreadCrossed()) {
-            // Delegate to factory with default algorithm and strategy
-            return OrderMatchFactory.findMatches(bidSide, askSide);
+            List<OrderMatchedEvent> events = OrderMatchEventFactory.createMatchEvents(bidSide, askSide);
+            recentMatchEvents.addAll(events);
         }
-        return Collections.emptyList();
     }
 
     private boolean hasSpreadCrossed() {
@@ -95,6 +91,7 @@ public class OrderBook {
     }
 
     // ============ QUERY METHODS ============
+    // ... (all other methods remain the same)
 
     public Optional<Money> getBestBid() {
         return bidSide.getBestPrice();
@@ -174,7 +171,19 @@ public class OrderBook {
         askSide.removeInactiveOrders();
         lastUpdate = LocalDateTime.now();
     }
+    public List<OrderMatchedEvent> getRecentMatchEvents() {
+        return new ArrayList<>(recentMatchEvents);
+    }
 
+    public boolean hasRecentMatches() {
+        return !recentMatchEvents.isEmpty();
+    }
+
+    public List<OrderMatchedEvent> consumeRecentMatchEvents() {
+        List<OrderMatchedEvent> events = new ArrayList<>(recentMatchEvents);
+        recentMatchEvents.clear();
+        return events;
+    }
     // ============ GETTERS ============
 
     public Symbol getSymbol() {

@@ -6,7 +6,7 @@ import core.ms.order.domain.ports.outbound.TransactionRepository;
 import core.ms.order.infrastructure.persistence.dao.TransactionDAO;
 import core.ms.order.infrastructure.persistence.entities.TransactionEntity;
 import core.ms.order.infrastructure.persistence.mappers.TransactionMapper;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Symbol;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 

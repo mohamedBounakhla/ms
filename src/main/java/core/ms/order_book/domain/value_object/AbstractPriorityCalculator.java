@@ -1,7 +1,7 @@
 package core.ms.order_book.domain.value_object;
 
 import core.ms.order.domain.entities.IOrder;
-import core.ms.shared.domain.Money;
+import core.ms.shared.money.Money;
 
 import java.time.LocalDateTime;
 import java.util.Objects;

@@ -3,7 +3,7 @@ package core.ms.order.domain.validators;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.validators.annotation.OrderNotFinal;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Symbol;
 import core.ms.utils.IdGenerator;
 
 import java.math.BigDecimal;

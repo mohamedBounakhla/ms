@@ -1,6 +1,6 @@
 package core.ms.order_book.domain.value_object;
 
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Symbol;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

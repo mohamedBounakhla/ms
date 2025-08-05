@@ -11,9 +11,9 @@ import static org.mockito.Mockito.*;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order_book.domain.value_object.*;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
-import core.ms.shared.domain.Currency;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
+import core.ms.shared.money.Currency;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

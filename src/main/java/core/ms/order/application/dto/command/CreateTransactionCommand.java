@@ -1,6 +1,6 @@
 package core.ms.order.application.dto.command;
 
-import core.ms.shared.domain.Currency;
+import core.ms.shared.money.Currency;
 
 import java.math.BigDecimal;
 

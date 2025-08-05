@@ -3,9 +3,9 @@ package core.ms.order.infrastructure.persistence.mappers;
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.value_objects.OrderStatusEnum;
 import core.ms.order.infrastructure.persistence.entities.AbstractOrderEntity;
-import core.ms.shared.domain.AssetType;
-import core.ms.shared.domain.Currency;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.AssetType;
+import core.ms.shared.money.Currency;
+import core.ms.shared.money.Symbol;
 
 import java.math.BigDecimal;
 

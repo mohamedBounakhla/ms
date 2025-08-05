@@ -12,9 +12,9 @@ import core.ms.order.infrastructure.persistence.mappers.BuyOrderMapper;
 import core.ms.order.infrastructure.persistence.mappers.SellOrderMapper;
 
 import core.ms.order.infrastructure.services.OrderRepositoryService;
-import core.ms.shared.domain.Currency;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Currency;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 
 
 import org.junit.jupiter.api.DisplayName;
@@ -31,7 +31,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)

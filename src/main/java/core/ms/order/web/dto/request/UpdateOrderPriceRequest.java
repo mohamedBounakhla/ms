@@ -1,6 +1,6 @@
 package core.ms.order.web.dto.request;
 
-import core.ms.shared.domain.Currency;
+import core.ms.shared.money.Currency;
 import jakarta.validation.constraints.*;
 
 import java.math.BigDecimal;

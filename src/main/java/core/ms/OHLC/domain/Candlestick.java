@@ -1,8 +1,8 @@
 package core.ms.OHLC.domain;
 
-import core.ms.shared.domain.Currency;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Currency;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 import core.ms.utils.BigDecimalNormalizer;
 
 import java.math.BigDecimal;

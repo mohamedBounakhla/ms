@@ -9,7 +9,7 @@ import core.ms.order.infrastructure.persistence.entities.BuyOrderEntity;
 import core.ms.order.infrastructure.persistence.entities.SellOrderEntity;
 import core.ms.order.infrastructure.persistence.mappers.BuyOrderMapper;
 import core.ms.order.infrastructure.persistence.mappers.SellOrderMapper;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Symbol;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 

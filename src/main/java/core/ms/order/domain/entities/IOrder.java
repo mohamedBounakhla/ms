@@ -1,16 +1,8 @@
 package core.ms.order.domain.entities;
 
 import core.ms.order.domain.value_objects.OrderStatus;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
-
-import java.math.BigDecimal;
-import java.time.LocalDateTime;
-import java.util.List;
-
-import core.ms.order.domain.value_objects.OrderStatus;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

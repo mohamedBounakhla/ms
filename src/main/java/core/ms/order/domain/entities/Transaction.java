@@ -1,7 +1,6 @@
 package core.ms.order.domain.entities;
 
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Symbol;
 
 import java.math.BigDecimal;
 

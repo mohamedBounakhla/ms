@@ -1,4 +1,4 @@
-package core.ms.shared.domain;
+package core.ms.shared.money;
 
 public enum AssetType {
     CRYPTO("Cryptocurrency"),

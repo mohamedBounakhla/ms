@@ -1,6 +1,6 @@
 package core.ms.order.infrastructure.persistence.entities;
 
-import core.ms.shared.domain.Currency;
+import core.ms.shared.money.Currency;
 import jakarta.persistence.*;
 
 import java.math.BigDecimal;

@@ -1,8 +1,8 @@
 package core.ms.order.domain.validators;
 
 import core.ms.order.domain.value_objects.OrderStatus;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 import core.ms.utils.IdGenerator;
 
 import java.math.BigDecimal;

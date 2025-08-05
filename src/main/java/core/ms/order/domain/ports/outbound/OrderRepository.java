@@ -5,7 +5,7 @@ import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.value_objects.OrderStatusEnum;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Symbol;
 
 import java.util.List;
 import java.util.Optional;

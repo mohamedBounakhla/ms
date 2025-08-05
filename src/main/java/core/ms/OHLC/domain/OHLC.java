@@ -1,6 +1,6 @@
 package core.ms.OHLC.domain;
 
-import core.ms.shared.domain.Money;
+import core.ms.shared.money.Money;
 
 import java.util.Objects;
 

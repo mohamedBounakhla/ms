@@ -9,9 +9,8 @@ import core.ms.order.domain.factories.TransactionFactory;
 import core.ms.order.domain.ports.inbound.TransactionService;
 import core.ms.order.domain.ports.outbound.OrderRepository;
 import core.ms.order.domain.ports.outbound.TransactionRepository;
-import core.ms.order.domain.validators.ValidationErrorMessage;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 

@@ -1,7 +1,7 @@
 package core.ms.order.infrastructure.persistence.entities;
 
 import core.ms.order.domain.value_objects.OrderStatusEnum;
-import core.ms.shared.domain.Currency;
+import core.ms.shared.money.Currency;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Table;
 

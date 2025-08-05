@@ -1,4 +1,4 @@
-package core.ms.shared.domain;
+package core.ms.shared.money;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;

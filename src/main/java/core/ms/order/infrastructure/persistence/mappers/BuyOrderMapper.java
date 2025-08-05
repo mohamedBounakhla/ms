@@ -3,10 +3,10 @@ package core.ms.order.infrastructure.persistence.mappers;
 import core.ms.order.domain.entities.BuyOrder;
 import core.ms.order.domain.factories.OrderFactory;
 import core.ms.order.infrastructure.persistence.entities.BuyOrderEntity;
-import core.ms.shared.domain.AssetType;
-import core.ms.shared.domain.Currency;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.AssetType;
+import core.ms.shared.money.Currency;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 import org.springframework.stereotype.Component;
 
 @Component

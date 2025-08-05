@@ -1,6 +1,6 @@
 package core.ms.portfolio.domain.value;
 
-import core.ms.shared.domain.Money;
+import core.ms.shared.money.Money;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;

@@ -4,12 +4,11 @@ import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.entities.Transaction;
 import core.ms.order.domain.factories.TransactionFactory;
-import java.math.BigDecimal;
 import core.ms.order.infrastructure.persistence.entities.TransactionEntity;
-import core.ms.shared.domain.AssetType;
-import core.ms.shared.domain.Currency;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.AssetType;
+import core.ms.shared.money.Currency;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 import org.springframework.stereotype.Component;
 
 @Component

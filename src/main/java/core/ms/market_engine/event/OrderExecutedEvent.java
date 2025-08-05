@@ -1,6 +1,6 @@
 package core.ms.market_engine.event;
 
-import core.ms.shared.domain.Money;
+import core.ms.shared.money.Money;
 
 import java.math.BigDecimal;
 import java.util.Objects;

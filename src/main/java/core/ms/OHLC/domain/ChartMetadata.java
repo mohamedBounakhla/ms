@@ -1,6 +1,6 @@
 package core.ms.OHLC.domain;
 
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Symbol;
 
 import java.util.Objects;
 

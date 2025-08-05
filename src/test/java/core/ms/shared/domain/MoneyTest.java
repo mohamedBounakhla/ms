@@ -1,5 +1,7 @@
 package core.ms.shared.domain;
 
+import core.ms.shared.money.Currency;
+import core.ms.shared.money.Money;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;

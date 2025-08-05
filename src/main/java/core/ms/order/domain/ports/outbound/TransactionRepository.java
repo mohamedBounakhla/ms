@@ -1,7 +1,7 @@
 package core.ms.order.domain.ports.outbound;
 
 import core.ms.order.domain.entities.ITransaction;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Symbol;
 
 import java.time.LocalDateTime;
 import java.util.List;

@@ -1,7 +1,7 @@
 package core.ms.utils;
 
 import core.ms.order.domain.value_objects.OrderStatusEnum;
-import core.ms.shared.domain.Currency;
+import core.ms.shared.money.Currency;
 import jakarta.persistence.AttributeConverter;
 import jakarta.persistence.Converter;
 

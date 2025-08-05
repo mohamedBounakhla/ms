@@ -1,9 +1,9 @@
 package core.ms.portfolio.domain;
 
 import core.ms.portfolio.domain.value.TransactionType;
-import core.ms.shared.domain.Currency;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Currency;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 import core.ms.utils.IdGenerator;
 
 import java.math.BigDecimal;

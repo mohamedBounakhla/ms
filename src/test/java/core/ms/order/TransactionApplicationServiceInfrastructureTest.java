@@ -9,9 +9,9 @@ import core.ms.order.domain.entities.*;
 import core.ms.order.domain.ports.outbound.OrderRepository;
 import core.ms.order.domain.ports.outbound.TransactionRepository;
 import core.ms.order.domain.validators.ValidationErrorMessage;
-import core.ms.shared.domain.Currency;
-import core.ms.shared.domain.Money;
-import core.ms.shared.domain.Symbol;
+import core.ms.shared.money.Currency;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
