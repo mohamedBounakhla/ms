@@ -1,0 +1,73 @@
+# Application Configuration
+spring:
+  application:
+    name: ms
+
+  # DataSource Configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/msdb
+    driver-class-name: org.postgresql.Driver
+    username: postgres
+    password: postgres
+
+  # JPA/Hibernate Configuration
+  jpa:
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          lob:
+            non_contextual_creation: true
+    defer-datasource-initialization: false
+
+  # SQL Initialization
+  sql:
+    init:
+      mode: never
+
+  # Flyway Configuration
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 1
+    validate-on-migrate: true
+
+  # Jackson Configuration
+  jackson:
+    serialization:
+      write-dates-as-timestamps: false
+    time-zone: UTC
+
+# Server Configuration
+server:
+  port: 8080
+
+# JWT Configuration
+jwt:
+  secret: YourVerySecureAndLongSecretKeyThatIsAtLeast32BytesLongToMeetTheRequirementOf256BitsForHMACSHA256Algorithm
+  expiration: 86400000
+
+# Logging Configuration
+logging:
+  level:
+    org.springframework: INFO
+    org.hibernate.SQL: DEBUG
+    org.hibernate.type.descriptor.sql.BasicBinder: TRACE
+    org.flywaydb: INFO
+
+# OrderBook Configuration
+order book:
+  persistence:
+    type: in-memory  # or 'jpa'
+  snapshot:
+    enabled: true
+    interval: 300000  # 5 minutes in milliseconds
+    retention-days: 7
+    max-snapshots-per-symbol: 100
+    cleanup:
+      cron: "0 0 2 * * *"  # 2 AM daily

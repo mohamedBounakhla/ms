@@ -11,7 +11,7 @@ import core.ms.order_book.domain.ports.outbound.OrderBookRepository;
 import core.ms.order_book.domain.ports.outbound.OrderMatchEventPublisher;
 import core.ms.order_book.domain.value_object.MarketDepth;
 import core.ms.order_book.domain.value_object.MarketOverview;
-import core.ms.order_book.infrastructure.persistence.OrderBookRepositoryService;
+import core.ms.order_book.infrastructure.persistence.DAO.OrderBookRepositoryService;
 import core.ms.shared.money.Symbol;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
