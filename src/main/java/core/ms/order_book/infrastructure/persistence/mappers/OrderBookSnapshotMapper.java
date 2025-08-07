@@ -12,6 +12,8 @@ import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -20,10 +22,15 @@ public class OrderBookSnapshotMapper {
 
     public OrderBookSnapshotEntity toEntity(OrderBook orderBook) {
         String snapshotId = generateSnapshotId(orderBook.getSymbol());
+
+        // Convert LocalDateTime to Instant
+        Instant snapshotTime = orderBook.getLastUpdate()
+                .toInstant(ZoneOffset.UTC);
+
         OrderBookSnapshotEntity entity = new OrderBookSnapshotEntity(
                 snapshotId,
                 orderBook.getSymbol().getCode(),
-                orderBook.getLastUpdate()
+                snapshotTime  // Now passing Instant
         );
 
         // Add buy orders
@@ -80,18 +87,28 @@ public class OrderBookSnapshotMapper {
         entity.setCurrency(order.getPrice().getCurrency());
         entity.setQuantity(order.getQuantity());
         entity.setRemainingQuantity(order.getRemainingQuantity());
-        entity.setCreatedAt(order.getCreatedAt());
+
+        // Convert LocalDateTime to Instant
+        Instant createdAtInstant = order.getCreatedAt()
+                .toInstant(ZoneOffset.UTC);
+        entity.setCreatedAt(createdAtInstant);
+
         return entity;
     }
 
     private OrderBookSnapshot.OrderSnapshot toOrderSnapshot(OrderSnapshotEntity entity) {
         Money price = Money.of(entity.getPrice(), entity.getCurrency());
+
+        // Note: OrderBookSnapshot.OrderSnapshot expects Instant in its constructor
+        // If it expects LocalDateTime instead, you would convert here:
+        // LocalDateTime createdAt = LocalDateTime.ofInstant(entity.getCreatedAt(), ZoneOffset.UTC);
+
         return new OrderBookSnapshot.OrderSnapshot(
                 entity.getOrderId(),
                 price,
                 entity.getQuantity(),
                 entity.getRemainingQuantity(),
-                entity.getCreatedAt()
+                entity.getCreatedAt()  // Passing Instant as-is
         );
     }
 
@@ -99,11 +116,11 @@ public class OrderBookSnapshotMapper {
         OrderBookStatisticsEntity stats = new OrderBookStatisticsEntity();
 
         stats.setTotalBuyOrders(orderBook.getBidLevels().stream()
-                .mapToInt(level -> level.getOrderCount())
+                .mapToInt(BidPriceLevel::getOrderCount)
                 .sum());
 
         stats.setTotalSellOrders(orderBook.getAskLevels().stream()
-                .mapToInt(level -> level.getOrderCount())
+                .mapToInt(AskPriceLevel::getOrderCount)
                 .sum());
 
         stats.setTotalBuyVolume(orderBook.getTotalBidVolume());

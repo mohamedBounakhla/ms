@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.List;
 
 @Entity
 @Table(name = "order_book_snapshots",

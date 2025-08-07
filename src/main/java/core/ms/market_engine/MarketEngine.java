@@ -1,18 +1,15 @@
 package core.ms.market_engine;
 
+
 import core.ms.market_engine.event.OrderAcceptedEvent;
-import core.ms.market_engine.event.OrderExecutedEvent;
-import core.ms.market_engine.event.TransactionCreatedEvent;
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.entities.ITransaction;
 import core.ms.order_book.domain.entities.OrderBookManager;
-import core.ms.order_book.domain.value_object.OrderMatch;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 public class MarketEngine {
     private final String engineId;
@@ -31,6 +28,7 @@ public class MarketEngine {
 
     /**
      * Main business operation: processes an order through the complete workflow.
+     * TODO: This needs to be reimplemented with the new matching architecture
      */
     public OrderResult processOrder(IOrder order) {
         Objects.requireNonNull(order, "Order cannot be null");
@@ -42,6 +40,14 @@ public class MarketEngine {
             // 2. Publish order accepted event
             eventPublisher.publishOrderAccepted(new OrderAcceptedEvent(order, engineId));
 
+            // TODO: MATCHING MECHANISM NEEDS TO BE REIMPLEMENTED
+            // The old OrderMatch class and findAllMatches() method no longer exist
+            // This needs to be integrated with the new matching architecture:
+            // - TwoPointerMatchingAlgorithm
+            // - PriceTimePriorityMatching
+            // - MatchCandidateExtractor
+
+            /*
             // 3. Find all possible matches across all order books
             List<OrderMatch> matches = orderBookManager.findAllMatches();
 
@@ -59,6 +65,10 @@ public class MarketEngine {
             } else {
                 return OrderResult.acceptedWithTransactions(order.getId(), transactionIds);
             }
+            */
+
+            // TEMPORARY: Just return accepted without matching
+            return OrderResult.accepted(order.getId());
 
         } catch (Exception e) {
             return OrderResult.rejected(order.getId(), "Processing failed: " + e.getMessage());
@@ -67,10 +77,11 @@ public class MarketEngine {
 
     /**
      * Processes a list of order matches into transactions.
-     * Note: Order status updates and quantity management are automatically
-     * handled by the Order domain when transactions are created.
+     * TODO: Needs to be reimplemented with new matching architecture
      */
-    private List<ITransaction> processMatches(List<OrderMatch> matches) {
+    private List<ITransaction> processMatches(Object matches) {  // Changed from List<OrderMatch> to Object
+        // COMMENTED OUT - OrderMatch class no longer exists
+        /*
         List<ITransaction> transactions = new ArrayList<>();
 
         for (OrderMatch match : matches) {
@@ -93,9 +104,15 @@ public class MarketEngine {
         }
 
         return transactions;
+        */
+
+        // TEMPORARY: Return empty list
+        return new ArrayList<>();
     }
 
-    private void publishOrderExecutionEvents(OrderMatch match) {
+    private void publishOrderExecutionEvents(Object match) {  // Changed from OrderMatch to Object
+        // COMMENTED OUT - OrderMatch class no longer exists
+        /*
         eventPublisher.publishOrderExecuted(new OrderExecutedEvent(
                 match.getBuyOrder().getId(),
                 match.getMatchableQuantity(),
@@ -111,6 +128,7 @@ public class MarketEngine {
                 match.getSuggestedPrice(),
                 engineId
         ));
+        */
     }
 
     // Getters

@@ -11,7 +11,7 @@ import core.ms.order_book.domain.ports.outbound.OrderBookRepository;
 import core.ms.order_book.domain.ports.outbound.OrderMatchEventPublisher;
 import core.ms.order_book.domain.value_object.MarketDepth;
 import core.ms.order_book.domain.value_object.MarketOverview;
-import core.ms.order_book.infrastructure.persistence.DAO.OrderBookRepositoryService;
+import core.ms.order_book.infrastructure.persistence.OrderBookRepositoryJpaImpl;
 import core.ms.shared.money.Symbol;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -181,9 +181,8 @@ public class OrderBookApplicationService implements OrderBookService {
     @Override
     public MarketOverview getMarketOverview() {
         // Access the manager through the repository service
-        if (orderBookRepository instanceof OrderBookRepositoryService) {
-            OrderBookRepositoryService repoService = (OrderBookRepositoryService) orderBookRepository;
-            return repoService.getManager().getMarketOverview();
+        if (orderBookRepository instanceof OrderBookRepositoryJpaImpl repo) {
+            return repo.getManager().getMarketOverview();
         }
 
         // Fallback: build overview from available order books

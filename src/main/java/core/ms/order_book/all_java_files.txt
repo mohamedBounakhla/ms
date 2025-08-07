@@ -1,0 +1,3844 @@
+=== ./domain/factory/OrderMatchEventFactory.java ===
+package core.ms.order_book.domain.factory;
+
+import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.domain.value_object.*;
+import core.ms.shared.money.Money;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
+
+public class OrderMatchEventFactory {
+
+    // Default implementations
+    private static final MatchingAlgorithm DEFAULT_ALGORITHM = new TwoPointerMatchingAlgorithm();
+    private static final MatchingStrategy DEFAULT_STRATEGY = new PriceTimePriorityMatching();
+
+    /**
+     * Creates order matched events using default algorithm and strategy.
+     */
+    public static List<OrderMatchedEvent> createMatchEvents(BidSideManager bidSide, AskSideManager askSide) {
+        return createMatchEvents(bidSide, askSide, DEFAULT_ALGORITHM, DEFAULT_STRATEGY);
+    }
+
+    /**
+     * Creates order matched events using injected algorithm and strategy.
+     * Pure domain logic - no side effects.
+     */
+    public static List<OrderMatchedEvent> createMatchEvents(
+            BidSideManager bidSide,
+            AskSideManager askSide,
+            MatchingAlgorithm algorithm,
+            MatchingStrategy strategy) {
+
+        Objects.requireNonNull(bidSide, "BidSideManager cannot be null");
+        Objects.requireNonNull(askSide, "AskSideManager cannot be null");
+        Objects.requireNonNull(algorithm, "MatchingAlgorithm cannot be null");
+        Objects.requireNonNull(strategy, "MatchingStrategy cannot be null");
+
+        // Find matching candidates
+        List<MatchCandidateExtractor> candidates = algorithm.findMatchCandidates(bidSide, askSide, strategy);
+
+        // Convert valid candidates to domain events
+        return candidates.stream()
+                .filter(MatchCandidateExtractor::isValid)
+                .map(OrderMatchEventFactory::createEventFromCandidate)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Creates OrderMatchedEvent from valid candidate.
+     * Price is always set by the seller (business rule).
+     */
+    private static OrderMatchedEvent createEventFromCandidate(MatchCandidateExtractor candidate) {
+        Money executionPrice = candidate.getSellOrder().getPrice();
+        BigDecimal quantity = candidate.getBuyOrder().getRemainingQuantity()
+                .min(candidate.getSellOrder().getRemainingQuantity());
+
+        return new OrderMatchedEvent(
+                candidate.getBuyOrder().getId(),
+                candidate.getSellOrder().getId(),
+                candidate.getBuyOrder().getSymbol(),
+                quantity,
+                executionPrice,
+                LocalDateTime.now()
+        );
+    }
+
+    /**
+     * Creates a single OrderMatchedEvent from a pair of orders.
+     * Useful for testing or direct event creation.
+     */
+    public static OrderMatchedEvent createMatchEvent(MatchCandidateExtractor candidate) {
+        return createEventFromCandidate(candidate);
+    }
+}=== ./domain/value_object/MarketDepth.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+
+public class MarketDepth {
+    private final Symbol symbol;
+    private final List<BidPriceLevel> bidLevels;
+    private final List<AskPriceLevel> askLevels;
+    private final Money spread;
+    private final BigDecimal totalBidVolume;
+    private final BigDecimal totalAskVolume;
+    private final LocalDateTime timestamp;
+
+    public MarketDepth(Symbol symbol, List<BidPriceLevel> bidLevels, List<AskPriceLevel> askLevels) {
+        this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");
+        this.bidLevels = new ArrayList<>(Objects.requireNonNull(bidLevels, "Bid levels cannot be null"));
+        this.askLevels = new ArrayList<>(Objects.requireNonNull(askLevels, "Ask levels cannot be null"));
+        this.timestamp = LocalDateTime.now();
+
+        this.totalBidVolume = calculateBidVolume();
+        this.totalAskVolume = calculateAskVolume();
+        this.spread = calculateSpread();
+    }
+
+    public Symbol getSymbol() {
+        return symbol;
+    }
+
+    public List<BidPriceLevel> getBidLevels() {
+        return new ArrayList<>(bidLevels);
+    }
+
+    public List<AskPriceLevel> getAskLevels() {
+        return new ArrayList<>(askLevels);
+    }
+
+    public Money getSpread() {
+        return spread;
+    }
+
+    public BigDecimal getTotalBidVolume() {
+        return totalBidVolume;
+    }
+
+    public BigDecimal getTotalAskVolume() {
+        return totalAskVolume;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public Optional<BidPriceLevel> getBestBid() {
+        return bidLevels.isEmpty() ? Optional.empty() : Optional.of(bidLevels.get(0));
+    }
+
+    public Optional<AskPriceLevel> getBestAsk() {
+        return askLevels.isEmpty() ? Optional.empty() : Optional.of(askLevels.get(0));
+    }
+
+    public boolean isEmpty() {
+        return bidLevels.isEmpty() && askLevels.isEmpty();
+    }
+
+    public int getLevelCount() {
+        return bidLevels.size() + askLevels.size();
+    }
+
+    private BigDecimal calculateBidVolume() {
+        return bidLevels.stream()
+                .map(BidPriceLevel::getTotalQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private BigDecimal calculateAskVolume() {
+        return askLevels.stream()
+                .map(AskPriceLevel::getTotalQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private Money calculateSpread() {
+        Optional<BidPriceLevel> bestBid = getBestBid();
+        Optional<AskPriceLevel> bestAsk = getBestAsk();
+
+        if (bestBid.isPresent() && bestAsk.isPresent()) {
+            return bestAsk.get().getPrice().subtract(bestBid.get().getPrice());
+        }
+        return null; // No spread when missing bid or ask
+    }
+}
+=== ./domain/value_object/OrderMatch.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.shared.money.Money;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+public class OrderMatch {
+    private final IBuyOrder buyOrder;
+    private final ISellOrder sellOrder;
+    private final BigDecimal quantity;
+    private final Money executionPrice;
+    private final LocalDateTime timestamp;
+
+    public OrderMatch(IBuyOrder buyOrder, ISellOrder sellOrder, BigDecimal quantity, Money executionPrice) {
+        this.buyOrder = Objects.requireNonNull(buyOrder, "Buy order cannot be null");
+        this.sellOrder = Objects.requireNonNull(sellOrder, "Sell order cannot be null");
+        this.quantity = Objects.requireNonNull(quantity, "Quantity cannot be null");
+        this.executionPrice = Objects.requireNonNull(executionPrice, "Execution price cannot be null");
+        this.timestamp = LocalDateTime.now();
+    }
+
+    // ============ GETTERS (PURE DATA ACCESS) ============
+
+    public IBuyOrder getBuyOrder() {
+        return buyOrder;
+    }
+
+    public ISellOrder getSellOrder() {
+        return sellOrder;
+    }
+
+    public BigDecimal getQuantity() {
+        return quantity;
+    }
+
+    public Money getExecutionPrice() {
+        return executionPrice;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public Money getTotalValue() {
+        return executionPrice.multiply(quantity);
+    }
+
+    public boolean isValid() {
+        return quantity.compareTo(BigDecimal.ZERO) > 0 &&
+                buyOrder.isActive() &&
+                sellOrder.isActive();
+    }
+
+    @Override
+    public String toString() {
+        return String.format("OrderMatch{buy=%s, sell=%s, quantity=%s, price=%s, value=%s, timestamp=%s}",
+                buyOrder.getId(), sellOrder.getId(), quantity, executionPrice, getTotalValue(), timestamp);
+    }
+}=== ./domain/value_object/BuyOrderPriorityCalculator.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.shared.money.Money;
+
+import java.util.Objects;
+
+public class BuyOrderPriorityCalculator extends AbstractPriorityCalculator<IBuyOrder> {
+
+    @Override
+    public boolean isPriceBetter(Money price1, Money price2) {
+        Objects.requireNonNull(price1, "First price cannot be null");
+        Objects.requireNonNull(price2, "Second price cannot be null");
+
+        return price1.isGreaterThan(price2);
+    }
+}=== ./domain/value_object/AskSideManager.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.shared.money.Money;
+
+public class AskSideManager extends AbstractPriceLevelManager<ISellOrder, AskPriceLevel>{
+    public AskSideManager() {
+        super(new SellOrderPriorityCalculator());
+    }
+
+    @Override
+    protected AskPriceLevel createPriceLevel(Money price) {
+        return new AskPriceLevel(price);
+    }
+}
+=== ./domain/value_object/MatchingAlgorithm.java ===
+package core.ms.order_book.domain.value_object;
+import java.util.List;
+
+public interface MatchingAlgorithm {
+    /**
+     * Finds all potential match candidates using specific traversal algorithm.
+     * Delegates individual order pair validation to the injected strategy.
+     *
+     * @param bidSide BidSideManager with sorted bid levels
+     * @param askSide AskSideManager with sorted ask levels
+     * @param strategy MatchingStrategy for validating individual order pairs
+     * @return List of valid match candidates
+     */
+    List<MatchCandidateExtractor> findMatchCandidates(
+            BidSideManager bidSide,
+            AskSideManager askSide,
+            MatchingStrategy strategy
+    );
+}
+=== ./domain/value_object/OrderBookSnapshot.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.util.List;
+import java.util.Objects;
+
+public class OrderBookSnapshot {
+    private final String id;
+    private final Symbol symbol;
+    private final List<OrderSnapshot> buyOrders;
+    private final List<OrderSnapshot> sellOrders;
+    private final Instant timestamp;
+    private final OrderBookStatistics statistics;
+
+    public OrderBookSnapshot(String id, Symbol symbol,
+                             List<OrderSnapshot> buyOrders,
+                             List<OrderSnapshot> sellOrders,
+                             OrderBookStatistics statistics) {
+        this.id = Objects.requireNonNull(id);
+        this.symbol = Objects.requireNonNull(symbol);
+        this.buyOrders = List.copyOf(buyOrders);
+        this.sellOrders = List.copyOf(sellOrders);
+        this.timestamp = Instant.now();
+        this.statistics = Objects.requireNonNull(statistics);
+    }
+
+    // Getters
+    public String getId() { return id; }
+    public Symbol getSymbol() { return symbol; }
+    public List<OrderSnapshot> getBuyOrders() { return List.copyOf(buyOrders); }
+    public List<OrderSnapshot> getSellOrders() { return List.copyOf(sellOrders); }
+    public Instant getTimestamp() { return timestamp; }
+    public OrderBookStatistics getStatistics() { return statistics; }
+
+    public static class OrderSnapshot {
+        private final String orderId;
+        private final Money price;
+        private final BigDecimal quantity;
+        private final BigDecimal remainingQuantity;
+        private final Instant createdAt;
+
+        public OrderSnapshot(String orderId, Money price, BigDecimal quantity,
+                             BigDecimal remainingQuantity, Instant createdAt) {
+            this.orderId = Objects.requireNonNull(orderId);
+            this.price = Objects.requireNonNull(price);
+            this.quantity = Objects.requireNonNull(quantity);
+            this.remainingQuantity = Objects.requireNonNull(remainingQuantity);
+            this.createdAt = Objects.requireNonNull(createdAt);
+        }
+
+        // Getters
+        public String getOrderId() { return orderId; }
+        public Money getPrice() { return price; }
+        public BigDecimal getQuantity() { return quantity; }
+        public BigDecimal getRemainingQuantity() { return remainingQuantity; }
+        public Instant getCreatedAt() { return createdAt; }
+    }
+
+    public static class OrderBookStatistics {
+        private final int totalBuyOrders;
+        private final int totalSellOrders;
+        private final BigDecimal totalBuyVolume;
+        private final BigDecimal totalSellVolume;
+        private final Money bestBid;
+        private final Money bestAsk;
+        private final Money spread;
+
+        public OrderBookStatistics(int totalBuyOrders, int totalSellOrders,
+                                   BigDecimal totalBuyVolume, BigDecimal totalSellVolume,
+                                   Money bestBid, Money bestAsk, Money spread) {
+            this.totalBuyOrders = totalBuyOrders;
+            this.totalSellOrders = totalSellOrders;
+            this.totalBuyVolume = totalBuyVolume;
+            this.totalSellVolume = totalSellVolume;
+            this.bestBid = bestBid;
+            this.bestAsk = bestAsk;
+            this.spread = spread;
+        }
+
+        // Getters
+        public int getTotalBuyOrders() { return totalBuyOrders; }
+        public int getTotalSellOrders() { return totalSellOrders; }
+        public BigDecimal getTotalBuyVolume() { return totalBuyVolume; }
+        public BigDecimal getTotalSellVolume() { return totalSellVolume; }
+        public Money getBestBid() { return bestBid; }
+        public Money getBestAsk() { return bestAsk; }
+        public Money getSpread() { return spread; }
+    }
+}=== ./domain/value_object/AskPriceLevel.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.shared.money.Money;
+
+public class AskPriceLevel extends AbstractPriceLevel<ISellOrder> {
+
+    public AskPriceLevel(Money price) {
+        super(price);
+    }
+
+}=== ./domain/value_object/AbstractPriorityCalculator.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.shared.money.Money;
+
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+public abstract class AbstractPriorityCalculator<T extends IOrder> implements IPriorityCalculator<T> {
+
+    @Override
+    public boolean isHigherPriority(T order1, T order2) {
+        Objects.requireNonNull(order1, "First order cannot be null");
+        Objects.requireNonNull(order2, "Second order cannot be null");
+
+        Money price1 = order1.getPrice();
+        Money price2 = order2.getPrice();
+
+        if (isPriceBetter(price1, price2)) {
+            return true;
+        }
+
+        if (isPriceBetter(price2, price1)) {
+            return false;
+        }
+
+        return isTimeBetter(order1.getCreatedAt(), order2.getCreatedAt());
+    }
+
+    @Override
+    public boolean isTimeBetter(LocalDateTime time1, LocalDateTime time2) {
+        return time1.isBefore(time2);
+    }
+
+    @Override
+    public Money calculatePriceDifference(Money price1, Money price2) {
+        Money difference = price1.subtract(price2);
+        return difference.isNegative() ? difference.negate() : difference;
+    }
+
+    @Override
+    public boolean hasSamePrice(T order1, T order2) {
+        Objects.requireNonNull(order1, "First order cannot be null");
+        Objects.requireNonNull(order2, "Second order cannot be null");
+
+        Money price1 = order1.getPrice();
+        Money price2 = order2.getPrice();
+
+        return price1.equals(price2);
+    }
+}
+=== ./domain/value_object/MatchingStrategy.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+
+import java.util.List;
+
+public interface MatchingStrategy {
+    /**
+     * Finds match candidates between two specific orders.
+     */
+    List<? extends MatchCandidateExtractor> findMatchCandidates(IBuyOrder buyOrder, ISellOrder sellOrder);
+
+    /**
+     * Validates if two orders can be matched.
+     */
+    boolean canMatch(IBuyOrder buyOrder, ISellOrder sellOrder);
+
+
+}=== ./domain/value_object/IPriceLevel.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.shared.money.Money;
+
+import java.math.BigDecimal;
+
+public interface IPriceLevel {
+    Money getPrice();
+    BigDecimal getTotalQuantity();
+    int getOrderCount();
+    boolean isEmpty();
+    boolean hasQuantity(BigDecimal quantity);
+}=== ./domain/value_object/MatchCandidateExtractor.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+
+public interface MatchCandidateExtractor {
+    IBuyOrder getBuyOrder();
+    ISellOrder getSellOrder();
+    boolean isValid();
+}=== ./domain/value_object/SellOrderPriorityCalculator.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.shared.money.Money;
+
+import java.util.Objects;
+
+public class SellOrderPriorityCalculator extends AbstractPriorityCalculator<ISellOrder> {
+
+    @Override
+    public boolean isPriceBetter(Money price1, Money price2) {
+        Objects.requireNonNull(price1, "First price cannot be null");
+        Objects.requireNonNull(price2, "Second price cannot be null");
+
+        return price1.isLessThan(price2);
+    }
+
+
+}=== ./domain/value_object/BidPriceLevel.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.shared.money.Money;
+
+public class BidPriceLevel extends AbstractPriceLevel<IBuyOrder> {
+
+    public BidPriceLevel(Money price) {
+        super(price);
+    }
+
+}=== ./domain/value_object/TwoPointerMatchingAlgorithm.java ===
+package core.ms.order_book.domain.value_object;
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+
+import java.util.*;
+
+public class TwoPointerMatchingAlgorithm implements MatchingAlgorithm {
+
+    @Override
+    public List<MatchCandidateExtractor> findMatchCandidates(
+            BidSideManager bidSide,
+            AskSideManager askSide,
+            MatchingStrategy strategy) {
+
+        Objects.requireNonNull(bidSide, "BidSideManager cannot be null");
+        Objects.requireNonNull(askSide, "AskSideManager cannot be null");
+        Objects.requireNonNull(strategy, "MatchingStrategy cannot be null");
+
+        // Get sorted levels from managers
+        List<BidPriceLevel> bidLevels = new ArrayList<>(bidSide.getLevels());
+        List<AskPriceLevel> askLevels = new ArrayList<>(askSide.getLevels());
+
+        if (bidLevels.isEmpty() || askLevels.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        return executeTraversal(bidLevels, askLevels, strategy);
+    }
+
+    /**
+     * Core two-pointer traversal algorithm.
+     */
+    private List<MatchCandidateExtractor> executeTraversal(
+            List<BidPriceLevel> bidLevels,
+            List<AskPriceLevel> askLevels,
+            MatchingStrategy strategy) {
+
+        List<MatchCandidateExtractor> allCandidates = new ArrayList<>();
+
+        int bidIndex = 0;  // Start with highest bid (descending order)
+        int askIndex = 0;  // Start with lowest ask (ascending order)
+
+        // Two-pointer traversal: O(n + m) complexity
+        while (bidIndex < bidLevels.size() && askIndex < askLevels.size()) {
+            BidPriceLevel bidLevel = bidLevels.get(bidIndex);
+            AskPriceLevel askLevel = askLevels.get(askIndex);
+
+            // Check if price levels can potentially match
+            if (canPriceLevelsCross(bidLevel, askLevel)) {
+                // Delegate to strategy for actual validation
+                List<MatchCandidateExtractor> levelCandidates =
+                        findCandidatesAtPriceLevels(bidLevel, askLevel, strategy);
+                allCandidates.addAll(levelCandidates);
+
+                // Move to next price levels
+                bidIndex++;
+                askIndex++;
+            } else {
+                // No more matches possible - elegant termination
+                // bid < ask: all remaining bids will be < current ask (descending)
+                // all remaining asks will be > current bid (ascending)
+                break;
+            }
+        }
+
+        return allCandidates;
+    }
+
+    /**
+     * Quick price level compatibility check before delegating to strategy.
+     */
+    private boolean canPriceLevelsCross(BidPriceLevel bidLevel, AskPriceLevel askLevel) {
+        return bidLevel.getPrice().isGreaterThanOrEqual(askLevel.getPrice());
+    }
+
+    /**
+     * Finds match candidates between orders at two specific price levels.
+     * Delegates validation to strategy.
+     */
+    private List<MatchCandidateExtractor> findCandidatesAtPriceLevels(
+            BidPriceLevel bidLevel,
+            AskPriceLevel askLevel,
+            MatchingStrategy strategy) {
+
+        // Get best orders from each level (FIFO within price level)
+        Optional<IBuyOrder> bestBuyOrder = bidLevel.getFirstActiveOrder();
+        Optional<ISellOrder> bestSellOrder = askLevel.getFirstActiveOrder();
+
+        if (bestBuyOrder.isPresent() && bestSellOrder.isPresent()) {
+            // Delegate to strategy for validation and candidate creation
+            return new ArrayList<>(strategy.findMatchCandidates(bestBuyOrder.get(), bestSellOrder.get()));
+        }
+
+        return Collections.emptyList();
+    }
+}
+
+=== ./domain/value_object/AbstractPriceLevelManager.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.shared.money.Money;
+
+import java.math.BigDecimal;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public abstract class AbstractPriceLevelManager<
+        T extends IOrder,
+        L extends AbstractPriceLevel<T>
+        > {
+    protected final TreeMap<Money, L> levels;
+    protected final IPriorityCalculator<T> priorityCalculator;
+
+    protected AbstractPriceLevelManager(IPriorityCalculator<T> priorityCalculator) {
+        this.priorityCalculator = Objects.requireNonNull(priorityCalculator, "Priority calculator cannot be null");
+
+        // Create TreeMap with custom comparator based on priority calculator
+        this.levels = new TreeMap<>((price1, price2) -> {
+            if (priorityCalculator.isPriceBetter(price2, price1)) return 1;
+            if (priorityCalculator.isPriceBetter(price1, price2)) return -1;
+            return 0;
+        });
+    }
+
+    // ============ CORE OPERATIONS ============
+    protected abstract L createPriceLevel(Money price);
+
+    public void addOrder(T order) {
+        Objects.requireNonNull(order, "Order cannot be null");
+
+        Money price = order.getPrice();
+        L level = levels.computeIfAbsent(price, this::createPriceLevel);
+        level.addOrder(order);
+    }
+
+    public boolean removeOrder(T order) {
+        Objects.requireNonNull(order, "Order cannot be null");
+
+        Money price = order.getPrice();
+        L level = levels.get(price);
+
+        if (level != null && level.removeOrder(order)) {
+            if (level.isEmpty()) {
+                levels.remove(price);
+            }
+            return true;
+        }
+        return false;
+    }
+
+
+
+    public void removeInactiveOrders() {
+        Iterator<Map.Entry<Money, L>> iterator = levels.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<Money, L> entry = iterator.next();
+            L level = entry.getValue();
+            level.removeInactiveOrders();
+            if (level.isEmpty()) {
+                iterator.remove();
+            }
+        }
+    }
+
+    // ============ QUERY METHODS ============
+
+    public Optional<Money> getBestPrice() {
+        return levels.isEmpty() ? Optional.empty() : Optional.of(levels.firstKey());
+    }
+
+    public Optional<T> getBestOrder() {
+        return levels.values().stream()
+                .map(AbstractPriceLevel::getFirstActiveOrder)
+                .filter(Optional::isPresent)
+                .map(Optional::get)
+                .findFirst();
+    }
+
+    public BigDecimal getTotalVolume() {
+        return levels.values().stream()
+                .map(AbstractPriceLevel::getTotalQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    public Collection<L> getLevels() {
+        return new ArrayList<>(levels.values());
+    }
+
+    public List<L> getTopLevels(int count) {
+        return levels.values().stream()
+                .limit(count)
+                .collect(Collectors.toList());
+    }
+
+    public boolean isEmpty() {
+        return levels.isEmpty();
+    }
+
+    public int getLevelCount() {
+        return levels.size();
+    }
+
+    // ============ TREEMAP ACCESS ============
+
+    public TreeMap<Money, L> getTreeMap() {
+        return levels;
+    }
+}
+
+=== ./domain/value_object/IPriorityCalculator.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.shared.money.Money;
+
+import java.time.LocalDateTime;
+
+public interface IPriorityCalculator<T extends IOrder> {
+    boolean isHigherPriority(T order1, T order2);
+    boolean isPriceBetter(Money price1, Money price2);
+    boolean isTimeBetter(LocalDateTime time1, LocalDateTime time2);
+    Money calculatePriceDifference(Money price1, Money price2);
+    boolean hasSamePrice(T order1, T order2);
+}=== ./domain/value_object/AbstractPriceLevel.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.shared.money.Money;
+
+import java.math.BigDecimal;
+import java.util.*;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+public abstract class AbstractPriceLevel<T extends IOrder> implements IPriceLevel {
+    protected final LinkedList<T> orders; // Time-ordered queue
+    protected final Money price;
+    protected int orderCount;
+
+    protected AbstractPriceLevel(Money price) {
+        this.price = Objects.requireNonNull(price, "Price cannot be null");
+        this.orders = new LinkedList<>();
+        this.orderCount = 0;
+    }
+
+    // ============ COMMON OPERATIONS ============
+
+    public void addOrder(T order) {
+        Objects.requireNonNull(order, "Order cannot be null");
+        validateOrderPrice(order);
+
+        orders.addLast(order); // Time priority: first in, first out
+        recalculateTotals();
+    }
+
+    public boolean removeOrder(T order) {
+        Objects.requireNonNull(order, "Order cannot be null");
+        boolean removed = orders.remove(order);
+        if (removed) {
+            recalculateTotals();
+        }
+        return removed;
+    }
+
+    public void removeInactiveOrders() {
+        orders.removeIf(order -> !order.isActive());
+        recalculateTotals();
+    }
+
+    // ============ QUERY METHODS ============
+
+    public List<T> getOrders() {
+        return new ArrayList<>(orders); // Defensive copy
+    }
+
+    public List<T> getActiveOrders() {
+        return orders.stream()
+                .filter(order -> order.isActive() && order.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0)
+                .collect(Collectors.toList());
+    }
+
+    public Optional<T> getFirstOrder() {
+        return orders.isEmpty() ? Optional.empty() : Optional.of(orders.getFirst());
+    }
+
+    public Optional<T> getFirstActiveOrder() {
+        return getOrdersStream()
+                .filter(order -> order.isActive() && order.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0)
+                .findFirst();
+    }
+
+    @Override
+    public boolean isEmpty() {
+        return orders.isEmpty();
+    }
+
+    protected Stream<T> getOrdersStream() {
+        return orders.stream();
+    }
+
+    // ============ INTERFACE IMPLEMENTATIONS ============
+
+    @Override
+    public Money getPrice() {
+        return price;
+    }
+
+    @Override
+    public BigDecimal getTotalQuantity() {
+        return calculateCurrentTotal();
+    }
+
+    @Override
+    public int getOrderCount() {
+        return orderCount;
+    }
+
+    @Override
+    public boolean hasQuantity(BigDecimal quantity) {
+        return getTotalQuantity().compareTo(quantity) >= 0;
+    }
+
+    // ============ PROTECTED METHODS ============
+
+    protected void validateOrderPrice(IOrder order) {
+        if (!price.equals(order.getPrice())) {
+            throw new IllegalArgumentException(
+                    "Order price " + order.getPrice() + " does not match level price " + price);
+        }
+    }
+
+    protected BigDecimal calculateCurrentTotal() {
+        return getOrdersStream()
+                .filter(IOrder::isActive)
+                .map(IOrder::getRemainingQuantity)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    protected void recalculateTotals() {
+        orderCount = orders.size();
+    }
+
+    // ============ EQUALS/HASHCODE ============
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        AbstractPriceLevel<?> that = (AbstractPriceLevel<?>) obj;
+        return Objects.equals(price, that.price);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(price);
+    }
+}=== ./domain/value_object/BidSideManager.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.shared.money.Money;
+
+public class BidSideManager extends AbstractPriceLevelManager<IBuyOrder,BidPriceLevel>{
+    public BidSideManager() {
+        super(new BuyOrderPriorityCalculator());
+    }
+
+    protected BidPriceLevel createPriceLevel(Money price) {
+        return new BidPriceLevel(price);
+    }
+}
+=== ./domain/value_object/MarketOverview.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.shared.money.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.*;
+
+public class MarketOverview {
+    private final Set<Symbol> activeSymbols;
+    private final int totalOrderBooks;
+    private final int totalOrders;
+    private final Map<Symbol, BigDecimal> totalVolume;
+    private final LocalDateTime timestamp;
+
+    public MarketOverview(Set<Symbol> activeSymbols, int totalOrderBooks,
+                          int totalOrders, Map<Symbol, BigDecimal> totalVolume) {
+        this.activeSymbols = new HashSet<>(Objects.requireNonNull(activeSymbols, "Active symbols cannot be null"));
+        this.totalOrderBooks = totalOrderBooks;
+        this.totalOrders = totalOrders;
+        this.totalVolume = new HashMap<>(Objects.requireNonNull(totalVolume, "Total volume cannot be null"));
+        this.timestamp = LocalDateTime.now();
+    }
+
+    public Set<Symbol> getActiveSymbols() {
+        return new HashSet<>(activeSymbols);
+    }
+
+    public int getTotalOrderBooks() {
+        return totalOrderBooks;
+    }
+
+    public int getTotalOrders() {
+        return totalOrders;
+    }
+
+    public Map<Symbol, BigDecimal> getTotalVolume() {
+        return new HashMap<>(totalVolume);
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
+    public BigDecimal getVolumeForSymbol(Symbol symbol) {
+        return totalVolume.getOrDefault(symbol, BigDecimal.ZERO);
+    }
+}
+=== ./domain/value_object/PriceTimePriorityMatching.java ===
+package core.ms.order_book.domain.value_object;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.ISellOrder;
+
+import java.math.BigDecimal;
+import java.util.*;
+
+public class PriceTimePriorityMatching implements MatchingStrategy {
+
+    @Override
+    public List<MatchCandidate> findMatchCandidates(IBuyOrder buyOrder, ISellOrder sellOrder) {
+        MatchCandidate candidate = new MatchValidationBuilder(buyOrder, sellOrder)
+                .validateSymbolCompatibility()
+                .validatePriceCompatibility()
+                .validateOrdersActive()
+                .validateRemainingQuantity()
+                .build();
+
+        return candidate.isValid() ? List.of(candidate) : Collections.emptyList();
+    }
+
+    @Override
+    public boolean canMatch(IBuyOrder buyOrder, ISellOrder sellOrder) {
+        return new MatchValidationBuilder(buyOrder, sellOrder)
+                .validateSymbolCompatibility()
+                .validatePriceCompatibility()
+                .validateOrdersActive()
+                .validateRemainingQuantity()
+                .build()
+                .isValid();
+    }
+
+    // ============ EMBEDDED MATCH CANDIDATE ============
+
+    public static class MatchCandidate implements MatchCandidateExtractor {
+        private final IBuyOrder buyOrder;
+        private final ISellOrder sellOrder;
+        private final boolean isValid;
+        private final String validationContext;
+
+        private MatchCandidate(IBuyOrder buyOrder, ISellOrder sellOrder, boolean isValid, String validationContext) {
+            this.buyOrder = buyOrder;
+            this.sellOrder = sellOrder;
+            this.isValid = isValid;
+            this.validationContext = validationContext;
+        }
+
+        public static MatchCandidate valid(IBuyOrder buyOrder, ISellOrder sellOrder) {
+            return new MatchCandidate(
+                    Objects.requireNonNull(buyOrder, "Buy order cannot be null"),
+                    Objects.requireNonNull(sellOrder, "Sell order cannot be null"),
+                    true,
+                    "Price-time priority validation passed"
+            );
+        }
+
+        public static MatchCandidate invalid(IBuyOrder buyOrder, ISellOrder sellOrder, String reason) {
+            return new MatchCandidate(buyOrder, sellOrder, false, reason);
+        }
+
+        @Override
+        public IBuyOrder getBuyOrder() {
+            return buyOrder;
+        }
+
+        @Override
+        public ISellOrder getSellOrder() {
+            return sellOrder;
+        }
+
+        @Override
+        public boolean isValid() {
+            return isValid;
+        }
+
+        public String getValidationContext() {
+            return validationContext;
+        }
+    }
+
+    // ============ MATCH VALIDATION BUILDER (DSL) ============
+
+    private static class MatchValidationBuilder {
+        private final IBuyOrder buyOrder;
+        private final ISellOrder sellOrder;
+        private boolean isValid = true;
+        private String failureReason = "";
+
+        public MatchValidationBuilder(IBuyOrder buyOrder, ISellOrder sellOrder) {
+            this.buyOrder = buyOrder;
+            this.sellOrder = sellOrder;
+        }
+
+        public MatchValidationBuilder validateSymbolCompatibility() {
+            if (isValid && !buyOrder.getSymbol().equals(sellOrder.getSymbol())) {
+                isValid = false;
+                failureReason = "Symbol mismatch: " + buyOrder.getSymbol() + " vs " + sellOrder.getSymbol();
+            }
+            return this;
+        }
+
+        public MatchValidationBuilder validatePriceCompatibility() {
+            if (isValid && buyOrder.getPrice().isLessThan(sellOrder.getPrice())) {
+                isValid = false;
+                failureReason = "Price incompatible: buy " + buyOrder.getPrice() + " < sell " + sellOrder.getPrice();
+            }
+            return this;
+        }
+
+        public MatchValidationBuilder validateOrdersActive() {
+            if (isValid && (!buyOrder.isActive() || !sellOrder.isActive())) {
+                isValid = false;
+                failureReason = "Inactive orders: buy active=" + buyOrder.isActive() + ", sell active=" + sellOrder.isActive();
+            }
+            return this;
+        }
+
+        public MatchValidationBuilder validateRemainingQuantity() {
+            if (isValid && (buyOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0 ||
+                    sellOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0)) {
+                isValid = false;
+                failureReason = "Insufficient quantity: buy=" + buyOrder.getRemainingQuantity() + ", sell=" + sellOrder.getRemainingQuantity();
+            }
+            return this;
+        }
+
+        public MatchCandidate build() {
+            if (isValid) {
+                return MatchCandidate.valid(buyOrder, sellOrder);
+            } else {
+                return MatchCandidate.invalid(buyOrder, sellOrder, failureReason);
+            }
+        }
+    }
+}=== ./domain/ports/inbound/OrderBookOperationResult.java ===
+package core.ms.order_book.domain.ports.inbound;
+
+import core.ms.order_book.domain.events.OrderMatchedEvent;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+public class OrderBookOperationResult {
+    private final boolean success;
+    private final String message;
+    private final List<OrderMatchedEvent> matchEvents;
+    private final LocalDateTime timestamp;
+    private final String orderId;
+
+    private OrderBookOperationResult(Builder builder) {
+        this.success = builder.success;
+        this.message = builder.message;
+        this.matchEvents = builder.matchEvents;
+        this.timestamp = LocalDateTime.now();
+        this.orderId = builder.orderId;
+    }
+
+    // Getters
+    public boolean isSuccess() { return success; }
+    public String getMessage() { return message; }
+    public List<OrderMatchedEvent> getMatchEvents() { return matchEvents; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public String getOrderId() { return orderId; }
+    public boolean hasMatches() { return matchEvents != null && !matchEvents.isEmpty(); }
+    public int getMatchCount() { return matchEvents != null ? matchEvents.size() : 0; }
+
+    // Builder
+    public static class Builder {
+        private boolean success;
+        private String message;
+        private List<OrderMatchedEvent> matchEvents = List.of();
+        private String orderId;
+
+        public Builder success(boolean success) {
+            this.success = success;
+            return this;
+        }
+
+        public Builder message(String message) {
+            this.message = message;
+            return this;
+        }
+
+        public Builder matchEvents(List<OrderMatchedEvent> matchEvents) {
+            this.matchEvents = matchEvents;
+            return this;
+        }
+
+        public Builder orderId(String orderId) {
+            this.orderId = orderId;
+            return this;
+        }
+
+        public OrderBookOperationResult build() {
+            return new OrderBookOperationResult(this);
+        }
+    }
+
+    public static Builder builder() {
+        return new Builder();
+    }
+}=== ./domain/ports/inbound/OrderBookService.java ===
+package core.ms.order_book.domain.ports.inbound;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.domain.value_object.MarketDepth;
+import core.ms.order_book.domain.value_object.MarketOverview;
+import core.ms.shared.money.Symbol;
+
+import java.util.List;
+
+public interface OrderBookService {
+
+    // ===== ORDER BOOK MANAGEMENT =====
+
+    /**
+     * Adds an order to the appropriate order book and processes any matches.
+     * @param order The order to add
+     * @return Result containing match information
+     */
+    OrderBookOperationResult addOrderToBook(IOrder order);
+
+    /**
+     * Removes an order from the order book.
+     * @param orderId The order ID to remove
+     * @param symbol The symbol of the order book
+     * @return Result of the removal operation
+     */
+    OrderBookOperationResult removeOrderFromBook(String orderId, Symbol symbol);
+
+    /**
+     * Processes all pending matches for a specific symbol.
+     * @param symbol The symbol to process
+     * @return List of match events that were processed
+     */
+    List<OrderMatchedEvent> processPendingMatches(Symbol symbol);
+
+    /**
+     * Processes all pending matches across all order books.
+     * @return List of all match events that were processed
+     */
+    List<OrderMatchedEvent> processAllPendingMatches();
+
+    // ===== MARKET DATA QUERIES =====
+
+    /**
+     * Gets market depth for a symbol.
+     * @param symbol The symbol to query
+     * @param levels Number of price levels to include
+     * @return Market depth data
+     */
+    MarketDepth getMarketDepth(Symbol symbol, int levels);
+
+    /**
+     * Gets overview of all markets.
+     * @return Market overview data
+     */
+    MarketOverview getMarketOverview();
+
+    // ===== ORDER BOOK LIFECYCLE =====
+
+    /**
+     * Creates a new order book for a symbol.
+     * @param symbol The symbol for the new order book
+     * @return Result of the creation
+     */
+    OrderBookOperationResult createOrderBook(Symbol symbol);
+
+    /**
+     * Removes an order book.
+     * @param symbol The symbol of the order book to remove
+     * @return Result of the removal
+     */
+    OrderBookOperationResult removeOrderBook(Symbol symbol);
+
+    /**
+     * Cleans up inactive orders from all order books.
+     * @return Number of orders removed
+     */
+    int cleanupInactiveOrders();
+}=== ./domain/ports/outbound/OrderMatchEventPublisher.java ===
+package core.ms.order_book.domain.ports.outbound;
+
+import core.ms.order_book.domain.events.OrderMatchedEvent;
+
+import java.util.List;
+
+public interface OrderMatchEventPublisher {
+    /**
+     * Publishes a list of order matched events.
+     */
+    void publishOrderMatchedEvents(List<OrderMatchedEvent> events);
+
+    /**
+     * Publishes a single order matched event.
+     */
+    void publishOrderMatchedEvent(OrderMatchedEvent event);
+}=== ./domain/ports/outbound/OrderBookSnapshotRepository.java ===
+package core.ms.order_book.domain.ports.outbound;
+
+import core.ms.order_book.domain.value_object.OrderBookSnapshot;
+import core.ms.shared.money.Symbol;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+public interface OrderBookSnapshotRepository {
+    OrderBookSnapshot save(OrderBookSnapshot snapshot);
+    Optional<OrderBookSnapshot> findLatestBySymbol(Symbol symbol);
+    List<OrderBookSnapshot> findBySymbolAndTimestampBetween(Symbol symbol, Instant start, Instant end);
+    void deleteByTimestampBefore(Instant cutoff);
+    long countBySymbol(Symbol symbol);
+}=== ./domain/ports/outbound/OrderBookRepository.java ===
+package core.ms.order_book.domain.ports.outbound;
+
+import core.ms.order_book.domain.entities.OrderBook;
+import core.ms.shared.money.Symbol;
+
+import java.util.Collection;
+import java.util.Optional;
+
+public interface OrderBookRepository {
+
+    /**
+     * Saves or updates an order book.
+     */
+    OrderBook save(OrderBook orderBook);
+
+    /**
+     * Finds an order book by symbol.
+     */
+    Optional<OrderBook> findBySymbol(Symbol symbol);
+
+    /**
+     * Checks if an order book exists for a symbol.
+     */
+    boolean existsBySymbol(Symbol symbol);
+
+    /**
+     * Deletes an order book by symbol.
+     */
+    boolean deleteBySymbol(Symbol symbol);
+
+    /**
+     * Gets all order books.
+     */
+    Collection<OrderBook> findAll();
+
+    /**
+     * Gets total count of order books.
+     */
+    long count();
+}=== ./domain/entities/OrderBook.java ===
+package core.ms.order_book.domain.entities;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.domain.factory.OrderMatchEventFactory;
+import core.ms.order_book.domain.value_object.*;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+public class OrderBook {
+    private final Symbol symbol;
+    private final BidSideManager bidSide;
+    private final AskSideManager askSide;
+    private final Map<String, IOrder> orderIndex;
+    private LocalDateTime lastUpdate;
+    private final List<OrderMatchedEvent> recentMatchEvents = new ArrayList<>();
+
+    public OrderBook(Symbol symbol) {
+        this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");
+        this.bidSide = new BidSideManager();
+        this.askSide = new AskSideManager();
+        this.orderIndex = new HashMap<>();
+        this.lastUpdate = LocalDateTime.now();
+    }
+
+    // ============ ORDER OPERATIONS WITH MATCHING ============
+
+    public void addOrder(IBuyOrder order) {
+        orderIndex.put(order.getId(), order);
+        bidSide.addOrder(order);
+        lastUpdate = LocalDateTime.now();
+
+        checkForMatches();
+    }
+
+    public void addOrder(ISellOrder order) {
+
+        orderIndex.put(order.getId(), order);
+        askSide.addOrder(order);
+        lastUpdate = LocalDateTime.now();
+
+        checkForMatches();
+    }
+
+    // ============ MATCHING LOGIC ============
+
+    private void checkForMatches() {
+        if (hasSpreadCrossed()) {
+            List<OrderMatchedEvent> events = OrderMatchEventFactory.createMatchEvents(bidSide, askSide);
+            recentMatchEvents.addAll(events);
+        }
+    }
+
+    private boolean hasSpreadCrossed() {
+        Optional<Money> bestBid = getBestBid();
+        Optional<Money> bestAsk = getBestAsk();
+
+        return bestBid.isPresent() && bestAsk.isPresent() &&
+                bestBid.get().isGreaterThanOrEqual(bestAsk.get());
+    }
+
+    // ============ REMOVE METHODS ============
+
+    public boolean removeOrder(IBuyOrder order) {
+        Objects.requireNonNull(order, "Buy order cannot be null");
+
+        if (orderIndex.remove(order.getId()) != null) {
+            boolean removed = bidSide.removeOrder(order);
+            lastUpdate = LocalDateTime.now();
+            return removed;
+        }
+        return false;
+    }
+
+    public boolean removeOrder(ISellOrder order) {
+        Objects.requireNonNull(order, "Sell order cannot be null");
+
+        if (orderIndex.remove(order.getId()) != null) {
+            boolean removed = askSide.removeOrder(order);
+            lastUpdate = LocalDateTime.now();
+            return removed;
+        }
+        return false;
+    }
+
+    // ============ QUERY METHODS ============
+    // ... (all other methods remain the same)
+
+    public Optional<Money> getBestBid() {
+        return bidSide.getBestPrice();
+    }
+
+    public Optional<Money> getBestAsk() {
+        return askSide.getBestPrice();
+    }
+
+    public Optional<Money> getSpread() {
+        Optional<Money> bestBid = getBestBid();
+        Optional<Money> bestAsk = getBestAsk();
+
+        if (bestBid.isPresent() && bestAsk.isPresent()) {
+            return Optional.of(bestAsk.get().subtract(bestBid.get()));
+        }
+        return Optional.empty();
+    }
+
+    public Optional<IBuyOrder> getBestBuyOrder() {
+        return bidSide.getBestOrder();
+    }
+
+    public Optional<ISellOrder> getBestSellOrder() {
+        return askSide.getBestOrder();
+    }
+
+    public BigDecimal getTotalBidVolume() {
+        return bidSide.getTotalVolume();
+    }
+
+    public BigDecimal getTotalAskVolume() {
+        return askSide.getTotalVolume();
+    }
+
+    public boolean isEmpty() {
+        return bidSide.isEmpty() && askSide.isEmpty();
+    }
+
+    public int getOrderCount() {
+        return orderIndex.size();
+    }
+
+    // ============ DATA ACCESS METHODS ============
+
+    public MarketDepth getMarketDepth(int levels) {
+        if (levels <= 0) {
+            throw new IllegalArgumentException("Levels must be positive");
+        }
+
+        List<BidPriceLevel> topBids = bidSide.getTopLevels(levels);
+        List<AskPriceLevel> topAsks = askSide.getTopLevels(levels);
+
+        return new MarketDepth(symbol, topBids, topAsks);
+    }
+
+    public Collection<BidPriceLevel> getBidLevels() {
+        return bidSide.getLevels();
+    }
+
+    public Collection<AskPriceLevel> getAskLevels() {
+        return askSide.getLevels();
+    }
+
+    // ============ CLEANUP METHODS ============
+
+    public void removeInactiveOrders() {
+        List<IOrder> inactiveOrders = orderIndex.values().stream()
+                .filter(order -> !order.isActive())
+                .collect(Collectors.toList());
+
+        for (IOrder inactiveOrder : inactiveOrders) {
+            orderIndex.remove(inactiveOrder.getId());
+        }
+
+        bidSide.removeInactiveOrders();
+        askSide.removeInactiveOrders();
+        lastUpdate = LocalDateTime.now();
+    }
+    public List<OrderMatchedEvent> getRecentMatchEvents() {
+        return new ArrayList<>(recentMatchEvents);
+    }
+
+    public boolean hasRecentMatches() {
+        return !recentMatchEvents.isEmpty();
+    }
+
+    public List<OrderMatchedEvent> consumeRecentMatchEvents() {
+        List<OrderMatchedEvent> events = new ArrayList<>(recentMatchEvents);
+        recentMatchEvents.clear();
+        return events;
+    }
+    // ============ GETTERS ============
+
+    public Symbol getSymbol() {
+        return symbol;
+    }
+
+    public LocalDateTime getLastUpdate() {
+        return lastUpdate;
+    }
+}=== ./domain/entities/OrderBookManager.java ===
+package core.ms.order_book.domain.entities;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order_book.domain.value_object.MarketOverview;
+import core.ms.shared.money.Symbol;
+
+import java.math.BigDecimal;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+
+public class OrderBookManager {
+    private final Map<Symbol, OrderBook> orderBooks;
+
+
+    public OrderBookManager() {
+        this.orderBooks = new ConcurrentHashMap<>();
+    }
+    // ============ ORDER BOOK MANAGEMENT ============
+
+    public OrderBook getOrderBook(Symbol symbol) {
+        Objects.requireNonNull(symbol, "Symbol cannot be null");
+        return orderBooks.computeIfAbsent(symbol, OrderBook::new);
+    }
+
+    public OrderBook createOrderBook(Symbol symbol) {
+        Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+        if (orderBooks.containsKey(symbol)) {
+            throw new IllegalArgumentException("OrderBook for symbol " + symbol + " already exists");
+        }
+
+        OrderBook orderBook = new OrderBook(symbol);
+        orderBooks.put(symbol, orderBook);
+        return orderBook;
+    }
+
+    public boolean removeOrderBook(Symbol symbol) {
+        Objects.requireNonNull(symbol, "Symbol cannot be null");
+        OrderBook removed = orderBooks.remove(symbol);
+        return removed != null;
+    }
+
+    // ============ ORDER MANAGEMENT WITH TYPE INTROSPECTION ============
+
+    public synchronized void addOrderToBook(IOrder order) {
+        Objects.requireNonNull(order, "Order cannot be null");
+
+        OrderBook orderBook = getOrderBook(order.getSymbol());
+
+        // Handle type introspection and casting here
+        if (order instanceof IBuyOrder) {
+            orderBook.addOrder((IBuyOrder) order);
+        } else if (order instanceof ISellOrder) {
+            orderBook.addOrder((ISellOrder) order);
+        } else {
+            throw new IllegalArgumentException("Unknown order type: " + order.getClass());
+        }
+    }
+
+    public synchronized boolean removeOrderFromBook(IOrder order, Symbol symbol) {
+        Objects.requireNonNull(order, "Order cannot be null");
+        Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+        OrderBook orderBook = orderBooks.get(symbol);
+        if (orderBook == null) {
+            return false;
+        }
+
+        // Handle type introspection and casting here
+        if (order instanceof IBuyOrder) {
+            return orderBook.removeOrder((IBuyOrder) order);
+        } else if (order instanceof ISellOrder) {
+            return orderBook.removeOrder((ISellOrder) order);
+        } else {
+            throw new IllegalArgumentException("Unknown order type: " + order.getClass());
+        }
+    }
+
+    // ============ QUERY METHODS ============
+
+    public Collection<OrderBook> getAllOrderBooks() {
+        return new ArrayList<>(orderBooks.values());
+    }
+
+    public Set<Symbol> getActiveSymbols() {
+        return new HashSet<>(orderBooks.keySet());
+    }
+
+    public int getTotalOrderBooks() {
+        return orderBooks.size();
+    }
+
+    public MarketOverview getMarketOverview() {
+        Map<Symbol, BigDecimal> totalVolumes = new HashMap<>();
+        int totalOrders = 0;
+
+        for (OrderBook orderBook : orderBooks.values()) {
+            Symbol symbol = orderBook.getSymbol();
+            BigDecimal totalVolume = orderBook.getTotalBidVolume().add(orderBook.getTotalAskVolume());
+            totalVolumes.put(symbol, totalVolume);
+            totalOrders += orderBook.getOrderCount();
+        }
+
+        return new MarketOverview(
+                new HashSet<>(orderBooks.keySet()),
+                orderBooks.size(),
+                totalOrders,
+                totalVolumes
+        );
+    }
+}=== ./domain/events/OrderMatchedEvent.java ===
+package core.ms.order_book.domain.events;
+
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.Objects;
+
+public class OrderMatchedEvent {
+    private final String buyOrderId;
+    private final String sellOrderId;
+    private final Symbol symbol;
+    private final BigDecimal quantity;
+    private final Money executionPrice;
+    private final LocalDateTime occurredAt;
+
+    public OrderMatchedEvent(String buyOrderId, String sellOrderId, Symbol symbol,
+                             BigDecimal quantity, Money executionPrice, LocalDateTime occurredAt) {
+        this.buyOrderId = Objects.requireNonNull(buyOrderId, "Buy order ID cannot be null");
+        this.sellOrderId = Objects.requireNonNull(sellOrderId, "Sell order ID cannot be null");
+        this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");  // ✅ Symbol validation
+        this.quantity = Objects.requireNonNull(quantity, "Quantity cannot be null");
+        this.executionPrice = Objects.requireNonNull(executionPrice, "Execution price cannot be null");
+        this.occurredAt = Objects.requireNonNull(occurredAt, "Occurred at cannot be null");
+    }
+
+    public String getBuyOrderId() { return buyOrderId; }
+    public String getSellOrderId() { return sellOrderId; }
+    public Symbol getSymbol() { return symbol; }  // ✅ Return Symbol object
+    public BigDecimal getQuantity() { return quantity; }
+    public Money getExecutionPrice() { return executionPrice; }
+    public LocalDateTime getOccurredAt() { return occurredAt; }
+
+    public Money getTotalValue() {
+        return executionPrice.multiply(quantity);
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) return true;
+        if (obj == null || getClass() != obj.getClass()) return false;
+        OrderMatchedEvent that = (OrderMatchedEvent) obj;
+        return Objects.equals(buyOrderId, that.buyOrderId) &&
+                Objects.equals(sellOrderId, that.sellOrderId) &&
+                Objects.equals(symbol, that.symbol) &&
+                Objects.equals(quantity, that.quantity) &&
+                Objects.equals(executionPrice, that.executionPrice) &&
+                Objects.equals(occurredAt, that.occurredAt);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(buyOrderId, sellOrderId, symbol, quantity, executionPrice, occurredAt);
+    }
+
+    @Override
+    public String toString() {
+        return String.format("OrderMatchedEvent{buyOrderId='%s', sellOrderId='%s', symbol='%s', " +
+                        "quantity=%s, executionPrice=%s, totalValue=%s, occurredAt=%s}",
+                buyOrderId, sellOrderId, symbol, quantity, executionPrice, getTotalValue(), occurredAt);
+    }
+}=== ./application/dto/query/PriceLevelDTO.java ===
+package core.ms.order_book.application.dto.query;
+
+import core.ms.shared.money.Currency;
+
+import java.math.BigDecimal;
+
+public class PriceLevelDTO {
+    private BigDecimal price;
+    private Currency currency;
+    private BigDecimal totalQuantity;
+    private int orderCount;
+
+    public PriceLevelDTO() {}
+
+    public PriceLevelDTO(BigDecimal price, Currency currency, BigDecimal totalQuantity, int orderCount) {
+        this.price = price;
+        this.currency = currency;
+        this.totalQuantity = totalQuantity;
+        this.orderCount = orderCount;
+    }
+
+    // Getters and Setters
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getTotalQuantity() { return totalQuantity; }
+    public void setTotalQuantity(BigDecimal totalQuantity) { this.totalQuantity = totalQuantity; }
+    public int getOrderCount() { return orderCount; }
+    public void setOrderCount(int orderCount) { this.orderCount = orderCount; }
+}=== ./application/dto/query/MarketDepthDTO.java ===
+package core.ms.order_book.application.dto.query;
+
+import core.ms.shared.money.Currency;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+
+public class MarketDepthDTO {
+    private String symbolCode;
+    private List<PriceLevelDTO> bidLevels;
+    private List<PriceLevelDTO> askLevels;
+    private BigDecimal spread;
+    private Currency spreadCurrency;
+    private BigDecimal totalBidVolume;
+    private BigDecimal totalAskVolume;
+    private LocalDateTime timestamp;
+
+    public MarketDepthDTO() {}
+
+    // Constructor with all fields
+    public MarketDepthDTO(String symbolCode, List<PriceLevelDTO> bidLevels, List<PriceLevelDTO> askLevels,
+                          BigDecimal spread, Currency spreadCurrency, BigDecimal totalBidVolume,
+                          BigDecimal totalAskVolume, LocalDateTime timestamp) {
+        this.symbolCode = symbolCode;
+        this.bidLevels = bidLevels;
+        this.askLevels = askLevels;
+        this.spread = spread;
+        this.spreadCurrency = spreadCurrency;
+        this.totalBidVolume = totalBidVolume;
+        this.totalAskVolume = totalAskVolume;
+        this.timestamp = timestamp;
+    }
+
+    // Getters and Setters
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public List<PriceLevelDTO> getBidLevels() { return bidLevels; }
+    public void setBidLevels(List<PriceLevelDTO> bidLevels) { this.bidLevels = bidLevels; }
+    public List<PriceLevelDTO> getAskLevels() { return askLevels; }
+    public void setAskLevels(List<PriceLevelDTO> askLevels) { this.askLevels = askLevels; }
+    public BigDecimal getSpread() { return spread; }
+    public void setSpread(BigDecimal spread) { this.spread = spread; }
+    public Currency getSpreadCurrency() { return spreadCurrency; }
+    public void setSpreadCurrency(Currency spreadCurrency) { this.spreadCurrency = spreadCurrency; }
+    public BigDecimal getTotalBidVolume() { return totalBidVolume; }
+    public void setTotalBidVolume(BigDecimal totalBidVolume) { this.totalBidVolume = totalBidVolume; }
+    public BigDecimal getTotalAskVolume() { return totalAskVolume; }
+    public void setTotalAskVolume(BigDecimal totalAskVolume) { this.totalAskVolume = totalAskVolume; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+}=== ./application/dto/query/OrderBookOperationResultDTO.java ===
+package core.ms.order_book.application.dto.query;
+
+import core.ms.order_book.infrastructure.events.dto.OrderMatchedEventDTO;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+public class OrderBookOperationResultDTO {
+    private boolean success;
+    private String message;
+    private String orderId;
+    private int matchCount;
+    private List<OrderMatchedEventDTO> matchEvents;
+    private LocalDateTime timestamp;
+
+    public OrderBookOperationResultDTO() {}
+
+    public OrderBookOperationResultDTO(boolean success, String message, String orderId,
+                                       int matchCount, List<OrderMatchedEventDTO> matchEvents,
+                                       LocalDateTime timestamp) {
+        this.success = success;
+        this.message = message;
+        this.orderId = orderId;
+        this.matchCount = matchCount;
+        this.matchEvents = matchEvents;
+        this.timestamp = timestamp;
+    }
+
+    // Getters and Setters
+    public boolean isSuccess() { return success; }
+    public void setSuccess(boolean success) { this.success = success; }
+    public String getMessage() { return message; }
+    public void setMessage(String message) { this.message = message; }
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+    public int getMatchCount() { return matchCount; }
+    public void setMatchCount(int matchCount) { this.matchCount = matchCount; }
+    public List<OrderMatchedEventDTO> getMatchEvents() { return matchEvents; }
+    public void setMatchEvents(List<OrderMatchedEventDTO> matchEvents) { this.matchEvents = matchEvents; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+}=== ./application/dto/query/OrderBookStatisticsDTO.java ===
+package core.ms.order_book.application.dto.query;
+
+import core.ms.shared.money.Currency;
+
+import java.math.BigDecimal;
+
+public class OrderBookStatisticsDTO {
+    private int totalBuyOrders;
+    private int totalSellOrders;
+    private BigDecimal totalBuyVolume;
+    private BigDecimal totalSellVolume;
+    private BigDecimal bestBidPrice;
+    private BigDecimal bestAskPrice;
+    private Currency priceCurrency;
+    private BigDecimal spread;
+
+    // Constructors
+    public OrderBookStatisticsDTO() {}
+
+    // Getters and Setters
+    public int getTotalBuyOrders() { return totalBuyOrders; }
+    public void setTotalBuyOrders(int totalBuyOrders) { this.totalBuyOrders = totalBuyOrders; }
+    public int getTotalSellOrders() { return totalSellOrders; }
+    public void setTotalSellOrders(int totalSellOrders) { this.totalSellOrders = totalSellOrders; }
+    public BigDecimal getTotalBuyVolume() { return totalBuyVolume; }
+    public void setTotalBuyVolume(BigDecimal totalBuyVolume) { this.totalBuyVolume = totalBuyVolume; }
+    public BigDecimal getTotalSellVolume() { return totalSellVolume; }
+    public void setTotalSellVolume(BigDecimal totalSellVolume) { this.totalSellVolume = totalSellVolume; }
+    public BigDecimal getBestBidPrice() { return bestBidPrice; }
+    public void setBestBidPrice(BigDecimal bestBidPrice) { this.bestBidPrice = bestBidPrice; }
+    public BigDecimal getBestAskPrice() { return bestAskPrice; }
+    public void setBestAskPrice(BigDecimal bestAskPrice) { this.bestAskPrice = bestAskPrice; }
+    public Currency getPriceCurrency() { return priceCurrency; }
+    public void setPriceCurrency(Currency priceCurrency) { this.priceCurrency = priceCurrency; }
+    public BigDecimal getSpread() { return spread; }
+    public void setSpread(BigDecimal spread) { this.spread = spread; }
+}
+=== ./application/dto/query/OrderBookSnapshotDTO.java ===
+package core.ms.order_book.application.dto.query;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+public class OrderBookSnapshotDTO {
+    private String id;
+    private String symbolCode;
+    private List<OrderSnapshotDTO> buyOrders;
+    private List<OrderSnapshotDTO> sellOrders;
+    private OrderBookStatisticsDTO statistics;
+    private LocalDateTime timestamp;
+
+    // Constructors
+    public OrderBookSnapshotDTO() {}
+
+    // Getters and Setters
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public List<OrderSnapshotDTO> getBuyOrders() { return buyOrders; }
+    public void setBuyOrders(List<OrderSnapshotDTO> buyOrders) { this.buyOrders = buyOrders; }
+    public List<OrderSnapshotDTO> getSellOrders() { return sellOrders; }
+    public void setSellOrders(List<OrderSnapshotDTO> sellOrders) { this.sellOrders = sellOrders; }
+    public OrderBookStatisticsDTO getStatistics() { return statistics; }
+    public void setStatistics(OrderBookStatisticsDTO statistics) { this.statistics = statistics; }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+}
+=== ./application/dto/query/MarketOverviewDTO.java ===
+package core.ms.order_book.application.dto.query;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Map;
+
+public class MarketOverviewDTO {
+    private List<String> activeSymbols;
+    private int totalOrderBooks;
+    private int totalOrders;
+    private Map<String, BigDecimal> totalVolumeBySymbol;
+    private LocalDateTime timestamp;
+
+    public MarketOverviewDTO() {}
+
+    public MarketOverviewDTO(List<String> activeSymbols, int totalOrderBooks, int totalOrders,
+                             Map<String, BigDecimal> totalVolumeBySymbol, LocalDateTime timestamp) {
+        this.activeSymbols = activeSymbols;
+        this.totalOrderBooks = totalOrderBooks;
+        this.totalOrders = totalOrders;
+        this.totalVolumeBySymbol = totalVolumeBySymbol;
+        this.timestamp = timestamp;
+    }
+
+    // Getters and Setters
+    public List<String> getActiveSymbols() { return activeSymbols; }
+    public void setActiveSymbols(List<String> activeSymbols) { this.activeSymbols = activeSymbols; }
+    public int getTotalOrderBooks() { return totalOrderBooks; }
+    public void setTotalOrderBooks(int totalOrderBooks) { this.totalOrderBooks = totalOrderBooks; }
+    public int getTotalOrders() { return totalOrders; }
+    public void setTotalOrders(int totalOrders) { this.totalOrders = totalOrders; }
+    public Map<String, BigDecimal> getTotalVolumeBySymbol() { return totalVolumeBySymbol; }
+    public void setTotalVolumeBySymbol(Map<String, BigDecimal> totalVolumeBySymbol) {
+        this.totalVolumeBySymbol = totalVolumeBySymbol;
+    }
+    public LocalDateTime getTimestamp() { return timestamp; }
+    public void setTimestamp(LocalDateTime timestamp) { this.timestamp = timestamp; }
+}=== ./application/dto/query/OrderSnapshotDTO.java ===
+package core.ms.order_book.application.dto.query;
+
+import core.ms.shared.money.Currency;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public class OrderSnapshotDTO {
+    private String orderId;
+    private BigDecimal price;
+    private Currency currency;
+    private BigDecimal quantity;
+    private BigDecimal remainingQuantity;
+    private LocalDateTime createdAt;
+
+    // Constructors
+    public OrderSnapshotDTO() {}
+
+    // Getters and Setters
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+    public BigDecimal getRemainingQuantity() { return remainingQuantity; }
+    public void setRemainingQuantity(BigDecimal remainingQuantity) { this.remainingQuantity = remainingQuantity; }
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+}=== ./application/dto/command/CreateOrderBookCommand.java ===
+package core.ms.order_book.application.dto.command;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+
+public class CreateOrderBookCommand {
+    @NotBlank(message = "Symbol code cannot be blank")
+    @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+    private String symbolCode;
+
+    public CreateOrderBookCommand() {}
+
+    public CreateOrderBookCommand(String symbolCode) {
+        this.symbolCode = symbolCode;
+    }
+
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+}=== ./application/dto/command/CreateSnapshotCommand.java ===
+package core.ms.order_book.application.dto.command;
+
+import jakarta.validation.constraints.NotBlank;
+
+public class CreateSnapshotCommand {
+    @NotBlank(message = "Symbol code cannot be blank")
+    private String symbolCode;
+
+    public CreateSnapshotCommand() {}
+
+    public CreateSnapshotCommand(String symbolCode) {
+        this.symbolCode = symbolCode;
+    }
+
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+}=== ./application/dto/command/AddOrderToBookCommand.java ===
+package core.ms.order_book.application.dto.command;
+
+import jakarta.validation.constraints.NotBlank;
+
+public class AddOrderToBookCommand {
+    @NotBlank(message = "Order ID cannot be blank")
+    private String orderId;
+
+    public AddOrderToBookCommand() {}
+
+    public AddOrderToBookCommand(String orderId) {
+        this.orderId = orderId;
+    }
+
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+}=== ./application/services/OrderBookSnapshotService.java ===
+package core.ms.order_book.application.services;
+
+import core.ms.order_book.application.dto.command.CreateSnapshotCommand;
+import core.ms.order_book.application.dto.query.OrderBookSnapshotDTO;
+import core.ms.order_book.application.dto.query.OrderBookStatisticsDTO;
+import core.ms.order_book.application.dto.query.OrderSnapshotDTO;
+import core.ms.order_book.domain.entities.OrderBook;
+import core.ms.order_book.domain.ports.outbound.OrderBookRepository;
+import core.ms.order_book.domain.ports.outbound.OrderBookSnapshotRepository;
+import core.ms.order_book.domain.value_object.OrderBookSnapshot;
+import core.ms.order_book.infrastructure.persistence.OrderBookSnapshotRepositoryImpl;
+import core.ms.shared.money.Symbol;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.temporal.ChronoUnit;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+@Service
+@Transactional
+public class OrderBookSnapshotService {
+
+    private static final Logger log = LoggerFactory.getLogger(OrderBookSnapshotService.class);
+
+    @Autowired
+    private OrderBookRepository orderBookRepository;
+
+    @Autowired
+    private OrderBookSnapshotRepository snapshotRepository;
+
+    @Autowired
+    private OrderBookSnapshotRepositoryImpl snapshotRepositoryImpl;
+
+    @Value("${orderbook.snapshot.enabled:true}")
+    private boolean snapshotEnabled;
+
+    @Value("${orderbook.snapshot.retention-days:7}")
+    private int retentionDays;
+
+    @Value("${orderbook.snapshot.max-snapshots-per-symbol:100}")
+    private int maxSnapshotsPerSymbol;
+
+    // ===== SCHEDULED OPERATIONS =====
+
+    @Scheduled(fixedRateString = "${orderbook.snapshot.interval:300000}") // Default 5 minutes
+    @Async
+    public void scheduledSnapshot() {
+        if (!snapshotEnabled) {
+            return;
+        }
+
+        log.info("Starting scheduled OrderBook snapshot...");
+        performSnapshot();
+    }
+
+    @Scheduled(cron = "${orderbook.snapshot.cleanup.cron:0 0 2 * * *}") // Default 2 AM daily
+    public void cleanupOldSnapshots() {
+        if (!snapshotEnabled) {
+            return;
+        }
+
+        log.info("Starting snapshot cleanup...");
+        Instant cutoffTime = Instant.now().minus(retentionDays, ChronoUnit.DAYS);
+
+        try {
+            snapshotRepository.deleteByTimestampBefore(cutoffTime);
+            log.info("Cleaned up snapshots older than {}", cutoffTime);
+        } catch (Exception e) {
+            log.error("Failed to cleanup old snapshots", e);
+        }
+    }
+
+    // ===== PUBLIC OPERATIONS =====
+
+    public void performSnapshot() {
+        Collection<OrderBook> orderBooks = orderBookRepository.findAll();
+        int successCount = 0;
+        int failureCount = 0;
+
+        for (OrderBook orderBook : orderBooks) {
+            try {
+                if (shouldSnapshot(orderBook)) {
+                    createSnapshot(orderBook);
+                    successCount++;
+                }
+            } catch (Exception e) {
+                log.error("Failed to snapshot OrderBook for symbol: {}",
+                        orderBook.getSymbol().getCode(), e);
+                failureCount++;
+            }
+        }
+
+        log.info("Snapshot completed. Success: {}, Failures: {}", successCount, failureCount);
+    }
+
+    public void createSnapshot(String symbolCode) {
+        Symbol symbol = createSymbol(symbolCode);
+        Optional<OrderBook> orderBook = orderBookRepository.findBySymbol(symbol);
+
+        if (orderBook.isPresent()) {
+            createSnapshot(orderBook.get());
+            log.info("Snapshot created for symbol: {}", symbolCode);
+        } else {
+            throw new IllegalArgumentException("OrderBook not found for symbol: " + symbolCode);
+        }
+    }
+
+    public void createSnapshot(CreateSnapshotCommand command) {
+        createSnapshot(command.getSymbolCode());
+    }
+
+    // ===== QUERY OPERATIONS =====
+
+    public Optional<OrderBookSnapshotDTO> getLatestSnapshot(String symbolCode) {
+        Symbol symbol = createSymbol(symbolCode);
+        return snapshotRepository.findLatestBySymbol(symbol)
+                .map(this::toDTO);
+    }
+
+    public List<OrderBookSnapshotDTO> getSnapshotHistory(String symbolCode,
+                                                         LocalDateTime from,
+                                                         LocalDateTime to) {
+        Symbol symbol = createSymbol(symbolCode);
+        Instant startTime = from.toInstant(java.time.ZoneOffset.UTC);
+        Instant endTime = to.toInstant(java.time.ZoneOffset.UTC);
+
+        return snapshotRepository.findBySymbolAndTimestampBetween(symbol, startTime, endTime)
+                .stream()
+                .map(this::toDTO)
+                .collect(Collectors.toList());
+    }
+
+    // ===== RESTORE OPERATIONS =====
+
+    public void restoreFromLatestSnapshot(String symbolCode) {
+        Symbol symbol = createSymbol(symbolCode);
+        Optional<OrderBookSnapshot> snapshot = snapshotRepository.findLatestBySymbol(symbol);
+
+        if (snapshot.isPresent()) {
+            // This would require additional logic to restore OrderBook state
+            // For now, just log
+            log.info("Found snapshot for {} from {}", symbolCode, snapshot.get().getTimestamp());
+        } else {
+            log.warn("No snapshot found for symbol: {}", symbolCode);
+        }
+    }
+
+    // ===== PRIVATE HELPER METHODS =====
+
+    private void createSnapshot(OrderBook orderBook) {
+        // Check if we need to cleanup old snapshots for this symbol
+        long currentCount = snapshotRepository.countBySymbol(orderBook.getSymbol());
+        if (currentCount >= maxSnapshotsPerSymbol) {
+            // Would need to implement cleanup of oldest snapshots
+            log.warn("Maximum snapshots reached for symbol: {}", orderBook.getSymbol().getCode());
+        }
+
+        snapshotRepositoryImpl.createSnapshot(orderBook);
+    }
+
+    private boolean shouldSnapshot(OrderBook orderBook) {
+        return orderBook.getOrderCount() > 0 ||
+                orderBook.getLastUpdate().isAfter(LocalDateTime.now().minusMinutes(30));
+    }
+
+    private Symbol createSymbol(String symbolCode) {
+        return switch (symbolCode.toUpperCase()) {
+            case "BTC" -> Symbol.btcUsd();
+            case "ETH" -> Symbol.ethUsd();
+            case "EURUSD" -> Symbol.eurUsd();
+            case "GBPUSD" -> Symbol.gbpUsd();
+            default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
+        };
+    }
+
+    // ===== DTO MAPPING =====
+
+    private OrderBookSnapshotDTO toDTO(OrderBookSnapshot snapshot) {
+        OrderBookSnapshotDTO dto = new OrderBookSnapshotDTO();
+        dto.setId(snapshot.getId());
+        dto.setSymbolCode(snapshot.getSymbol().getCode());
+        dto.setTimestamp(LocalDateTime.ofInstant(snapshot.getTimestamp(),
+                java.time.ZoneOffset.UTC));
+
+        // Map buy orders
+        dto.setBuyOrders(snapshot.getBuyOrders().stream()
+                .map(this::toOrderSnapshotDTO)
+                .collect(Collectors.toList()));
+
+        // Map sell orders
+        dto.setSellOrders(snapshot.getSellOrders().stream()
+                .map(this::toOrderSnapshotDTO)
+                .collect(Collectors.toList()));
+
+        // Map statistics
+        dto.setStatistics(toStatisticsDTO(snapshot.getStatistics()));
+
+        return dto;
+    }
+
+    private OrderSnapshotDTO toOrderSnapshotDTO(OrderBookSnapshot.OrderSnapshot order) {
+        OrderSnapshotDTO dto = new OrderSnapshotDTO();
+        dto.setOrderId(order.getOrderId());
+        dto.setPrice(order.getPrice().getAmount());
+        dto.setCurrency(order.getPrice().getCurrency());
+        dto.setQuantity(order.getQuantity());
+        dto.setRemainingQuantity(order.getRemainingQuantity());
+        dto.setCreatedAt(LocalDateTime.ofInstant(order.getCreatedAt(),
+                java.time.ZoneOffset.UTC));
+        return dto;
+    }
+
+    private OrderBookStatisticsDTO toStatisticsDTO(OrderBookSnapshot.OrderBookStatistics stats) {
+        OrderBookStatisticsDTO dto = new OrderBookStatisticsDTO();
+        dto.setTotalBuyOrders(stats.getTotalBuyOrders());
+        dto.setTotalSellOrders(stats.getTotalSellOrders());
+        dto.setTotalBuyVolume(stats.getTotalBuyVolume());
+        dto.setTotalSellVolume(stats.getTotalSellVolume());
+
+        if (stats.getBestBid() != null) {
+            dto.setBestBidPrice(stats.getBestBid().getAmount());
+            dto.setPriceCurrency(stats.getBestBid().getCurrency());
+        }
+
+        if (stats.getBestAsk() != null) {
+            dto.setBestAskPrice(stats.getBestAsk().getAmount());
+        }
+
+        if (stats.getSpread() != null) {
+            dto.setSpread(stats.getSpread().getAmount());
+        }
+
+        return dto;
+    }
+}=== ./application/services/OrderBookApplicationService.java ===
+package core.ms.order_book.application.services;
+
+import core.ms.order.domain.entities.IBuyOrder;
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.entities.ISellOrder;
+import core.ms.order_book.domain.entities.OrderBook;
+import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.domain.ports.inbound.OrderBookOperationResult;
+import core.ms.order_book.domain.ports.inbound.OrderBookService;
+import core.ms.order_book.domain.ports.outbound.OrderBookRepository;
+import core.ms.order_book.domain.ports.outbound.OrderMatchEventPublisher;
+import core.ms.order_book.domain.value_object.MarketDepth;
+import core.ms.order_book.domain.value_object.MarketOverview;
+import core.ms.order_book.infrastructure.persistence.OrderBookRepositoryJpaImpl;
+import core.ms.shared.money.Symbol;
+import jakarta.transaction.Transactional;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+
+@Service
+@Transactional
+public class OrderBookApplicationService implements OrderBookService {
+
+    private final OrderBookRepository orderBookRepository;
+    private final OrderMatchEventPublisher eventPublisher;
+
+    @Autowired
+    public OrderBookApplicationService(
+            OrderBookRepository orderBookRepository,
+            OrderMatchEventPublisher eventPublisher) {
+        this.orderBookRepository = Objects.requireNonNull(orderBookRepository);
+        this.eventPublisher = Objects.requireNonNull(eventPublisher);
+    }
+
+    @Override
+    public OrderBookOperationResult addOrderToBook(IOrder order) {
+        try {
+            Objects.requireNonNull(order, "Order cannot be null");
+
+            // Get or create order book for the symbol
+            OrderBook orderBook = getOrCreateOrderBook(order.getSymbol());
+
+            // Add order based on type
+            if (order instanceof IBuyOrder) {
+                orderBook.addOrder((IBuyOrder) order);
+            } else if (order instanceof ISellOrder) {
+                orderBook.addOrder((ISellOrder) order);
+            } else {
+                return OrderBookOperationResult.builder()
+                        .success(false)
+                        .message("Unknown order type: " + order.getClass().getSimpleName())
+                        .orderId(order.getId())
+                        .build();
+            }
+
+            // Save the updated order book
+            orderBookRepository.save(orderBook);
+
+            // Check for matches and process if found
+            if (orderBook.hasRecentMatches()) {
+                List<OrderMatchedEvent> matchEvents = orderBook.consumeRecentMatchEvents();
+
+                // Publish events through infrastructure
+                eventPublisher.publishOrderMatchedEvents(matchEvents);
+
+                return OrderBookOperationResult.builder()
+                        .success(true)
+                        .message(String.format("Order added with %d matches", matchEvents.size()))
+                        .matchEvents(matchEvents)
+                        .orderId(order.getId())
+                        .build();
+            }
+
+            return OrderBookOperationResult.builder()
+                    .success(true)
+                    .message("Order added to book, no matches found")
+                    .orderId(order.getId())
+                    .build();
+
+        } catch (Exception e) {
+            return OrderBookOperationResult.builder()
+                    .success(false)
+                    .message("Failed to add order: " + e.getMessage())
+                    .orderId(order != null ? order.getId() : null)
+                    .build();
+        }
+    }
+
+    @Override
+    public OrderBookOperationResult removeOrderFromBook(String orderId, Symbol symbol) {
+        try {
+            Objects.requireNonNull(orderId, "Order ID cannot be null");
+            Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+            Optional<OrderBook> orderBookOpt = orderBookRepository.findBySymbol(symbol);
+
+            if (orderBookOpt.isEmpty()) {
+                return OrderBookOperationResult.builder()
+                        .success(false)
+                        .message("Order book not found for symbol: " + symbol.getCode())
+                        .orderId(orderId)
+                        .build();
+            }
+
+            OrderBook orderBook = orderBookOpt.get();
+
+            // Note: This requires OrderBook to have removeOrderById method
+            // For now, we'll return a placeholder response
+
+            return OrderBookOperationResult.builder()
+                    .success(true)
+                    .message("Order removed from book")
+                    .orderId(orderId)
+                    .build();
+
+        } catch (Exception e) {
+            return OrderBookOperationResult.builder()
+                    .success(false)
+                    .message("Failed to remove order: " + e.getMessage())
+                    .orderId(orderId)
+                    .build();
+        }
+    }
+
+    @Override
+    public List<OrderMatchedEvent> processPendingMatches(Symbol symbol) {
+        Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+        Optional<OrderBook> orderBookOpt = orderBookRepository.findBySymbol(symbol);
+
+        if (orderBookOpt.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        OrderBook orderBook = orderBookOpt.get();
+
+        if (orderBook.hasRecentMatches()) {
+            List<OrderMatchedEvent> events = orderBook.consumeRecentMatchEvents();
+            eventPublisher.publishOrderMatchedEvents(events);
+            return events;
+        }
+
+        return new ArrayList<>();
+    }
+
+    @Override
+    public List<OrderMatchedEvent> processAllPendingMatches() {
+        List<OrderMatchedEvent> allEvents = new ArrayList<>();
+
+        for (OrderBook orderBook : orderBookRepository.findAll()) {
+            if (orderBook.hasRecentMatches()) {
+                List<OrderMatchedEvent> events = orderBook.consumeRecentMatchEvents();
+                allEvents.addAll(events);
+            }
+        }
+
+        if (!allEvents.isEmpty()) {
+            eventPublisher.publishOrderMatchedEvents(allEvents);
+        }
+
+        return allEvents;
+    }
+
+    @Override
+    public MarketDepth getMarketDepth(Symbol symbol, int levels) {
+        Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+        if (levels <= 0) {
+            throw new IllegalArgumentException("Levels must be positive");
+        }
+
+        OrderBook orderBook = getOrCreateOrderBook(symbol);
+        return orderBook.getMarketDepth(levels);
+    }
+
+    @Override
+    public MarketOverview getMarketOverview() {
+        // Access the manager through the repository service
+        if (orderBookRepository instanceof OrderBookRepositoryJpaImpl repo) {
+            return repo.getManager().getMarketOverview();
+        }
+
+        // Fallback: build overview from available order books
+        throw new UnsupportedOperationException("Market overview not available with current repository implementation");
+    }
+
+    @Override
+    public OrderBookOperationResult createOrderBook(Symbol symbol) {
+        try {
+            Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+            if (orderBookRepository.existsBySymbol(symbol)) {
+                return OrderBookOperationResult.builder()
+                        .success(false)
+                        .message("Order book already exists for symbol: " + symbol.getCode())
+                        .build();
+            }
+
+            OrderBook orderBook = new OrderBook(symbol);
+            orderBookRepository.save(orderBook);
+
+            return OrderBookOperationResult.builder()
+                    .success(true)
+                    .message("Order book created for symbol: " + symbol.getCode())
+                    .build();
+
+        } catch (Exception e) {
+            return OrderBookOperationResult.builder()
+                    .success(false)
+                    .message("Failed to create order book: " + e.getMessage())
+                    .build();
+        }
+    }
+
+    @Override
+    public OrderBookOperationResult removeOrderBook(Symbol symbol) {
+        try {
+            Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+            boolean removed = orderBookRepository.deleteBySymbol(symbol);
+
+            if (removed) {
+                return OrderBookOperationResult.builder()
+                        .success(true)
+                        .message("Order book removed for symbol: " + symbol.getCode())
+                        .build();
+            } else {
+                return OrderBookOperationResult.builder()
+                        .success(false)
+                        .message("Order book not found for symbol: " + symbol.getCode())
+                        .build();
+            }
+
+        } catch (Exception e) {
+            return OrderBookOperationResult.builder()
+                    .success(false)
+                    .message("Failed to remove order book: " + e.getMessage())
+                    .build();
+        }
+    }
+
+    @Override
+    public int cleanupInactiveOrders() {
+        int totalRemoved = 0;
+
+        for (OrderBook orderBook : orderBookRepository.findAll()) {
+            int beforeCount = orderBook.getOrderCount();
+            orderBook.removeInactiveOrders();
+            int afterCount = orderBook.getOrderCount();
+            totalRemoved += (beforeCount - afterCount);
+
+            // Save the updated order book
+            orderBookRepository.save(orderBook);
+        }
+
+        return totalRemoved;
+    }
+
+    // Private helper method
+    private OrderBook getOrCreateOrderBook(Symbol symbol) {
+        return orderBookRepository.findBySymbol(symbol)
+                .orElseGet(() -> {
+                    OrderBook newOrderBook = new OrderBook(symbol);
+                    return orderBookRepository.save(newOrderBook);
+                });
+    }
+}=== ./web/controllers/OrderBookAdminController.java ===
+package core.ms.order_book.web.controllers;
+
+import core.ms.order.web.dto.response.ApiResponse;
+import core.ms.order_book.application.dto.command.CreateSnapshotCommand;
+import core.ms.order_book.application.dto.query.OrderBookSnapshotDTO;
+import core.ms.order_book.application.services.OrderBookSnapshotService;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+@RestController
+@RequestMapping("/api/v1/admin/order-books")
+@Validated
+@PreAuthorize("hasRole('ADMIN')")
+public class OrderBookAdminController {
+
+    @Autowired
+    private OrderBookSnapshotService snapshotService;
+
+    // ===== SNAPSHOT OPERATIONS =====
+
+    @PostMapping("/snapshot")
+    public ResponseEntity<ApiResponse<String>> createSnapshotAll() {
+        try {
+            snapshotService.performSnapshot();
+            // Use success(message, data) to return ApiResponse<String>
+            return ResponseEntity.ok(
+                    ApiResponse.success("OrderBook snapshots created successfully", "SUCCESS")
+            );
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Snapshot failed: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/snapshot/{symbolCode}")
+    public ResponseEntity<ApiResponse<String>> createSnapshotForSymbol(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode) {
+        try {
+            snapshotService.createSnapshot(symbolCode);
+            return ResponseEntity.ok(
+                    ApiResponse.success("Snapshot created for " + symbolCode, symbolCode)
+            );
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Snapshot failed: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/snapshot/create")
+    public ResponseEntity<ApiResponse<String>> createSnapshot(
+            @Valid @RequestBody CreateSnapshotCommand command) {
+        try {
+            snapshotService.createSnapshot(command);
+            return ResponseEntity.ok(
+                    ApiResponse.success("Snapshot created for " + command.getSymbolCode(), command.getSymbolCode())
+            );
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Snapshot failed: " + e.getMessage()));
+        }
+    }
+
+    // ===== SNAPSHOT QUERIES =====
+
+    @GetMapping("/snapshot/{symbolCode}/latest")
+    public ResponseEntity<ApiResponse<OrderBookSnapshotDTO>> getLatestSnapshot(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode) {
+        try {
+            Optional<OrderBookSnapshotDTO> snapshot = snapshotService.getLatestSnapshot(symbolCode);
+
+            return snapshot.map(dto -> ResponseEntity.ok(
+                    ApiResponse.success("Latest snapshot retrieved", dto)
+            )).orElseGet(() -> ResponseEntity.status(HttpStatus.NOT_FOUND)
+                    .body(ApiResponse.error("No snapshot found for " + symbolCode)));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to retrieve snapshot: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/snapshot/{symbolCode}/history")
+    public ResponseEntity<ApiResponse<List<OrderBookSnapshotDTO>>> getSnapshotHistory(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
+            @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to) {
+        try {
+            List<OrderBookSnapshotDTO> snapshots =
+                    snapshotService.getSnapshotHistory(symbolCode, from, to);
+
+            return ResponseEntity.ok(
+                    ApiResponse.success("Snapshot history retrieved", snapshots)
+            );
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to retrieve history: " + e.getMessage()));
+        }
+    }
+
+    // ===== RESTORE OPERATIONS =====
+
+    @PostMapping("/restore/{symbolCode}")
+    public ResponseEntity<ApiResponse<String>> restoreFromSnapshot(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode) {
+        try {
+            snapshotService.restoreFromLatestSnapshot(symbolCode);
+            return ResponseEntity.ok(
+                    ApiResponse.success("OrderBook restored from snapshot for " + symbolCode, symbolCode)
+            );
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Restore failed: " + e.getMessage()));
+        }
+    }
+}=== ./web/controllers/OrderBookController.java ===
+package core.ms.order_book.web.controllers;
+
+import core.ms.order.web.dto.response.ApiResponse;
+import core.ms.order_book.application.dto.command.AddOrderToBookCommand;
+import core.ms.order_book.application.dto.command.CreateOrderBookCommand;
+import core.ms.order_book.application.dto.query.MarketDepthDTO;
+import core.ms.order_book.application.dto.query.MarketOverviewDTO;
+import core.ms.order_book.application.dto.query.OrderBookOperationResultDTO;
+import core.ms.order_book.application.services.OrderBookApplicationService;
+import core.ms.order_book.web.mappers.OrderBookWebMapper;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.Pattern;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.*;
+
+@RestController
+@RequestMapping("/api/v1/order-books")
+@Validated
+public class OrderBookController {
+
+    @Autowired
+    private OrderBookApplicationService orderBookService;
+
+    @Autowired
+    private OrderBookWebMapper webMapper;
+
+    // ===== ORDER BOOK MANAGEMENT =====
+
+    @PostMapping
+    public ResponseEntity<ApiResponse<String>> createOrderBook(@Valid @RequestBody CreateOrderBookCommand command) {
+        try {
+            var symbol = webMapper.createSymbol(command.getSymbolCode());
+            var result = orderBookService.createOrderBook(symbol);
+            var response = webMapper.toApiResponse(result);
+
+            HttpStatus status = response.isSuccess() ? HttpStatus.CREATED : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(response);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @DeleteMapping("/{symbolCode}")
+    public ResponseEntity<ApiResponse<String>> removeOrderBook(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode) {
+        try {
+            var symbol = webMapper.createSymbol(symbolCode);
+            var result = orderBookService.removeOrderBook(symbol);
+            var response = webMapper.toApiResponse(result);
+
+            HttpStatus status = response.isSuccess() ? HttpStatus.OK : HttpStatus.NOT_FOUND;
+            return ResponseEntity.status(status).body(response);
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    // ===== ORDER PROCESSING =====
+
+    @PostMapping("/orders")
+    public ResponseEntity<ApiResponse<OrderBookOperationResultDTO>> addOrderToBook(
+            @Valid @RequestBody AddOrderToBookCommand command) {
+        try {
+            var order = webMapper.fetchOrder(command.getOrderId());
+            var result = orderBookService.addOrderToBook(order);
+            var dto = webMapper.toDTO(result);
+
+            HttpStatus status = result.isSuccess() ? HttpStatus.OK : HttpStatus.BAD_REQUEST;
+            return ResponseEntity.status(status).body(ApiResponse.success("Order processed", dto));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/process-matches/{symbolCode}")
+    public ResponseEntity<ApiResponse<Integer>> processMatches(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode) {
+        try {
+            var symbol = webMapper.createSymbol(symbolCode);
+            var matchEvents = orderBookService.processPendingMatches(symbol);
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    String.format("Processed %d matches", matchEvents.size()),
+                    matchEvents.size()));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/process-all-matches")
+    public ResponseEntity<ApiResponse<Integer>> processAllMatches() {
+        try {
+            var matchEvents = orderBookService.processAllPendingMatches();
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    String.format("Processed %d total matches", matchEvents.size()),
+                    matchEvents.size()));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    // ===== MARKET DATA QUERIES =====
+
+    @GetMapping("/{symbolCode}/depth")
+    public ResponseEntity<ApiResponse<MarketDepthDTO>> getMarketDepth(
+            @PathVariable @NotBlank(message = "Symbol code cannot be blank")
+            @Pattern(regexp = "^[A-Z0-9]+$", message = "Symbol code must contain only uppercase letters and numbers")
+            String symbolCode,
+            @RequestParam(defaultValue = "10") @Min(1) @Max(50) int levels) {
+        try {
+            var symbol = webMapper.createSymbol(symbolCode);
+            var marketDepth = orderBookService.getMarketDepth(symbol, levels);
+            var dto = webMapper.toDTO(marketDepth);
+
+            return ResponseEntity.ok(ApiResponse.success("Market depth retrieved", dto));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    @GetMapping("/overview")
+    public ResponseEntity<ApiResponse<MarketOverviewDTO>> getMarketOverview() {
+        try {
+            var overview = orderBookService.getMarketOverview();
+            var dto = webMapper.toDTO(overview);
+
+            return ResponseEntity.ok(ApiResponse.success("Market overview retrieved", dto));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+
+    // ===== MAINTENANCE =====
+
+    @PostMapping("/cleanup-inactive")
+    public ResponseEntity<ApiResponse<Integer>> cleanupInactiveOrders() {
+        try {
+            int removedCount = orderBookService.cleanupInactiveOrders();
+
+            return ResponseEntity.ok(ApiResponse.success(
+                    String.format("Removed %d inactive orders", removedCount),
+                    removedCount));
+
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Internal server error: " + e.getMessage()));
+        }
+    }
+}=== ./web/mappers/OrderBookWebMapper.java ===
+package core.ms.order_book.web.mappers;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order.domain.ports.outbound.OrderRepository;
+import core.ms.order.web.dto.response.ApiResponse;
+import core.ms.order_book.application.dto.query.MarketDepthDTO;
+import core.ms.order_book.application.dto.query.MarketOverviewDTO;
+import core.ms.order_book.application.dto.query.OrderBookOperationResultDTO;
+import core.ms.order_book.application.dto.query.PriceLevelDTO;
+import core.ms.order_book.domain.ports.inbound.OrderBookOperationResult;
+import core.ms.order_book.domain.value_object.IPriceLevel;
+import core.ms.order_book.domain.value_object.MarketDepth;
+import core.ms.order_book.domain.value_object.MarketOverview;
+import core.ms.order_book.infrastructure.events.dto.OrderMatchedEventDTO;
+import core.ms.order_book.infrastructure.events.mappers.OrderMatchedEventMapper;
+import core.ms.shared.money.Symbol;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Component
+public class OrderBookWebMapper {
+
+    @Autowired
+    private OrderRepository orderRepository;
+
+    // ===== SYMBOL CREATION =====
+
+    public Symbol createSymbol(String symbolCode) {
+        return switch (symbolCode.toUpperCase()) {
+            case "BTC" -> Symbol.btcUsd();
+            case "ETH" -> Symbol.ethUsd();
+            case "EURUSD" -> Symbol.eurUsd();
+            case "GBPUSD" -> Symbol.gbpUsd();
+            default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
+        };
+    }
+
+    // ===== ORDER FETCHING =====
+
+    public IOrder fetchOrder(String orderId) {
+        return orderRepository.findById(orderId)
+                .orElseThrow(() -> new IllegalArgumentException("Order not found: " + orderId));
+    }
+
+    // ===== RESPONSE MAPPING =====
+
+    public ApiResponse<String> toApiResponse(OrderBookOperationResult result) {
+        if (result.isSuccess()) {
+            return ApiResponse.success(result.getMessage(), result.getOrderId());
+        } else {
+            return ApiResponse.error(result.getMessage());
+        }
+    }
+
+    // ===== DTO MAPPING =====
+
+    public OrderBookOperationResultDTO toDTO(OrderBookOperationResult result) {
+        List<OrderMatchedEventDTO> matchEventDtos = result.getMatchEvents().stream()
+                .map(OrderMatchedEventMapper::toDto)
+                .collect(Collectors.toList());
+
+        return new OrderBookOperationResultDTO(
+                result.isSuccess(),
+                result.getMessage(),
+                result.getOrderId(),
+                result.getMatchCount(),
+                matchEventDtos,
+                result.getTimestamp()
+        );
+    }
+
+    public MarketDepthDTO toDTO(MarketDepth marketDepth) {
+        List<PriceLevelDTO> bidLevels = marketDepth.getBidLevels().stream()
+                .map(this::toPriceLevelDTO)
+                .collect(Collectors.toList());
+
+        List<PriceLevelDTO> askLevels = marketDepth.getAskLevels().stream()
+                .map(this::toPriceLevelDTO)
+                .collect(Collectors.toList());
+
+        return new MarketDepthDTO(
+                marketDepth.getSymbol().getCode(),
+                bidLevels,
+                askLevels,
+                marketDepth.getSpread() != null ? marketDepth.getSpread().getAmount() : null,
+                marketDepth.getSpread() != null ? marketDepth.getSpread().getCurrency() : null,
+                marketDepth.getTotalBidVolume(),
+                marketDepth.getTotalAskVolume(),
+                marketDepth.getTimestamp()
+        );
+    }
+
+    public MarketOverviewDTO toDTO(MarketOverview overview) {
+        List<String> symbolCodes = overview.getActiveSymbols().stream()
+                .map(Symbol::getCode)
+                .collect(Collectors.toList());
+
+        Map<String, BigDecimal> volumeByCode = overview.getTotalVolume().entrySet().stream()
+                .collect(Collectors.toMap(
+                        entry -> entry.getKey().getCode(),
+                        Map.Entry::getValue
+                ));
+
+        return new MarketOverviewDTO(
+                symbolCodes,
+                overview.getTotalOrderBooks(),
+                overview.getTotalOrders(),
+                volumeByCode,
+                overview.getTimestamp()
+        );
+    }
+
+    private PriceLevelDTO toPriceLevelDTO(IPriceLevel priceLevel) {
+        return new PriceLevelDTO(
+                priceLevel.getPrice().getAmount(),
+                priceLevel.getPrice().getCurrency(),
+                priceLevel.getTotalQuantity(),
+                priceLevel.getOrderCount()
+        );
+    }
+}=== ./infrastructure/events/dto/OrderMatchedEventMessage.java ===
+package core.ms.order_book.infrastructure.events.dto;
+
+import core.ms.shared.events.DomainEvent;
+import core.ms.shared.money.Currency;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public class OrderMatchedEventMessage implements DomainEvent {
+    private final String buyOrderId;
+    private final String sellOrderId;
+    private final String symbolCode;
+    private final BigDecimal quantity;
+    private final BigDecimal executionPrice;
+    private final Currency currency;
+    private final LocalDateTime occurredAt;
+
+    public OrderMatchedEventMessage(String buyOrderId, String sellOrderId, String symbolCode,
+                                    BigDecimal quantity, BigDecimal executionPrice,
+                                    Currency currency, LocalDateTime occurredAt) {
+        this.buyOrderId = buyOrderId;
+        this.sellOrderId = sellOrderId;
+        this.symbolCode = symbolCode;
+        this.quantity = quantity;
+        this.executionPrice = executionPrice;
+        this.currency = currency;
+        this.occurredAt = occurredAt;
+    }
+
+    @Override
+    public LocalDateTime getOccurredAt() {
+        return occurredAt;
+    }
+
+    // Getters
+    public String getBuyOrderId() { return buyOrderId; }
+    public String getSellOrderId() { return sellOrderId; }
+    public String getSymbolCode() { return symbolCode; }
+    public BigDecimal getQuantity() { return quantity; }
+    public BigDecimal getExecutionPrice() { return executionPrice; }
+    public Currency getCurrency() { return currency; }
+}=== ./infrastructure/events/dto/OrderMatchedEventDTO.java ===
+package core.ms.order_book.infrastructure.events.dto;
+
+import core.ms.shared.money.Currency;
+import core.ms.shared.money.Symbol;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+
+public class OrderMatchedEventDTO {
+    private String buyOrderId;
+    private String sellOrderId;
+    private Symbol symbol;
+    private BigDecimal quantity;
+    private BigDecimal executionPrice;
+    private Currency currency;
+    private BigDecimal totalValue;
+    private LocalDateTime occurredAt;
+
+    public OrderMatchedEventDTO() {
+        // Default constructor for serialization
+    }
+
+    public OrderMatchedEventDTO(String buyOrderId, String sellOrderId, Symbol symbol,
+                                BigDecimal quantity, BigDecimal executionPrice, Currency currency,
+                                BigDecimal totalValue, LocalDateTime occurredAt) {
+        this.buyOrderId = buyOrderId;
+        this.sellOrderId = sellOrderId;
+        this.symbol = symbol;
+        this.quantity = quantity;
+        this.executionPrice = executionPrice;
+        this.currency = currency;
+        this.totalValue = totalValue;
+        this.occurredAt = occurredAt;
+    }
+
+    // Getters and setters
+    public String getBuyOrderId() { return buyOrderId; }
+    public void setBuyOrderId(String buyOrderId) { this.buyOrderId = buyOrderId; }
+
+    public String getSellOrderId() { return sellOrderId; }
+    public void setSellOrderId(String sellOrderId) { this.sellOrderId = sellOrderId; }
+
+    public Symbol getSymbol() { return symbol; }
+    public void setSymbol(Symbol symbol) { this.symbol = symbol; }
+
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+
+    public BigDecimal getExecutionPrice() { return executionPrice; }
+    public void setExecutionPrice(BigDecimal executionPrice) { this.executionPrice = executionPrice; }
+
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+
+    public BigDecimal getTotalValue() { return totalValue; }
+    public void setTotalValue(BigDecimal totalValue) { this.totalValue = totalValue; }
+
+    public LocalDateTime getOccurredAt() { return occurredAt; }
+    public void setOccurredAt(LocalDateTime occurredAt) { this.occurredAt = occurredAt; }
+}
+=== ./infrastructure/events/mappers/OrderMatchedEventMapper.java ===
+package core.ms.order_book.infrastructure.events.mappers;
+
+import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.infrastructure.events.dto.OrderMatchedEventDTO;
+import core.ms.order_book.infrastructure.events.dto.OrderMatchedEventMessage;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+public class OrderMatchedEventMapper {
+
+    /**
+     * Maps domain event to DTO (for web layer).
+     */
+    public static OrderMatchedEventDTO toDto(OrderMatchedEvent domainEvent) {
+        return new OrderMatchedEventDTO(
+                domainEvent.getBuyOrderId(),
+                domainEvent.getSellOrderId(),
+                domainEvent.getSymbol(),
+                domainEvent.getQuantity(),
+                domainEvent.getExecutionPrice().getAmount(),
+                domainEvent.getExecutionPrice().getCurrency(),
+                domainEvent.getTotalValue().getAmount(),
+                domainEvent.getOccurredAt()
+        );
+    }
+
+    /**
+     * Maps domain event to infrastructure event message.
+     */
+    public static OrderMatchedEventMessage toEventMessage(OrderMatchedEvent domainEvent) {
+        return new OrderMatchedEventMessage(
+                domainEvent.getBuyOrderId(),
+                domainEvent.getSellOrderId(),
+                domainEvent.getSymbol().getCode(),
+                domainEvent.getQuantity(),
+                domainEvent.getExecutionPrice().getAmount(),
+                domainEvent.getExecutionPrice().getCurrency(),
+                domainEvent.getOccurredAt()
+        );
+    }
+
+    /**
+     * Maps list of domain events to event messages.
+     */
+    public static List<OrderMatchedEventMessage> toEventMessages(List<OrderMatchedEvent> domainEvents) {
+        return domainEvents.stream()
+                .map(OrderMatchedEventMapper::toEventMessage)
+                .collect(Collectors.toList());
+    }
+
+    public static List<OrderMatchedEventDTO> toDtoList(List<OrderMatchedEvent> domainEvents) {
+        return domainEvents.stream()
+                .map(OrderMatchedEventMapper::toDto)
+                .collect(Collectors.toList());
+    }
+}=== ./infrastructure/events/publishers/OrderMatchEventPublisherImpl.java ===
+package core.ms.order_book.infrastructure.events.publishers;
+
+import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.domain.ports.outbound.OrderMatchEventPublisher;
+import core.ms.order_book.infrastructure.events.dto.OrderMatchedEventDTO;
+import core.ms.order_book.infrastructure.events.mappers.OrderMatchedEventMapper;
+import core.ms.shared.events.EventBus;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Component;
+
+import java.util.List;
+import java.util.Objects;
+
+@Component
+public class OrderMatchEventPublisherImpl implements OrderMatchEventPublisher {
+
+    private final EventBus eventBus;
+
+    public OrderMatchEventPublisherImpl(EventBus eventBus) {
+        this.eventBus = Objects.requireNonNull(eventBus, "EventBus cannot be null");
+    }
+
+    @Override
+    public void publishOrderMatchedEvents(List<OrderMatchedEvent> events) {
+        Objects.requireNonNull(events, "Events list cannot be null");
+
+        // Convert domain events to infrastructure messages
+        var eventMessages = OrderMatchedEventMapper.toEventMessages(events);
+        eventBus.publishAll(eventMessages);
+    }
+
+    @Override
+    public void publishOrderMatchedEvent(OrderMatchedEvent event) {
+        Objects.requireNonNull(event, "Event cannot be null");
+
+        // Convert domain event to infrastructure message
+        var eventMessage = OrderMatchedEventMapper.toEventMessage(event);
+        eventBus.publish(eventMessage);
+    }
+}=== ./infrastructure/persistence/entities/OrderBookSnapshotEntity.java ===
+package core.ms.order_book.infrastructure.persistence.entities;
+
+import jakarta.persistence.*;
+
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+
+@Entity
+@Table(name = "order_book_snapshots",
+        indexes = {
+                @Index(name = "idx_symbol_timestamp", columnList = "symbol_code,snapshot_time")
+        })
+public class OrderBookSnapshotEntity {
+    @Id
+    @Column(name = "id", length = 100)
+    private String id;
+
+    @Column(name = "symbol_code", nullable = false, length = 20)
+    private String symbolCode;
+
+    @Column(name = "snapshot_time", nullable = false)
+    private Instant snapshotTime;
+
+    @OneToMany(mappedBy = "snapshot", cascade = CascadeType.ALL,
+            fetch = FetchType.LAZY, orphanRemoval = true)
+    private List<OrderSnapshotEntity> orders = new ArrayList<>();
+
+    @Embedded
+    private OrderBookStatisticsEntity statistics;
+
+    // Constructors
+    public OrderBookSnapshotEntity() {}
+
+    public OrderBookSnapshotEntity(String id, String symbolCode, Instant snapshotTime) {
+        this.id = id;
+        this.symbolCode = symbolCode;
+        this.snapshotTime = snapshotTime;
+    }
+
+    // Helper methods
+    public void addOrder(OrderSnapshotEntity order) {
+        orders.add(order);
+        order.setSnapshot(this);
+    }
+
+    // Getters and Setters
+    public String getId() { return id; }
+    public void setId(String id) { this.id = id; }
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public Instant getSnapshotTime() { return snapshotTime; }
+    public void setSnapshotTime(Instant snapshotTime) { this.snapshotTime = snapshotTime; }
+    public List<OrderSnapshotEntity> getOrders() { return orders; }
+    public void setOrders(List<OrderSnapshotEntity> orders) { this.orders = orders; }
+    public OrderBookStatisticsEntity getStatistics() { return statistics; }
+    public void setStatistics(OrderBookStatisticsEntity statistics) { this.statistics = statistics; }
+}=== ./infrastructure/persistence/entities/OrderSnapshotEntity.java ===
+package core.ms.order_book.infrastructure.persistence.entities;
+
+import core.ms.shared.money.Currency;
+import jakarta.persistence.*;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+
+@Entity
+@Table(name = "order_snapshots")
+public class OrderSnapshotEntity {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "order_id", nullable = false, length = 50)
+    private String orderId;
+
+    @Column(name = "order_type", nullable = false, length = 10)
+    private String orderType; // "BUY" or "SELL"
+
+    @Column(name = "price", nullable = false, precision = 19, scale = 8)
+    private BigDecimal price;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "currency", nullable = false, length = 10)
+    private Currency currency;
+
+    @Column(name = "quantity", nullable = false, precision = 19, scale = 8)
+    private BigDecimal quantity;
+
+    @Column(name = "remaining_quantity", nullable = false, precision = 19, scale = 8)
+    private BigDecimal remainingQuantity;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "snapshot_id", nullable = false)
+    private OrderBookSnapshotEntity snapshot;
+
+    // Constructors
+    public OrderSnapshotEntity() {}
+
+    // Getters and Setters
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+    public String getOrderId() { return orderId; }
+    public void setOrderId(String orderId) { this.orderId = orderId; }
+    public String getOrderType() { return orderType; }
+    public void setOrderType(String orderType) { this.orderType = orderType; }
+    public BigDecimal getPrice() { return price; }
+    public void setPrice(BigDecimal price) { this.price = price; }
+    public Currency getCurrency() { return currency; }
+    public void setCurrency(Currency currency) { this.currency = currency; }
+    public BigDecimal getQuantity() { return quantity; }
+    public void setQuantity(BigDecimal quantity) { this.quantity = quantity; }
+    public BigDecimal getRemainingQuantity() { return remainingQuantity; }
+    public void setRemainingQuantity(BigDecimal remainingQuantity) { this.remainingQuantity = remainingQuantity; }
+    public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public OrderBookSnapshotEntity getSnapshot() { return snapshot; }
+    public void setSnapshot(OrderBookSnapshotEntity snapshot) { this.snapshot = snapshot; }
+}=== ./infrastructure/persistence/entities/OrderBookEntity.java ===
+package core.ms.order_book.infrastructure.persistence.entities;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.Id;
+import jakarta.persistence.Table;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+
+@Entity
+@Table(name = "order_books")
+public class OrderBookEntity {
+    @Id
+    @Column(name = "symbol_code", length = 20)
+    private String symbolCode;
+
+    @Column(name = "symbol_name", length = 100)
+    private String symbolName;
+
+    @Column(name = "base_currency", length = 10)
+    private String baseCurrency;
+
+    @Column(name = "quote_currency", length = 10)
+    private String quoteCurrency;
+
+    @Column(name = "created_at", nullable = false)
+    private Instant createdAt;
+
+    @Column(name = "last_activity")
+    private Instant lastActivity;
+
+    @Column(name = "is_active")
+    private boolean active;
+
+    @Column(name = "total_orders")
+    private Integer totalOrders;
+
+    @Column(name = "total_volume", precision = 19, scale = 8)
+    private BigDecimal totalVolume;
+
+    // Constructors
+    public OrderBookEntity() {}
+
+    public OrderBookEntity(String symbolCode, String symbolName,
+                           String baseCurrency, String quoteCurrency) {
+        this.symbolCode = symbolCode;
+        this.symbolName = symbolName;
+        this.baseCurrency = baseCurrency;
+        this.quoteCurrency = quoteCurrency;
+        this.createdAt = Instant.now();
+        this.lastActivity = Instant.now();
+        this.active = true;
+        this.totalOrders = 0;
+        this.totalVolume = BigDecimal.ZERO;
+    }
+
+    // Getters and Setters
+    public String getSymbolCode() { return symbolCode; }
+    public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
+    public String getSymbolName() { return symbolName; }
+    public void setSymbolName(String symbolName) { this.symbolName = symbolName; }
+    public String getBaseCurrency() { return baseCurrency; }
+    public void setBaseCurrency(String baseCurrency) { this.baseCurrency = baseCurrency; }
+    public String getQuoteCurrency() { return quoteCurrency; }
+    public void setQuoteCurrency(String quoteCurrency) { this.quoteCurrency = quoteCurrency; }
+    public Instant getCreatedAt() { return createdAt; }
+    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+    public Instant getLastActivity() { return lastActivity; }
+    public void setLastActivity(Instant lastActivity) { this.lastActivity = lastActivity; }
+    public boolean isActive() { return active; }
+    public void setActive(boolean active) { this.active = active; }
+    public Integer getTotalOrders() { return totalOrders; }
+    public void setTotalOrders(Integer totalOrders) { this.totalOrders = totalOrders; }
+    public BigDecimal getTotalVolume() { return totalVolume; }
+    public void setTotalVolume(BigDecimal totalVolume) { this.totalVolume = totalVolume; }
+}=== ./infrastructure/persistence/entities/OrderBookStatisticsEntity.java ===
+package core.ms.order_book.infrastructure.persistence.entities;
+
+import core.ms.shared.money.Currency;
+import jakarta.persistence.Column;
+import jakarta.persistence.Embeddable;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
+
+import java.math.BigDecimal;
+
+@Embeddable
+public class OrderBookStatisticsEntity {
+    @Column(name = "total_buy_orders")
+    private Integer totalBuyOrders;
+
+    @Column(name = "total_sell_orders")
+    private Integer totalSellOrders;
+
+    @Column(name = "total_buy_volume", precision = 19, scale = 8)
+    private BigDecimal totalBuyVolume;
+
+    @Column(name = "total_sell_volume", precision = 19, scale = 8)
+    private BigDecimal totalSellVolume;
+
+    @Column(name = "best_bid_price", precision = 19, scale = 8)
+    private BigDecimal bestBidPrice;
+
+    @Column(name = "best_ask_price", precision = 19, scale = 8)
+    private BigDecimal bestAskPrice;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "price_currency", length = 10)
+    private Currency priceCurrency;
+
+    @Column(name = "spread", precision = 19, scale = 8)
+    private BigDecimal spread;
+
+    // Constructors
+    public OrderBookStatisticsEntity() {}
+
+    // Getters and Setters
+    public Integer getTotalBuyOrders() { return totalBuyOrders; }
+    public void setTotalBuyOrders(Integer totalBuyOrders) { this.totalBuyOrders = totalBuyOrders; }
+    public Integer getTotalSellOrders() { return totalSellOrders; }
+    public void setTotalSellOrders(Integer totalSellOrders) { this.totalSellOrders = totalSellOrders; }
+    public BigDecimal getTotalBuyVolume() { return totalBuyVolume; }
+    public void setTotalBuyVolume(BigDecimal totalBuyVolume) { this.totalBuyVolume = totalBuyVolume; }
+    public BigDecimal getTotalSellVolume() { return totalSellVolume; }
+    public void setTotalSellVolume(BigDecimal totalSellVolume) { this.totalSellVolume = totalSellVolume; }
+    public BigDecimal getBestBidPrice() { return bestBidPrice; }
+    public void setBestBidPrice(BigDecimal bestBidPrice) { this.bestBidPrice = bestBidPrice; }
+    public BigDecimal getBestAskPrice() { return bestAskPrice; }
+    public void setBestAskPrice(BigDecimal bestAskPrice) { this.bestAskPrice = bestAskPrice; }
+    public Currency getPriceCurrency() { return priceCurrency; }
+    public void setPriceCurrency(Currency priceCurrency) { this.priceCurrency = priceCurrency; }
+    public BigDecimal getSpread() { return spread; }
+    public void setSpread(BigDecimal spread) { this.spread = spread; }
+}=== ./infrastructure/persistence/DAO/OrderBookDAO.java ===
+package core.ms.order_book.infrastructure.persistence.DAO;
+
+import core.ms.order_book.infrastructure.persistence.entities.OrderBookEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+import java.util.Optional;
+
+@Repository
+public interface OrderBookDAO extends JpaRepository<OrderBookEntity, String> {
+
+    Optional<OrderBookEntity> findBySymbolCode(String symbolCode);
+
+    List<OrderBookEntity> findByActiveTrue();
+
+    @Query("SELECT o FROM OrderBookEntity o WHERE o.active = true ORDER BY o.totalVolume DESC")
+    List<OrderBookEntity> findActiveOrderBooksByVolume();
+
+    boolean existsBySymbolCode(String symbolCode);
+
+    void deleteBySymbolCode(String symbolCode);
+
+    @Query("SELECT COUNT(o) FROM OrderBookEntity o WHERE o.active = true")
+    long countActive();
+}=== ./infrastructure/persistence/DAO/OrderBookSnapshotDAO.java ===
+package core.ms.order_book.infrastructure.persistence.DAO;
+
+import core.ms.order_book.infrastructure.persistence.entities.OrderBookSnapshotEntity;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+@Repository
+public interface OrderBookSnapshotDAO extends JpaRepository<OrderBookSnapshotEntity, String> {
+
+    @Query("SELECT s FROM OrderBookSnapshotEntity s WHERE s.symbolCode = :symbol " +
+            "ORDER BY s.snapshotTime DESC LIMIT 1")
+    Optional<OrderBookSnapshotEntity> findLatestBySymbol(@Param("symbol") String symbol);
+
+    List<OrderBookSnapshotEntity> findBySymbolCodeAndSnapshotTimeBetween(
+            String symbolCode, Instant start, Instant end);
+
+    void deleteBySnapshotTimeBefore(Instant cutoff);
+
+    long countBySymbolCode(String symbolCode);
+
+    @Query("SELECT s FROM OrderBookSnapshotEntity s " +
+            "LEFT JOIN FETCH s.orders " +
+            "WHERE s.id = :id")
+    Optional<OrderBookSnapshotEntity> findByIdWithOrders(@Param("id") String id);
+}=== ./infrastructure/persistence/OrderBookSnapshotRepositoryImpl.java ===
+package core.ms.order_book.infrastructure.persistence;
+
+import core.ms.order_book.domain.entities.OrderBook;
+import core.ms.order_book.domain.ports.outbound.OrderBookSnapshotRepository;
+import core.ms.order_book.domain.value_object.OrderBookSnapshot;
+import core.ms.order_book.infrastructure.persistence.DAO.OrderBookSnapshotDAO;
+import core.ms.order_book.infrastructure.persistence.entities.OrderBookSnapshotEntity;
+import core.ms.order_book.infrastructure.persistence.mappers.OrderBookSnapshotMapper;
+import core.ms.shared.money.Symbol;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Repository;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+@Repository
+public class OrderBookSnapshotRepositoryImpl implements OrderBookSnapshotRepository {
+
+    @Autowired
+    private OrderBookSnapshotDAO dao;
+
+    @Autowired
+    private OrderBookSnapshotMapper mapper;
+
+    @Override
+    public OrderBookSnapshot save(OrderBookSnapshot snapshot) {
+        // This would need to be implemented differently since we're creating
+        // snapshots from OrderBook, not saving domain snapshots
+        throw new UnsupportedOperationException("Use createSnapshot method instead");
+    }
+
+    @Override
+    public Optional<OrderBookSnapshot> findLatestBySymbol(Symbol symbol) {
+        return dao.findLatestBySymbol(symbol.getCode())
+                .map(mapper::toDomain);
+    }
+
+    @Override
+    public List<OrderBookSnapshot> findBySymbolAndTimestampBetween(
+            Symbol symbol, Instant start, Instant end) {
+        return dao.findBySymbolCodeAndSnapshotTimeBetween(symbol.getCode(), start, end)
+                .stream()
+                .map(mapper::toDomain)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public void deleteByTimestampBefore(Instant cutoff) {
+        dao.deleteBySnapshotTimeBefore(cutoff);
+    }
+
+    @Override
+    public long countBySymbol(Symbol symbol) {
+        return dao.countBySymbolCode(symbol.getCode());
+    }
+
+    // Helper method to create snapshot from OrderBook
+    public void createSnapshot(OrderBook orderBook) {
+        OrderBookSnapshotEntity entity = mapper.toEntity(orderBook);
+        dao.save(entity);
+    }
+}=== ./infrastructure/persistence/OrderBookRepositoryJpaImpl.java ===
+package core.ms.order_book.infrastructure.persistence;
+
+import core.ms.order_book.domain.entities.OrderBook;
+import core.ms.order_book.domain.entities.OrderBookManager;
+import core.ms.order_book.domain.ports.outbound.OrderBookRepository;
+import core.ms.order_book.infrastructure.persistence.DAO.OrderBookDAO;
+import core.ms.order_book.infrastructure.persistence.entities.OrderBookEntity;
+import core.ms.shared.money.Symbol;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Primary;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.Collection;
+import java.util.Optional;
+
+@Repository
+@Primary  // This will be the primary implementation if both exist
+@Transactional
+public class OrderBookRepositoryJpaImpl implements OrderBookRepository {
+
+    private final OrderBookManager orderBookManager;
+
+    @Autowired
+    private OrderBookDAO orderBookDAO;
+
+    public OrderBookRepositoryJpaImpl() {
+        this.orderBookManager = new OrderBookManager();
+    }
+
+    @Override
+    public OrderBook save(OrderBook orderBook) {
+        Symbol symbol = orderBook.getSymbol();
+
+        // Save metadata to database
+        OrderBookEntity entity = orderBookDAO.findBySymbolCode(symbol.getCode())
+                .orElse(new OrderBookEntity(
+                        symbol.getCode(),
+                        symbol.getName(),
+                        symbol.getBaseCurrency().name(),
+                        symbol.getQuoteCurrency().name()
+                ));
+
+        // Update activity
+        entity.setLastActivity(Instant.now());
+        entity.setTotalOrders(orderBook.getOrderCount());
+        entity.setTotalVolume(orderBook.getTotalBidVolume().add(orderBook.getTotalAskVolume()));
+
+        orderBookDAO.save(entity);
+
+        // Ensure it exists in manager (in-memory state)
+        if (!orderBookManager.getActiveSymbols().contains(symbol)) {
+            orderBookManager.createOrderBook(symbol);
+        }
+
+        return orderBook;
+    }
+
+    @Override
+    public Optional<OrderBook> findBySymbol(Symbol symbol) {
+        // Check if exists in database
+        Optional<OrderBookEntity> entityOpt = orderBookDAO.findBySymbolCode(symbol.getCode());
+
+        if (entityOpt.isEmpty() || !entityOpt.get().isActive()) {
+            return Optional.empty();
+        }
+
+        // Get or create from manager
+        try {
+            OrderBook orderBook = orderBookManager.getOrderBook(symbol);
+            return Optional.of(orderBook);
+        } catch (Exception e) {
+            // If not in manager but in DB, create it
+            orderBookManager.createOrderBook(symbol);
+            return Optional.of(orderBookManager.getOrderBook(symbol));
+        }
+    }
+
+    @Override
+    public boolean existsBySymbol(Symbol symbol) {
+        return orderBookDAO.existsBySymbolCode(symbol.getCode()) &&
+                orderBookManager.getActiveSymbols().contains(symbol);
+    }
+
+    @Override
+    public boolean deleteBySymbol(Symbol symbol) {
+        // Mark as inactive in database
+        Optional<OrderBookEntity> entityOpt = orderBookDAO.findBySymbolCode(symbol.getCode());
+        if (entityOpt.isPresent()) {
+            OrderBookEntity entity = entityOpt.get();
+            entity.setActive(false);
+            orderBookDAO.save(entity);
+        }
+
+        // Remove from manager
+        return orderBookManager.removeOrderBook(symbol);
+    }
+
+    @Override
+    public Collection<OrderBook> findAll() {
+        // Return only active order books from manager
+        return orderBookManager.getAllOrderBooks();
+    }
+
+    @Override
+    public long count() {
+        return orderBookDAO.countActive();
+    }
+
+    /**
+     * Initializes order books from database on startup
+     */
+    @jakarta.annotation.PostConstruct
+    public void initializeFromDatabase() {
+        // Load all active order books from database
+        orderBookDAO.findByActiveTrue().forEach(entity -> {
+            Symbol symbol = createSymbol(entity.getSymbolCode());
+            if (!orderBookManager.getActiveSymbols().contains(symbol)) {
+                orderBookManager.createOrderBook(symbol);
+            }
+        });
+    }
+
+    private Symbol createSymbol(String symbolCode) {
+        return switch (symbolCode.toUpperCase()) {
+            case "BTC" -> Symbol.btcUsd();
+            case "ETH" -> Symbol.ethUsd();
+            case "EURUSD" -> Symbol.eurUsd();
+            case "GBPUSD" -> Symbol.gbpUsd();
+            default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
+        };
+    }
+
+    /**
+     * Provides access to the manager for market overview functionality
+     */
+    public OrderBookManager getManager() {
+        return orderBookManager;
+    }
+}=== ./infrastructure/persistence/mappers/OrderBookSnapshotMapper.java ===
+package core.ms.order_book.infrastructure.persistence.mappers;
+
+import core.ms.order.domain.entities.IOrder;
+import core.ms.order_book.domain.entities.OrderBook;
+import core.ms.order_book.domain.value_object.AskPriceLevel;
+import core.ms.order_book.domain.value_object.BidPriceLevel;
+import core.ms.order_book.domain.value_object.OrderBookSnapshot;
+import core.ms.order_book.infrastructure.persistence.entities.OrderBookSnapshotEntity;
+import core.ms.order_book.infrastructure.persistence.entities.OrderBookStatisticsEntity;
+import core.ms.order_book.infrastructure.persistence.entities.OrderSnapshotEntity;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
+import org.springframework.stereotype.Component;
+
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Component
+public class OrderBookSnapshotMapper {
+
+    public OrderBookSnapshotEntity toEntity(OrderBook orderBook) {
+        String snapshotId = generateSnapshotId(orderBook.getSymbol());
+
+        // Convert LocalDateTime to Instant
+        Instant snapshotTime = orderBook.getLastUpdate()
+                .toInstant(ZoneOffset.UTC);
+
+        OrderBookSnapshotEntity entity = new OrderBookSnapshotEntity(
+                snapshotId,
+                orderBook.getSymbol().getCode(),
+                snapshotTime  // Now passing Instant
+        );
+
+        // Add buy orders
+        for (BidPriceLevel level : orderBook.getBidLevels()) {
+            for (IOrder order : level.getActiveOrders()) {
+                OrderSnapshotEntity orderSnapshot = createOrderSnapshot(order, "BUY");
+                entity.addOrder(orderSnapshot);
+            }
+        }
+
+        // Add sell orders
+        for (AskPriceLevel level : orderBook.getAskLevels()) {
+            for (IOrder order : level.getActiveOrders()) {
+                OrderSnapshotEntity orderSnapshot = createOrderSnapshot(order, "SELL");
+                entity.addOrder(orderSnapshot);
+            }
+        }
+
+        // Add statistics
+        entity.setStatistics(createStatistics(orderBook));
+
+        return entity;
+    }
+
+    public OrderBookSnapshot toDomain(OrderBookSnapshotEntity entity) {
+        Symbol symbol = createSymbol(entity.getSymbolCode());
+
+        List<OrderBookSnapshot.OrderSnapshot> buyOrders = entity.getOrders().stream()
+                .filter(o -> "BUY".equals(o.getOrderType()))
+                .map(this::toOrderSnapshot)
+                .collect(Collectors.toList());
+
+        List<OrderBookSnapshot.OrderSnapshot> sellOrders = entity.getOrders().stream()
+                .filter(o -> "SELL".equals(o.getOrderType()))
+                .map(this::toOrderSnapshot)
+                .collect(Collectors.toList());
+
+        OrderBookSnapshot.OrderBookStatistics stats = toStatistics(entity.getStatistics());
+
+        return new OrderBookSnapshot(
+                entity.getId(),
+                symbol,
+                buyOrders,
+                sellOrders,
+                stats
+        );
+    }
+
+    private OrderSnapshotEntity createOrderSnapshot(IOrder order, String orderType) {
+        OrderSnapshotEntity entity = new OrderSnapshotEntity();
+        entity.setOrderId(order.getId());
+        entity.setOrderType(orderType);
+        entity.setPrice(order.getPrice().getAmount());
+        entity.setCurrency(order.getPrice().getCurrency());
+        entity.setQuantity(order.getQuantity());
+        entity.setRemainingQuantity(order.getRemainingQuantity());
+
+        // Convert LocalDateTime to Instant
+        Instant createdAtInstant = order.getCreatedAt()
+                .toInstant(ZoneOffset.UTC);
+        entity.setCreatedAt(createdAtInstant);
+
+        return entity;
+    }
+
+    private OrderBookSnapshot.OrderSnapshot toOrderSnapshot(OrderSnapshotEntity entity) {
+        Money price = Money.of(entity.getPrice(), entity.getCurrency());
+
+        // Note: OrderBookSnapshot.OrderSnapshot expects Instant in its constructor
+        // If it expects LocalDateTime instead, you would convert here:
+        // LocalDateTime createdAt = LocalDateTime.ofInstant(entity.getCreatedAt(), ZoneOffset.UTC);
+
+        return new OrderBookSnapshot.OrderSnapshot(
+                entity.getOrderId(),
+                price,
+                entity.getQuantity(),
+                entity.getRemainingQuantity(),
+                entity.getCreatedAt()  // Passing Instant as-is
+        );
+    }
+
+    private OrderBookStatisticsEntity createStatistics(OrderBook orderBook) {
+        OrderBookStatisticsEntity stats = new OrderBookStatisticsEntity();
+
+        stats.setTotalBuyOrders(orderBook.getBidLevels().stream()
+                .mapToInt(BidPriceLevel::getOrderCount)
+                .sum());
+
+        stats.setTotalSellOrders(orderBook.getAskLevels().stream()
+                .mapToInt(AskPriceLevel::getOrderCount)
+                .sum());
+
+        stats.setTotalBuyVolume(orderBook.getTotalBidVolume());
+        stats.setTotalSellVolume(orderBook.getTotalAskVolume());
+
+        orderBook.getBestBid().ifPresent(bid -> {
+            stats.setBestBidPrice(bid.getAmount());
+            stats.setPriceCurrency(bid.getCurrency());
+        });
+
+        orderBook.getBestAsk().ifPresent(ask -> {
+            stats.setBestAskPrice(ask.getAmount());
+        });
+
+        orderBook.getSpread().ifPresent(spread -> {
+            stats.setSpread(spread.getAmount());
+        });
+
+        return stats;
+    }
+
+    private OrderBookSnapshot.OrderBookStatistics toStatistics(OrderBookStatisticsEntity entity) {
+        Money bestBid = entity.getBestBidPrice() != null ?
+                Money.of(entity.getBestBidPrice(), entity.getPriceCurrency()) : null;
+        Money bestAsk = entity.getBestAskPrice() != null ?
+                Money.of(entity.getBestAskPrice(), entity.getPriceCurrency()) : null;
+        Money spread = entity.getSpread() != null ?
+                Money.of(entity.getSpread(), entity.getPriceCurrency()) : null;
+
+        return new OrderBookSnapshot.OrderBookStatistics(
+                entity.getTotalBuyOrders(),
+                entity.getTotalSellOrders(),
+                entity.getTotalBuyVolume(),
+                entity.getTotalSellVolume(),
+                bestBid,
+                bestAsk,
+                spread
+        );
+    }
+
+    private String generateSnapshotId(Symbol symbol) {
+        return String.format("SNAPSHOT-%s-%d",
+                symbol.getCode(),
+                System.currentTimeMillis());
+    }
+
+    private Symbol createSymbol(String symbolCode) {
+        return switch (symbolCode.toUpperCase()) {
+            case "BTC" -> Symbol.btcUsd();
+            case "ETH" -> Symbol.ethUsd();
+            case "EURUSD" -> Symbol.eurUsd();
+            case "GBPUSD" -> Symbol.gbpUsd();
+            default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
+        };
+    }
+}

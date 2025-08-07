@@ -1,4 +1,3 @@
-# Application Configuration
 spring:
   application:
     name: ms
@@ -37,7 +36,7 @@ spring:
     baseline-version: 1
     validate-on-migrate: true
 
-  # Jackson Configuration
+  # Jackson Configuration (for JSON serialization)
   jackson:
     serialization:
       write-dates-as-timestamps: false
@@ -61,13 +60,13 @@ logging:
     org.flywaydb: INFO
 
 # OrderBook Configuration
-order book:
+orderbook:
   persistence:
-    type: in-memory  # or 'jpa'
+    type: in-memory
   snapshot:
     enabled: true
-    interval: 300000  # 5 minutes in milliseconds
+    interval: 300000
     retention-days: 7
     max-snapshots-per-symbol: 100
     cleanup:
-      cron: "0 0 2 * * *"  # 2 AM daily
+      cron: "0 0 2 * * *"

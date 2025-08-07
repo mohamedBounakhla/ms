@@ -5,6 +5,7 @@ import core.ms.order_book.application.dto.query.OrderBookSnapshotDTO;
 import core.ms.order_book.application.dto.query.OrderBookStatisticsDTO;
 import core.ms.order_book.application.dto.query.OrderSnapshotDTO;
 import core.ms.order_book.domain.entities.OrderBook;
+import core.ms.order_book.domain.ports.outbound.OrderBookRepository;
 import core.ms.order_book.domain.ports.outbound.OrderBookSnapshotRepository;
 import core.ms.order_book.domain.value_object.OrderBookSnapshot;
 import core.ms.order_book.infrastructure.persistence.OrderBookSnapshotRepositoryImpl;
@@ -169,9 +170,8 @@ public class OrderBookSnapshotService {
     }
 
     private boolean shouldSnapshot(OrderBook orderBook) {
-        // Only snapshot if there's meaningful data
         return orderBook.getOrderCount() > 0 ||
-                orderBook.getLastUpdate().isAfter(Instant.now().minus(30, ChronoUnit.MINUTES));
+                orderBook.getLastUpdate().isAfter(LocalDateTime.now().minusMinutes(30));
     }
 
     private Symbol createSymbol(String symbolCode) {

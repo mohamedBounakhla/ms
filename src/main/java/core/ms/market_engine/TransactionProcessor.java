@@ -21,7 +21,7 @@ public class TransactionProcessor {
      * Note: Order status updates and quantity management are automatically
      * handled by the Order domain when the Transaction is created.
      */
-    public ITransaction createTransaction(OrderMatch match) {
+   /* public ITransaction createTransaction(OrderMatch match) {
         Objects.requireNonNull(match, "OrderMatch cannot be null");
 
         if (!match.isValid()) {
@@ -40,17 +40,17 @@ public class TransactionProcessor {
                 match.getSuggestedPrice(),
                 match.getMatchableQuantity()
         );
-    }
+    }*/
 
     /**
      * Processes multiple matches into transactions.
      * Each transaction creation automatically updates the involved orders.
      */
-    public List<ITransaction> processMatches(List<OrderMatch> matches) {
+    /*public List<ITransaction> processMatches(List<OrderMatch> matches) {
         return matches.stream()
                 .filter(OrderMatch::isValid)
                 .map(this::createTransaction)
                 .collect(Collectors.toList());
-    }
+    }*/
 
 }

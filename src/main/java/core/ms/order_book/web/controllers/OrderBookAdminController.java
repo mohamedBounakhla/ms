@@ -16,6 +16,7 @@ import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 
 @RestController
@@ -33,8 +34,9 @@ public class OrderBookAdminController {
     public ResponseEntity<ApiResponse<String>> createSnapshotAll() {
         try {
             snapshotService.performSnapshot();
+            // Use success(message, data) to return ApiResponse<String>
             return ResponseEntity.ok(
-                    ApiResponse.success("OrderBook snapshots created successfully")
+                    ApiResponse.success("OrderBook snapshots created successfully", "SUCCESS")
             );
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -50,7 +52,7 @@ public class OrderBookAdminController {
         try {
             snapshotService.createSnapshot(symbolCode);
             return ResponseEntity.ok(
-                    ApiResponse.success("Snapshot created for " + symbolCode)
+                    ApiResponse.success("Snapshot created for " + symbolCode, symbolCode)
             );
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -64,7 +66,7 @@ public class OrderBookAdminController {
         try {
             snapshotService.createSnapshot(command);
             return ResponseEntity.ok(
-                    ApiResponse.success("Snapshot created for " + command.getSymbolCode())
+                    ApiResponse.success("Snapshot created for " + command.getSymbolCode(), command.getSymbolCode())
             );
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
@@ -123,7 +125,7 @@ public class OrderBookAdminController {
         try {
             snapshotService.restoreFromLatestSnapshot(symbolCode);
             return ResponseEntity.ok(
-                    ApiResponse.success("OrderBook restored from snapshot for " + symbolCode)
+                    ApiResponse.success("OrderBook restored from snapshot for " + symbolCode, symbolCode)
             );
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
