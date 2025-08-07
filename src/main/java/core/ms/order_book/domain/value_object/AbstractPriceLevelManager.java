@@ -30,6 +30,9 @@ public abstract class AbstractPriceLevelManager<
 
     public void addOrder(T order) {
         Objects.requireNonNull(order, "Order cannot be null");
+        if (!order.isActive() || order.getStatus().isTerminal()) {
+            return;
+        }
 
         Money price = order.getPrice();
         L level = levels.computeIfAbsent(price, this::createPriceLevel);
