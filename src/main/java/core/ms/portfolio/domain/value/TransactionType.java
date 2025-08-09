@@ -21,6 +21,7 @@ public enum TransactionType {
      */
     public boolean affectsCash() {
         return switch (this) {
+
             case BUY, WITHDRAWAL -> true;  // Decreases cash
             case SELL, DEPOSIT -> true;    // Increases cash
         };

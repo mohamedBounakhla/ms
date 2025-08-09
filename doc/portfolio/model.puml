@@ -1,0 +1,170 @@
+@startuml Portfolio Domain Model
+
+!define AGGREGATE(x) class x << (A,#FFDDAA) Aggregate Root >>
+!define ENTITY(x) class x << (E,#FFAAAA) Entity >>
+!define VALUE(x) class x << (V,#AAFFAA) Value Object >>
+!define ABSTRACT(x) abstract class x << (A,#DDDDDD) Abstract >>
+
+package "Portfolio Domain" {
+
+    AGGREGATE(Portfolio) {
+        - portfolioId: String
+        - owner: MSUser
+        - cashBalances: Map<Currency, Money>
+        - positions: Map<Symbol, Position>
+        - reservations: List<Reservation>
+        - operations: List<WalletOperation>
+        --
+        + getAvailableCash(currency: Currency): Money
+        + getTotalCash(currency: Currency): Money
+        + getPosition(symbol: Symbol): Position
+        + getAvailablePosition(symbol: Symbol): BigDecimal
+        + applyOperation(operation: WalletOperation): void
+    }
+
+    ABSTRACT(WalletOperation) {
+        - operationId: String
+        - portfolio: Portfolio
+        - amount: Money
+        - timestamp: Instant
+        --
+        + {abstract} execute(): void
+        + {abstract} validate(): boolean
+        + {abstract} getType(): String
+    }
+
+    ENTITY(Deposit) extends WalletOperation {
+        - source: String
+        --
+        + execute(): void
+        + validate(): boolean
+    }
+
+    ENTITY(Withdrawal) extends WalletOperation {
+        - destination: String
+        --
+        + execute(): void
+        + validate(): boolean
+    }
+
+    ENTITY(Position) {
+        - positionId: String
+        - symbol: Symbol
+        - quantity: BigDecimal
+        - averageCost: Money
+        - lastUpdated: Instant
+        --
+        + increase(quantity: BigDecimal, price: Money): void
+        + decrease(quantity: BigDecimal): void
+        + getCurrentValue(marketPrice: Money): Money
+        + getUnrealizedPnL(marketPrice: Money): Money
+    }
+
+    ABSTRACT(Reservation) {
+        - reservationId: String
+        - order: Order
+        - createdAt: Instant
+        - status: ReservationStatus
+        --
+        + {abstract} getReservedAmount(): Money
+        + {abstract} canRelease(): boolean
+        + release(): void
+        + confirm(): void
+    }
+
+    ENTITY(CashReservation) extends Reservation {
+        - amount: Money
+        --
+        + getReservedAmount(): Money
+        + getCurrency(): Currency
+    }
+
+    ENTITY(AssetReservation) extends Reservation {
+        - symbol: Symbol
+        - quantity: BigDecimal
+        --
+        + getReservedAmount(): Money
+        + getSymbol(): Symbol
+        + getQuantity(): BigDecimal
+    }
+
+    enum ReservationStatus {
+        PENDING
+        CONFIRMED
+        RELEASED
+    }
+}
+
+package "User Domain" #FFEEEE {
+    class MSUser
+}
+
+package "Order Domain" #FFEEEE {
+    class Order
+    class Transaction
+}
+
+package "Shared Value Objects" #EEFFEE {
+    class Money
+    class Symbol
+    enum Currency
+}
+
+' Portfolio relationships
+Portfolio *-- Position : owns
+Portfolio *-- Reservation : tracks
+Portfolio *-- WalletOperation : records
+Portfolio --> MSUser : belongs to
+
+' Wallet Operation hierarchy
+Deposit --> Money : adds
+Withdrawal --> Money : removes
+
+' Position relationships
+Position --> Symbol : for asset
+Position --> Money : cost basis
+
+' Reservation associations
+CashReservation --> Money : locks
+AssetReservation --> Symbol : locks
+Reservation --> Order : for
+
+' Cross-domain relationships
+Position ..> Transaction : created/updated from
+
+' Notes
+note right of Position
+    **Position = What You Own**
+    • Result of executed trades
+    • 100 AAPL shares
+    • 1000 EUR
+    • 0.5 BTC
+
+    NOT reserved funds
+    NOT pending orders
+end note
+
+note bottom of Reservation
+    **Reservation = Temporary Lock**
+
+    CashReservation:
+    • Locks money for pending buy
+
+    AssetReservation:
+    • Locks shares for pending sell
+
+    Released when order executes
+    or cancels
+end note
+
+note left of Portfolio
+    **Clear Separation:**
+
+    cashBalances = liquid money
+    positions = owned assets
+    reservations = locked for orders
+
+    Available = Total - Reserved
+end note
+
+@enduml
