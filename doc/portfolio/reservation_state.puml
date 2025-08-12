@@ -1,0 +1,90 @@
+@startuml Reservation State Pattern
+
+!define POSITIVECOLOR #55FF55
+!define NEGATIVECOLOR #FF5555
+!define NEUTRALCOLOR #FFFF55
+!define INFOCOLOR #5555FF
+
+skinparam state {
+    BackgroundColor #F5F5F5
+    BorderColor #333333
+    FontColor #333333
+    AttributeFontColor #333333
+    StartColor #4CAF50
+    EndColor #F44336
+}
+
+title Reservation State Pattern
+
+' State Diagram
+state "Reservation Lifecycle" as lifecycle {
+
+    [*] --> Pending : create()
+
+    state Pending #NEUTRALCOLOR {
+        Pending : entry / lock resources
+        Pending : do / wait for order execution
+        Pending : exit / prepare transition
+        --
+        Pending : + canConfirm() = true
+        Pending : + canRelease() = true
+        Pending : + canExpire() = true
+        Pending : + holdsResources() = true
+    }
+
+    state Confirmed #POSITIVECOLOR {
+        Confirmed : entry / consume resources
+        Confirmed : do / record transaction
+        Confirmed : type = TERMINAL
+        --
+        Confirmed : + canConfirm() = false
+        Confirmed : + canRelease() = false
+        Confirmed : + canExpire() = false
+        Confirmed : + holdsResources() = false
+    }
+
+    state Released #INFOCOLOR {
+        Released : entry / free resources
+        Released : do / notify portfolio
+        Released : type = TERMINAL
+        --
+        Released : + canConfirm() = false
+        Released : + canRelease() = false
+        Released : + canExpire() = false
+        Released : + holdsResources() = false
+    }
+
+    state Expired #NEGATIVECOLOR {
+        Expired : entry / free resources
+        Expired : do / log expiration
+        Expired : type = TERMINAL
+        --
+        Expired : + canConfirm() = false
+        Expired : + canRelease() = false
+        Expired : + canExpire() = false
+        Expired : + holdsResources() = false
+    }
+
+    Pending --> Confirmed : confirm()\n[order executed]
+    Pending --> Released : release()\n[order cancelled]
+    Pending --> Expired : expire()\n[timeout reached]
+
+    Confirmed --> [*]
+    Released --> [*]
+    Expired --> [*]
+}
+
+note right of Pending
+    **Active State**
+    - Resources locked
+    - Awaiting order result
+    - Can transition to any terminal state
+end note
+
+note bottom of Confirmed
+    **Terminal States**
+    No further transitions possible
+    Resources either consumed or freed
+end note
+
+@enduml
