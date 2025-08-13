@@ -1,4 +1,4 @@
-package core.ms.portfolio.domain.value_object;
+package core.ms.portfolio.domain.value_object.validation;
 
 import java.util.ArrayList;
 import java.util.List;

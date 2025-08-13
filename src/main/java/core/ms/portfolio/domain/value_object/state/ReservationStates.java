@@ -1,11 +1,11 @@
-package core.ms.portfolio.domain.value_object;
+package core.ms.portfolio.domain.value_object.state;
 
 public final class ReservationStates {
 
-    // Singleton instances of each state
+    // Singleton instances with clear names
     public static final ReservationState PENDING = new PendingState();
-    public static final ReservationState CONFIRMED = new ConfirmedState();
-    public static final ReservationState RELEASED = new ReleasedState();
+    public static final ReservationState EXECUTED = new ExecutedState();
+    public static final ReservationState CANCELLED = new CancelledState();
     public static final ReservationState EXPIRED = new ExpiredState();
 
     private ReservationStates() {
@@ -15,8 +15,8 @@ public final class ReservationStates {
     public static ReservationState fromType(ReservationState.StateType type) {
         return switch (type) {
             case PENDING -> PENDING;
-            case CONFIRMED -> CONFIRMED;
-            case RELEASED -> RELEASED;
+            case EXECUTED -> EXECUTED;
+            case CANCELLED -> CANCELLED;
             case EXPIRED -> EXPIRED;
         };
     }

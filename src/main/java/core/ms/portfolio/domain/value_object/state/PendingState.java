@@ -1,6 +1,8 @@
-package core.ms.portfolio.domain.value_object;
+package core.ms.portfolio.domain.value_object.state;
 
-import core.ms.portfolio.domain.*;
+import core.ms.portfolio.domain.entities.Reservation;
+import core.ms.portfolio.domain.value_object.validation.ReservationValidationDSL;
+import core.ms.portfolio.domain.value_object.validation.ValidationResult;
 
 public class PendingState extends AbstractReservationState {
 
@@ -9,12 +11,12 @@ public class PendingState extends AbstractReservationState {
     }
 
     @Override
-    public boolean canConfirm() {
+    public boolean canExecute() {
         return true;
     }
 
     @Override
-    public boolean canRelease() {
+    public boolean canCancel() {
         return true;
     }
 
@@ -24,22 +26,21 @@ public class PendingState extends AbstractReservationState {
     }
 
     @Override
-    public ValidationResult validateConfirm(ReservationTransitionContext context) {
+    public ValidationResult validateExecute(ReservationTransitionContext context) {
         return ReservationValidationDSL.builder()
                 .withContext(context)
                 .validateTimeWindow()
-                .validateExecution()
                 .validateResourceAvailability()
-                .validateNoDoubleSpending()
+                .validateNoDoubleExecution()
                 .build();
     }
 
     @Override
-    public ValidationResult validateRelease(ReservationTransitionContext context) {
+    public ValidationResult validateCancel(ReservationTransitionContext context) {
         return ReservationValidationDSL.builder()
                 .withContext(context)
                 .validateResourcesFullyReserved()
-                .validateReleaseAuthorization()
+                .validateCancellationAuthorization()
                 .build();
     }
 
@@ -55,11 +56,6 @@ public class PendingState extends AbstractReservationState {
 
     @Override
     public void onEntry(Reservation<?> reservation) {
-        reservation.recordStateChange("Entered PENDING state");
-    }
-
-    @Override
-    public void onExit(Reservation<?> reservation) {
-        reservation.recordStateChange("Exiting PENDING state");
+        reservation.recordStateChange("Entered PENDING state - resources locked");
     }
 }

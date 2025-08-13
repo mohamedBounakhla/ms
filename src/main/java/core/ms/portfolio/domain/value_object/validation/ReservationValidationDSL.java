@@ -1,7 +1,8 @@
-package core.ms.portfolio.domain.value_object;
+package core.ms.portfolio.domain.value_object.validation;
 
-import core.ms.portfolio.domain.AssetReservation;
-import core.ms.portfolio.domain.CashReservation;
+import core.ms.portfolio.domain.entities.AssetReservation;
+import core.ms.portfolio.domain.entities.CashReservation;
+import core.ms.portfolio.domain.value_object.state.ReservationTransitionContext;
 import core.ms.shared.money.Money;
 
 import java.math.BigDecimal;
@@ -30,7 +31,7 @@ public class ReservationValidationDSL {
         }
     }
 
-    // ===== CONFIRMATION VALIDATIONS =====
+    // ===== EXECUTION VALIDATIONS =====
 
     public ReservationValidationDSL validateTimeWindow() {
         Instant now = context.getTransitionTime();
@@ -44,27 +45,19 @@ public class ReservationValidationDSL {
         return this;
     }
 
-    public ReservationValidationDSL validateExecution() {
-        var execution = context.getExecutionDetails();
-        if (execution == null) {
-            errors.add(new ValidationResult.ValidationError(
-                    "Execution details required for confirmation", "executionDetails"
-            ));
-            return this;
-        }
+    public ReservationValidationDSL validateNoDoubleExecution() {
+        var reservation = context.getReservation();
+        var portfolio = context.getPortfolio();
 
-        if (execution.getExecutedQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+        if (!reservation.getState().canExecute()) {
             errors.add(new ValidationResult.ValidationError(
-                    "Executed quantity must be positive", "executedQuantity"
+                    "Reservation cannot be executed in current state", "state"
             ));
         }
 
-        BigDecimal reservedQty = context.getReservation().getReservedQuantity();
-        if (execution.getExecutedQuantity().compareTo(reservedQty) > 0) {
+        if (portfolio.hasExecutedReservation(reservation.getReservationId())) {
             errors.add(new ValidationResult.ValidationError(
-                    String.format("Executed quantity %s exceeds reserved %s",
-                            execution.getExecutedQuantity(), reservedQty),
-                    "executedQuantity"
+                    "Reservation has already been executed", "doubleExecution"
             ));
         }
 
@@ -87,7 +80,7 @@ public class ReservationValidationDSL {
                 ));
             }
         } else if (reservation instanceof AssetReservation assetRes) {
-            BigDecimal requiredQty = assetRes.getQuantity();
+            BigDecimal requiredQty = assetRes.getReservedQuantity();
             BigDecimal availableQty = portfolio.getReservedAssets(assetRes.getSymbol());
 
             if (availableQty.compareTo(requiredQty) < 0) {
@@ -102,58 +95,39 @@ public class ReservationValidationDSL {
         return this;
     }
 
-    public ReservationValidationDSL validateNoDoubleSpending() {
-        var reservation = context.getReservation();
-        var portfolio = context.getPortfolio();
-
-        if (!reservation.getState().canConfirm()) {
-            errors.add(new ValidationResult.ValidationError(
-                    "Reservation cannot be confirmed in current state", "state"
-            ));
-        }
-
-        if (portfolio.hasConsumedReservation(reservation.getReservationId())) {
-            errors.add(new ValidationResult.ValidationError(
-                    "Reservation has already been consumed", "doubleSpending"
-            ));
-        }
-
-        return this;
-    }
-
-    // ===== RELEASE VALIDATIONS =====
+    // ===== CANCELLATION VALIDATIONS =====
 
     public ReservationValidationDSL validateResourcesFullyReserved() {
         var reservation = context.getReservation();
 
         if (!reservation.getConsumedAmount().equals(BigDecimal.ZERO)) {
             errors.add(new ValidationResult.ValidationError(
-                    "Cannot release partially consumed reservation", "consumedAmount"
+                    "Cannot cancel partially consumed reservation", "consumedAmount"
             ));
         }
 
         return this;
     }
 
-    public ReservationValidationDSL validateReleaseAuthorization() {
-        var releaseContext = context.getReleaseContext();
+    public ReservationValidationDSL validateCancellationAuthorization() {
+        var cancellationContext = context.getCancellationContext();
 
-        if (releaseContext == null) {
+        if (cancellationContext == null) {
             errors.add(new ValidationResult.ValidationError(
-                    "Release context required", "releaseContext"
+                    "Cancellation context required", "cancellationContext"
             ));
             return this;
         }
 
-        if (!releaseContext.hasValidReason()) {
+        if (!cancellationContext.hasValidReason()) {
             errors.add(new ValidationResult.ValidationError(
-                    "Release reason required", "releaseReason"
+                    "Cancellation reason required", "cancellationReason"
             ));
         }
 
-        if (!releaseContext.isSystemTriggered() && !releaseContext.isAuthorized()) {
+        if (!cancellationContext.isSystemTriggered() && !cancellationContext.isAuthorized()) {
             errors.add(new ValidationResult.ValidationError(
-                    "Release not authorized", "authorization"
+                    "Cancellation not authorized", "authorization"
             ));
         }
 

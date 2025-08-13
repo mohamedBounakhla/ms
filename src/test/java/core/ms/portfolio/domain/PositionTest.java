@@ -1,5 +1,6 @@
 package core.ms.portfolio.domain;
 
+import core.ms.portfolio.domain.entities.Position;
 import core.ms.shared.money.Currency;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;

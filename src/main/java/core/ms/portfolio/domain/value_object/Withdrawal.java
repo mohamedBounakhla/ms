@@ -1,5 +1,7 @@
-package core.ms.portfolio.domain;
+package core.ms.portfolio.domain.value_object;
 
+import core.ms.portfolio.domain.aggregates.Portfolio;
+import core.ms.portfolio.domain.entities.WalletOperation;
 import core.ms.shared.money.Money;
 
 public class Withdrawal extends WalletOperation {

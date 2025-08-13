@@ -1,4 +1,4 @@
-package core.ms.portfolio.domain;
+package core.ms.portfolio.domain.entities;
 
 import core.ms.shared.money.Money;
 
@@ -31,8 +31,19 @@ public class Position {
         this.lastUpdated = Instant.now();
     }
 
-    public void decrease(BigDecimal quantity) {
-        this.quantity = this.quantity.subtract(quantity);
+    public void decrease(BigDecimal quantityToReduce) {
+        if (quantityToReduce == null || quantityToReduce.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Quantity to reduce must be positive");
+        }
+
+        if (quantityToReduce.compareTo(this.quantity) > 0) {
+            throw new IllegalArgumentException(
+                    String.format("Cannot reduce position by %s. Current quantity: %s",
+                            quantityToReduce, this.quantity)
+            );
+        }
+
+        this.quantity = this.quantity.subtract(quantityToReduce);
         this.lastUpdated = Instant.now();
     }
 
@@ -43,5 +54,6 @@ public class Position {
     public Money getUnrealizedPnL(Money marketPrice) {
         return getCurrentValue(marketPrice).subtract(averageCost.multiply(quantity));
     }
-    public BigDecimal getQuantity(){ return this.quantity; }
+    public BigDecimal getQuantity() { return this.quantity; }
+    public Symbol getSymbol() { return this.symbol; }
 }

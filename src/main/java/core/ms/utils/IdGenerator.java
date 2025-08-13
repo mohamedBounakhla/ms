@@ -4,6 +4,9 @@ public class IdGenerator {
     private static final String TRANSACTION_PREFIX = "TX-";
     private static final String EVENT_PREFIX = "EVT-";
     private static final String ORDER_PREFIX = "ORDER-";
+    private static final String PORTFOLIO_PREFIX = "PF-";        // New
+    private static final String RESERVATION_PREFIX = "RES-";     // New
+    private static final String POSITION_PREFIX = "POS-";
 
     /**
      * Generates unique transaction ID.
@@ -24,6 +27,27 @@ public class IdGenerator {
      */
     public static String generateOrderId() {
         return ORDER_PREFIX + createUniqueId();
+    }
+
+    /**
+     * Generates unique portfolio ID.
+     */
+    public static String generatePortfolioId() {
+        return PORTFOLIO_PREFIX + createUniqueId();
+    }
+
+    /**
+     * Generates unique reservation ID.
+     */
+    public static String generateReservationId() {
+        return RESERVATION_PREFIX + createUniqueId();
+    }
+
+    /**
+     * Generates unique position ID.
+     */
+    public static String generatePositionId() {
+        return POSITION_PREFIX + createUniqueId();
     }
 
     /**

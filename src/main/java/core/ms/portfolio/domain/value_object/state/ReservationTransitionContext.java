@@ -1,7 +1,7 @@
-package core.ms.portfolio.domain.value_object;
+package core.ms.portfolio.domain.value_object.state;
 
-import core.ms.portfolio.domain.Portfolio;
-import core.ms.portfolio.domain.Reservation;
+import core.ms.portfolio.domain.aggregates.Portfolio;
+import core.ms.portfolio.domain.entities.Reservation;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -11,7 +11,7 @@ public class ReservationTransitionContext {
     private final Reservation<?> reservation;
     private final Portfolio portfolio;
     private ExecutionDetails executionDetails;
-    private ReleaseContext releaseContext;
+    private CancellationContext cancellationContext;
     private Instant transitionTime;
 
     public ReservationTransitionContext(Reservation<?> reservation, Portfolio portfolio) {
@@ -26,8 +26,8 @@ public class ReservationTransitionContext {
         return this;
     }
 
-    public ReservationTransitionContext withReleaseContext(ReleaseContext context) {
-        this.releaseContext = context;
+    public ReservationTransitionContext withCancellationContext(CancellationContext context) {
+        this.cancellationContext = context;
         return this;
     }
 
@@ -40,7 +40,7 @@ public class ReservationTransitionContext {
     public Reservation<?> getReservation() { return reservation; }
     public Portfolio getPortfolio() { return portfolio; }
     public ExecutionDetails getExecutionDetails() { return executionDetails; }
-    public ReleaseContext getReleaseContext() { return releaseContext; }
+    public CancellationContext getCancellationContext() { return cancellationContext; }
     public Instant getTransitionTime() { return transitionTime; }
 
     // Context classes
@@ -60,12 +60,12 @@ public class ReservationTransitionContext {
         public String getTransactionId() { return transactionId; }
     }
 
-    public static class ReleaseContext {
+    public static class CancellationContext {
         private final String reason;
         private final boolean systemTriggered;
         private final String userId;
 
-        public ReleaseContext(String reason, boolean systemTriggered, String userId) {
+        public CancellationContext(String reason, boolean systemTriggered, String userId) {
             this.reason = reason;
             this.systemTriggered = systemTriggered;
             this.userId = userId;

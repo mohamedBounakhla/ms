@@ -1,6 +1,6 @@
-package core.ms.portfolio.domain.value_object;
+package core.ms.portfolio.domain.value_object.state;
 
-import core.ms.portfolio.domain.Reservation;
+import core.ms.portfolio.domain.entities.Reservation;
 
 public class ExpiredState extends AbstractReservationState {
 
@@ -9,12 +9,12 @@ public class ExpiredState extends AbstractReservationState {
     }
 
     @Override
-    public boolean canConfirm() {
+    public boolean canExecute() {
         return false;
     }
 
     @Override
-    public boolean canRelease() {
+    public boolean canCancel() {
         return false;
     }
 
@@ -25,8 +25,6 @@ public class ExpiredState extends AbstractReservationState {
 
     @Override
     public void onEntry(Reservation<?> reservation) {
-        // Free the reserved resources
-        reservation.freeResources();
-        reservation.recordStateChange("Reservation EXPIRED - resources freed");
+        reservation.recordStateChange("Reservation EXPIRED - timeout reached, resources freed");
     }
 }

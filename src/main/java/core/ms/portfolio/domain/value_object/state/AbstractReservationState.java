@@ -1,6 +1,7 @@
-package core.ms.portfolio.domain.value_object;
+package core.ms.portfolio.domain.value_object.state;
 
-import core.ms.portfolio.domain.Reservation;
+import core.ms.portfolio.domain.entities.Reservation;
+import core.ms.portfolio.domain.value_object.validation.ValidationResult;
 
 public abstract class AbstractReservationState implements ReservationState {
 
@@ -24,21 +25,22 @@ public abstract class AbstractReservationState implements ReservationState {
 
     @Override
     public boolean isTerminal() {
-        return !canConfirm() && !canRelease() && !canExpire();
+        // Terminal states cannot transition anywhere
+        return !canExecute() && !canCancel() && !canExpire();
     }
 
     // Default implementations - most states can't transition
     @Override
-    public ValidationResult validateConfirm(ReservationTransitionContext context) {
+    public ValidationResult validateExecute(ReservationTransitionContext context) {
         return ValidationResult.invalid(
-                String.format("Cannot confirm reservation in %s state", stateName)
+                String.format("Cannot execute reservation in %s state", stateName)
         );
     }
 
     @Override
-    public ValidationResult validateRelease(ReservationTransitionContext context) {
+    public ValidationResult validateCancel(ReservationTransitionContext context) {
         return ValidationResult.invalid(
-                String.format("Cannot release reservation in %s state", stateName)
+                String.format("Cannot cancel reservation in %s state", stateName)
         );
     }
 

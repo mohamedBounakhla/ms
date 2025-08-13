@@ -1,5 +1,7 @@
-package core.ms.portfolio.domain;
+package core.ms.portfolio.domain.entities;
 
+import core.ms.portfolio.domain.value_object.WalletOperationVisitor;
+import core.ms.portfolio.domain.aggregates.Portfolio;
 import core.ms.shared.money.Money;
 
 import java.time.Instant;

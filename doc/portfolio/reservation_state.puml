@@ -1,90 +1,84 @@
 @startuml Reservation State Pattern
 
-!define POSITIVECOLOR #55FF55
-!define NEGATIVECOLOR #FF5555
-!define NEUTRALCOLOR #FFFF55
-!define INFOCOLOR #5555FF
+!define ACTIVECOLOR #87CEEB
+!define CONSUMEDCOLOR #90EE90
+!define FREEDCOLOR #FFB6C1
 
 skinparam state {
     BackgroundColor #F5F5F5
     BorderColor #333333
     FontColor #333333
-    AttributeFontColor #333333
     StartColor #4CAF50
     EndColor #F44336
+    FontSize 12
 }
 
-title Reservation State Pattern
+title Reservation State Pattern - Simplified Design
 
 ' State Diagram
-state "Reservation Lifecycle" as lifecycle {
+[*] --> Pending : create()
 
-    [*] --> Pending : create()
-
-    state Pending #NEUTRALCOLOR {
-        Pending : entry / lock resources
-        Pending : do / wait for order execution
-        Pending : exit / prepare transition
-        --
-        Pending : + canConfirm() = true
-        Pending : + canRelease() = true
-        Pending : + canExpire() = true
-        Pending : + holdsResources() = true
-    }
-
-    state Confirmed #POSITIVECOLOR {
-        Confirmed : entry / consume resources
-        Confirmed : do / record transaction
-        Confirmed : type = TERMINAL
-        --
-        Confirmed : + canConfirm() = false
-        Confirmed : + canRelease() = false
-        Confirmed : + canExpire() = false
-        Confirmed : + holdsResources() = false
-    }
-
-    state Released #INFOCOLOR {
-        Released : entry / free resources
-        Released : do / notify portfolio
-        Released : type = TERMINAL
-        --
-        Released : + canConfirm() = false
-        Released : + canRelease() = false
-        Released : + canExpire() = false
-        Released : + holdsResources() = false
-    }
-
-    state Expired #NEGATIVECOLOR {
-        Expired : entry / free resources
-        Expired : do / log expiration
-        Expired : type = TERMINAL
-        --
-        Expired : + canConfirm() = false
-        Expired : + canRelease() = false
-        Expired : + canExpire() = false
-        Expired : + holdsResources() = false
-    }
-
-    Pending --> Confirmed : confirm()\n[order executed]
-    Pending --> Released : release()\n[order cancelled]
-    Pending --> Expired : expire()\n[timeout reached]
-
-    Confirmed --> [*]
-    Released --> [*]
-    Expired --> [*]
+state Pending #ACTIVECOLOR {
+    Pending : **Resources:** LOCKED
+    Pending : entry / lockResources()
+    Pending : do / trackExpirationTime()
+    Pending : exit / logTransition()
+    --
+    Pending : + canConfirm() = true
+    Pending : + canCancel() = true
+    Pending : + canExpire() = true
+    Pending : + hasLockedResources() = true
 }
 
+state Executed #CONSUMEDCOLOR {
+    Executed : **Resources:** CONSUMED
+    Executed : entry / consumeResources()
+    Executed : entry / updatePortfolioPosition()
+    Executed : type = TERMINAL
+    --
+    Executed : + canConfirm() = false
+    Executed : + canCancel() = false
+    Executed : + canExpire() = false
+    Executed : + hasLockedResources() = false
+}
+
+state Released #FREEDCOLOR {
+    Released : **Resources:** FREED
+    Released : entry / releaseResources()
+    Released : entry / restoreAvailableBalance()
+    Released : type = TERMINAL
+    --
+    Released : + canConfirm() = false
+    Released : + canCancel() = false
+    Released : + canExpire() = false
+    Released : + hasLockedResources() = false
+}
+
+Pending --> Executed : confirm()\n[order matched]
+Pending --> Released : cancel()\n[user/system cancellation]
+Pending --> Released : expire()\n[timeout reached]
+
+Executed --> [*]
+Released --> [*]
+
 note right of Pending
-    **Active State**
-    - Resources locked
-    - Awaiting order result
-    - Can transition to any terminal state
+    **The only active state**
+    Resources are reserved but not consumed
+    All business decisions happen here
 end note
 
-note bottom of Confirmed
-    **Terminal States**
-    No further transitions possible
-    Resources either consumed or freed
+note bottom of Executed
+    **Success Terminal State**
+    Order was matched
+    Resources have been consumed
+    Portfolio positions updated
+end note
+
+note bottom of Released
+    **Failure Terminal State**
+    Order was not matched
+    Resources returned to available
+    Reason: cancellation OR expiration
 end note
 
 @enduml
