@@ -5,7 +5,7 @@ import core.ms.order.domain.entities.SellOrder;
 import core.ms.order.domain.validators.OrderBuilderValidation;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
-import core.ms.utils.IdGenerator;
+import core.ms.utils.idgenerator.IdGen;
 
 import java.math.BigDecimal;
 
@@ -33,7 +33,7 @@ public class OrderFactory {
 
         try {
             // Factory responsibility: Generate ID before validation
-            String orderId = IdGenerator.generateOrderId();
+            String orderId = IdGen.generate("order");
 
             // All validation happens in the builder
             OrderBuilderValidation.OrderValidationResult validation =
@@ -76,7 +76,7 @@ public class OrderFactory {
 
         try {
             // Factory responsibility: Generate ID before validation
-            String orderId = IdGenerator.generateOrderId();
+            String orderId = IdGen.generate("order");
 
             // All validation happens in the builder
             OrderBuilderValidation.OrderValidationResult validation =

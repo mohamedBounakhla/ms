@@ -1,7 +1,6 @@
 package core.ms.portfolio.domain;
 
-import core.ms.portfolio.domain.aggregates.Portfolio;
-import core.ms.portfolio.domain.entities.Position;
+import core.ms.portfolio.domain.positions.Position;
 import core.ms.portfolio.domain.value.TransactionType;
 import core.ms.shared.money.Currency;
 import core.ms.shared.money.Money;

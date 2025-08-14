@@ -3,7 +3,7 @@ package core.ms.order.domain.validators;
 import core.ms.order.domain.value_objects.OrderStatus;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
-import core.ms.utils.IdGenerator;
+import core.ms.utils.idgenerator.IdGen;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -150,6 +150,6 @@ public class OrderBuilderValidation {
 
     // ===== HELPER =====
     private static String generateOrderId() {
-        return IdGenerator.generateOrderId();
+        return IdGen.generate("order");
     }
 }

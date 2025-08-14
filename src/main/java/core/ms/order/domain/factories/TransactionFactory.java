@@ -6,7 +6,7 @@ import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.entities.Transaction;
 import core.ms.order.domain.validators.TransactionBuilderValidation;
 import core.ms.order.domain.validators.ValidationErrorMessage;
-import core.ms.utils.IdGenerator;
+import core.ms.utils.idgenerator.IdGen;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -35,7 +35,7 @@ public class TransactionFactory {
 
         try {
             // Factory responsibility: Generate ID before validation
-            String transactionId = IdGenerator.generateTransactionId();
+            String transactionId = IdGen.generate("transaction");
 
             // All validation happens in the builder - factory just orchestrates
             TransactionBuilderValidation.TransactionValidationResult validation =

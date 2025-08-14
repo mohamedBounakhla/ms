@@ -4,7 +4,7 @@ import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.validators.annotation.OrderNotFinal;
 import core.ms.shared.money.Symbol;
-import core.ms.utils.IdGenerator;
+import core.ms.utils.idgenerator.IdGen;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -198,6 +198,6 @@ public class TransactionBuilderValidation {
 
     // ===== HELPER =====
     private static String generateTransactionId() {
-        return IdGenerator.generateTransactionId();
+        return IdGen.generate("transaction");
     }
 }

@@ -10,6 +10,7 @@ import core.ms.order_book.infrastructure.persistence.entities.OrderBookStatistic
 import core.ms.order_book.infrastructure.persistence.entities.OrderSnapshotEntity;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
+import core.ms.utils.idgenerator.IdGen;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -162,9 +163,7 @@ public class OrderBookSnapshotMapper {
     }
 
     private String generateSnapshotId(Symbol symbol) {
-        return String.format("SNAPSHOT-%s-%d",
-                symbol.getCode(),
-                System.currentTimeMillis());
+        return IdGen.generate("snapshot") + "-" + symbol.getCode();
     }
 
     private Symbol createSymbol(String symbolCode) {
