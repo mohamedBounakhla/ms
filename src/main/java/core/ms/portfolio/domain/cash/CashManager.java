@@ -50,6 +50,11 @@ public class CashManager {
         getWallet(amount.getCurrency()).removeCash(amount);
     }
 
+    // ===== MAINTENANCE =====
+    public void cleanupExpired() {
+        wallets.values().forEach(CashWallet::cleanupExpired);
+    }
+
     private CashWallet getWallet(Currency currency) {
         return wallets.computeIfAbsent(currency, CashWallet::new);
     }

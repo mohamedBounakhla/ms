@@ -7,6 +7,8 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
 @Configuration
 @EnableJpaRepositories(basePackages = {
         "core.ms.order.infrastructure.persistence.dao",
+        "core.ms.order_book.infrastructure.persistence.DAO",
+        "core.ms.portfolio.infrastructure.persistence.dao",  // Added portfolio DAOs
         "core.ms.security.DAO"
 })
 @EnableTransactionManagement

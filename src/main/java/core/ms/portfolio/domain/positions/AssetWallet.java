@@ -51,7 +51,7 @@ public class AssetWallet {
             );
         }
 
-        String reservationId = IdGen.generate("reservation");
+        String reservationId = IdGen.generate("asset-reservation");
         AssetReservation reservation = new AssetReservation(reservationId, order);
         activeReservations.put(reservationId, reservation);
         return reservation;

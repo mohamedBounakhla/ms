@@ -18,6 +18,8 @@ public abstract class Reservation<T extends IOrder> {
 
     private static final Duration DEFAULT_EXPIRATION = Duration.ofMinutes(5);
 
+
+
     protected Reservation(String reservationId, T order) {
         this.reservationId = Objects.requireNonNull(reservationId);
         this.order = Objects.requireNonNull(order);
@@ -35,4 +37,7 @@ public abstract class Reservation<T extends IOrder> {
     public String getReservationId() { return reservationId; }
     public T getOrder() { return order; }
     public Instant getExpirationTime() { return expirationTime; }
+    public Instant getCreatedAt() {
+        return createdAt;
+    }
 }

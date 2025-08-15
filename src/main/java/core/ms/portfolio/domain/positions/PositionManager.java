@@ -51,4 +51,7 @@ public class PositionManager {
     private AssetWallet getWallet(Symbol symbol) {
         return wallets.computeIfAbsent(symbol, AssetWallet::new);
     }
+    public void cleanupExpired() {
+        wallets.values().forEach(AssetWallet::cleanupExpired);
+    }
 }
