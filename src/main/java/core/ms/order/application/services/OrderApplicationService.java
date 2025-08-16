@@ -7,6 +7,7 @@ import core.ms.order.domain.entities.*;
 import core.ms.order.domain.ports.inbound.OrderService;
 import core.ms.order.domain.factories.OrderFactory;
 import core.ms.order.domain.ports.outbound.OrderRepository;
+import core.ms.order.domain.ports.outbound.TransactionRepository;
 import core.ms.order.domain.value_objects.OrderStatusEnum;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
@@ -22,9 +23,14 @@ import java.util.stream.Collectors;
 @Service
 public class OrderApplicationService implements OrderService {
 
-    // Inject infrastructure services (outbound port implementations)
     @Autowired
     private OrderRepository orderRepository;
+
+    @Autowired
+    private TransactionRepository transactionRepository;
+
+    @Autowired
+    private OrderEventPublisher eventPublisher;
 
     // ===== ORDER CREATION =====
 

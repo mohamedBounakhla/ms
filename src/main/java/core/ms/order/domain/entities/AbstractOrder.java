@@ -22,9 +22,14 @@ public abstract class AbstractOrder implements IOrder {
     protected final LocalDateTime createdAt;
     protected LocalDateTime updatedAt;
     protected BigDecimal executedQuantity;
+    protected final String portfolioId;  // Add this
+    protected final String reservationId; // Add this
 
-    protected AbstractOrder(String id, Symbol symbol, Money price, BigDecimal quantity) {
+    protected AbstractOrder(String id, String portfolioId, String reservationId,
+                            Symbol symbol, Money price, BigDecimal quantity) {
         this.id = id;
+        this.portfolioId = portfolioId;
+        this.reservationId = reservationId;
         this.symbol = symbol;
         this.price = price;
         this.quantity = quantity;
@@ -78,6 +83,9 @@ public abstract class AbstractOrder implements IOrder {
         BigDecimal remaining = quantity.subtract(executedQuantity);
         return remaining.compareTo(BigDecimal.ZERO) <= 0 ? BigDecimal.ZERO : remaining;
     }
+
+    public String getPortfolioId() { return portfolioId; }
+    public String getReservationId() { return reservationId; }
 
     // ===== STATE CHANGE METHODS (Domain Behavior) =====
 
