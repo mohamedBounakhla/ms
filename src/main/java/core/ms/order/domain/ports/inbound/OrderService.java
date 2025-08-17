@@ -21,12 +21,14 @@ public interface OrderService {
     /**
      * Creates a new buy order
      */
-    OrderOperationResultDTO createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
+    OrderOperationResultDTO createBuyOrder(String portfolioId, String reservationId,
+                                           Symbol symbol, Money price, BigDecimal quantity);
 
     /**
      * Creates a new sell order
      */
-    OrderOperationResultDTO createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity);
+    OrderOperationResultDTO createSellOrder(String portfolioId, String reservationId,
+                                            Symbol symbol, Money price, BigDecimal quantity);
 
     // ===== ORDER MANAGEMENT =====
     /**
@@ -69,7 +71,4 @@ public interface OrderService {
      * Finds orders by status
      */
     List<IOrder> findOrdersByStatus(OrderStatusEnum status);
-
-    // ===== ORDER VALIDATION (Optional - for internal use) =====
-    // These are now optional helper methods, not part of the main contract
 }

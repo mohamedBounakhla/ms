@@ -9,6 +9,8 @@ import java.time.LocalDateTime;
 
 public interface IOrder {
     String getId();
+    String getPortfolioId();    // Added
+    String getReservationId();  // Added
 
     Symbol getSymbol();
 

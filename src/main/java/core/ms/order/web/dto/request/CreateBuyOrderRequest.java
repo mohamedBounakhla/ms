@@ -7,9 +7,13 @@ import java.math.BigDecimal;
 
 public class CreateBuyOrderRequest {
 
-    @NotBlank(message = "User ID cannot be blank")
-    @Size(min = 1, max = 50, message = "User ID must be between 1 and 50 characters")
-    private String userId;
+    @NotBlank(message = "Portfolio ID cannot be blank")
+    @Size(min = 1, max = 50, message = "Portfolio ID must be between 1 and 50 characters")
+    private String portfolioId;
+
+    @NotBlank(message = "Reservation ID cannot be blank")
+    @Size(min = 1, max = 50, message = "Reservation ID must be between 1 and 50 characters")
+    private String reservationId;
 
     @NotBlank(message = "Symbol code cannot be blank")
     @Size(min = 1, max = 20, message = "Symbol code must be between 1 and 20 characters")
@@ -32,8 +36,10 @@ public class CreateBuyOrderRequest {
     // Constructors
     public CreateBuyOrderRequest() {}
 
-    public CreateBuyOrderRequest(String userId, String symbolCode, BigDecimal price, Currency currency, BigDecimal quantity) {
-        this.userId = userId;
+    public CreateBuyOrderRequest(String portfolioId, String reservationId, String symbolCode,
+                                 BigDecimal price, Currency currency, BigDecimal quantity) {
+        this.portfolioId = portfolioId;
+        this.reservationId = reservationId;
         this.symbolCode = symbolCode;
         this.price = price;
         this.currency = currency;
@@ -41,8 +47,10 @@ public class CreateBuyOrderRequest {
     }
 
     // Getters and Setters
-    public String getUserId() { return userId; }
-    public void setUserId(String userId) { this.userId = userId; }
+    public String getPortfolioId() { return portfolioId; }
+    public void setPortfolioId(String portfolioId) { this.portfolioId = portfolioId; }
+    public String getReservationId() { return reservationId; }
+    public void setReservationId(String reservationId) { this.reservationId = reservationId; }
     public String getSymbolCode() { return symbolCode; }
     public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
     public BigDecimal getPrice() { return price; }

@@ -21,15 +21,7 @@ public class OrderFactory {
 
     /**
      * Creates a validated buy order.
-     * ID generation is implicit - client doesn't need to worry about it.
-     *
-     * @param portfolioId The portfolio ID for the order
-     * @param reservationId The reservation ID for the order
-     * @param symbol The trading symbol
-     * @param price The order price
-     * @param quantity The order quantity
-     * @return A valid buy order
-     * @throws OrderCreationException if validation fails
+     * portfolioId and reservationId are MANDATORY.
      */
     public static BuyOrder createBuyOrder(String portfolioId, String reservationId,
                                           Symbol symbol, Money price, BigDecimal quantity) {
@@ -42,26 +34,22 @@ public class OrderFactory {
             OrderBuilderValidation.OrderValidationResult validation =
                     OrderBuilderValidation
                             .builder()
-                            .withId(orderId)                    // ← Factory-generated ID
-                            .withPortfolioId(portfolioId)       // Portfolio context
-                            .withReservationId(reservationId)   // Reservation context
-                            .withSymbol(symbol)                 // Progressive validation
-                            .withPrice(price)                   // Progressive validation
-                            .withQuantity(quantity)             // Progressive validation
-                            .build();                           // Final state
+                            .withId(orderId)
+                            .withPortfolioId(portfolioId)
+                            .withReservationId(reservationId)
+                            .withSymbol(symbol)
+                            .withPrice(price)
+                            .withQuantity(quantity)
+                            .build();
 
-            // Pure entity creation using builder constructor
+            // Pure entity creation using single constructor
             return new BuyOrder(
                     validation.getId(),
                     validation.getPortfolioId(),
                     validation.getReservationId(),
                     validation.getSymbol(),
                     validation.getPrice(),
-                    validation.getQuantity(),
-                    validation.getStatus(),
-                    validation.getCreatedAt(),
-                    validation.getUpdatedAt(),
-                    validation.getExecutedQuantity()
+                    validation.getQuantity()
             );
 
         } catch (OrderBuilderValidation.ValidationOrderException e) {
@@ -71,15 +59,7 @@ public class OrderFactory {
 
     /**
      * Creates a validated sell order.
-     * ID generation is implicit - client doesn't need to worry about it.
-     *
-     * @param portfolioId The portfolio ID for the order
-     * @param reservationId The reservation ID for the order
-     * @param symbol The trading symbol
-     * @param price The order price
-     * @param quantity The order quantity
-     * @return A valid sell order
-     * @throws OrderCreationException if validation fails
+     * portfolioId and reservationId are MANDATORY.
      */
     public static SellOrder createSellOrder(String portfolioId, String reservationId,
                                             Symbol symbol, Money price, BigDecimal quantity) {
@@ -92,26 +72,22 @@ public class OrderFactory {
             OrderBuilderValidation.OrderValidationResult validation =
                     OrderBuilderValidation
                             .builder()
-                            .withId(orderId)                    // ← Factory-generated ID
-                            .withPortfolioId(portfolioId)       // Portfolio context
-                            .withReservationId(reservationId)   // Reservation context
-                            .withSymbol(symbol)                 // Progressive validation
-                            .withPrice(price)                   // Progressive validation
-                            .withQuantity(quantity)             // Progressive validation
-                            .build();                           // Final state
+                            .withId(orderId)
+                            .withPortfolioId(portfolioId)
+                            .withReservationId(reservationId)
+                            .withSymbol(symbol)
+                            .withPrice(price)
+                            .withQuantity(quantity)
+                            .build();
 
-            // Pure entity creation using builder constructor
+            // Pure entity creation using single constructor
             return new SellOrder(
                     validation.getId(),
                     validation.getPortfolioId(),
                     validation.getReservationId(),
                     validation.getSymbol(),
                     validation.getPrice(),
-                    validation.getQuantity(),
-                    validation.getStatus(),
-                    validation.getCreatedAt(),
-                    validation.getUpdatedAt(),
-                    validation.getExecutedQuantity()
+                    validation.getQuantity()
             );
 
         } catch (OrderBuilderValidation.ValidationOrderException e) {
@@ -120,7 +96,8 @@ public class OrderFactory {
     }
 
     /**
-     * Creates a buy order with custom ID (for testing or special cases).
+     * Creates a buy order with custom ID (for reconstruction from persistence).
+     * portfolioId and reservationId are MANDATORY.
      */
     public static BuyOrder createBuyOrderWithId(String id, String portfolioId, String reservationId,
                                                 Symbol symbol, Money price, BigDecimal quantity) {
@@ -129,9 +106,9 @@ public class OrderFactory {
             OrderBuilderValidation.OrderValidationResult validation =
                     OrderBuilderValidation
                             .builder()
-                            .withId(id)                         // Custom ID
-                            .withPortfolioId(portfolioId)       // Portfolio context
-                            .withReservationId(reservationId)   // Reservation context
+                            .withId(id)
+                            .withPortfolioId(portfolioId)
+                            .withReservationId(reservationId)
                             .withSymbol(symbol)
                             .withPrice(price)
                             .withQuantity(quantity)
@@ -143,11 +120,7 @@ public class OrderFactory {
                     validation.getReservationId(),
                     validation.getSymbol(),
                     validation.getPrice(),
-                    validation.getQuantity(),
-                    validation.getStatus(),
-                    validation.getCreatedAt(),
-                    validation.getUpdatedAt(),
-                    validation.getExecutedQuantity()
+                    validation.getQuantity()
             );
 
         } catch (OrderBuilderValidation.ValidationOrderException e) {
@@ -156,7 +129,8 @@ public class OrderFactory {
     }
 
     /**
-     * Creates a sell order with custom ID (for testing or special cases).
+     * Creates a sell order with custom ID (for reconstruction from persistence).
+     * portfolioId and reservationId are MANDATORY.
      */
     public static SellOrder createSellOrderWithId(String id, String portfolioId, String reservationId,
                                                   Symbol symbol, Money price, BigDecimal quantity) {
@@ -165,9 +139,9 @@ public class OrderFactory {
             OrderBuilderValidation.OrderValidationResult validation =
                     OrderBuilderValidation
                             .builder()
-                            .withId(id)                         // Custom ID
-                            .withPortfolioId(portfolioId)       // Portfolio context
-                            .withReservationId(reservationId)   // Reservation context
+                            .withId(id)
+                            .withPortfolioId(portfolioId)
+                            .withReservationId(reservationId)
                             .withSymbol(symbol)
                             .withPrice(price)
                             .withQuantity(quantity)
@@ -179,48 +153,12 @@ public class OrderFactory {
                     validation.getReservationId(),
                     validation.getSymbol(),
                     validation.getPrice(),
-                    validation.getQuantity(),
-                    validation.getStatus(),
-                    validation.getCreatedAt(),
-                    validation.getUpdatedAt(),
-                    validation.getExecutedQuantity()
+                    validation.getQuantity()
             );
 
         } catch (OrderBuilderValidation.ValidationOrderException e) {
             throw new OrderCreationException("Sell order creation failed: " + e.getMessage(), e);
         }
-    }
-
-    // ===== CONVENIENCE METHODS FOR BACKWARD COMPATIBILITY =====
-
-    /**
-     * Creates a buy order without portfolio/reservation context (backward compatibility).
-     * Uses default values for portfolioId and reservationId.
-     */
-    public static BuyOrder createBuyOrder(Symbol symbol, Money price, BigDecimal quantity) {
-        return createBuyOrder(null, null, symbol, price, quantity);
-    }
-
-    /**
-     * Creates a sell order without portfolio/reservation context (backward compatibility).
-     * Uses default values for portfolioId and reservationId.
-     */
-    public static SellOrder createSellOrder(Symbol symbol, Money price, BigDecimal quantity) {
-        return createSellOrder(null, null, symbol, price, quantity);
-    }
-
-    /**
-     * Creates a buy order with custom ID without portfolio/reservation context (backward compatibility).
-     */
-    public static BuyOrder createBuyOrderWithId(String id, Symbol symbol, Money price, BigDecimal quantity) {
-        return createBuyOrderWithId(id, null, null, symbol, price, quantity);
-    }
-
-    /**
-     * Creates a sell order with custom ID without portfolio/reservation context (backward compatibility).
-     */
-    public static SellOrder createSellOrderWithId(String id, Symbol symbol, Money price, BigDecimal quantity) {
-        return createSellOrderWithId(id, null, null, symbol, price, quantity);
     }
 
     // ===== DOMAIN EXCEPTION =====

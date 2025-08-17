@@ -16,13 +16,11 @@ import java.time.LocalDateTime;
 public class OrderBuilderValidation {
 
     private String id;
+    private String portfolioId;
+    private String reservationId;
     private Symbol symbol;
     private Money price;
     private BigDecimal quantity;
-    private OrderStatus status;
-    private LocalDateTime createdAt;
-    private LocalDateTime updatedAt;
-    private BigDecimal executedQuantity;
 
     private OrderBuilderValidation() {}
 
@@ -47,21 +45,41 @@ public class OrderBuilderValidation {
             return this;
         }
 
-        // ===== STEP 2: SYMBOL =====
+        // ===== STEP 2: PORTFOLIO ID =====
+        public OrderBuilder withPortfolioId(String portfolioId) {
+            // MANDATORY parameter
+            if (portfolioId == null || portfolioId.trim().isEmpty()) {
+                throw new ValidationOrderException("Portfolio ID cannot be null or empty");
+            }
+            order.portfolioId = portfolioId;
+            return this;
+        }
+
+        // ===== STEP 3: RESERVATION ID =====
+        public OrderBuilder withReservationId(String reservationId) {
+            // MANDATORY parameter
+            if (reservationId == null || reservationId.trim().isEmpty()) {
+                throw new ValidationOrderException("Reservation ID cannot be null or empty");
+            }
+            order.reservationId = reservationId;
+            return this;
+        }
+
+        // ===== STEP 4: SYMBOL =====
         public OrderBuilder withSymbol(Symbol symbol) {
             // 1. Individual validation
             if (symbol == null) {
                 throw new ValidationOrderException("Symbol cannot be null");
             }
 
-            // 2. No relational validation with ID
+            // 2. No relational validation with ID/portfolioId/reservationId
 
             // 3. Assignment after validation
             order.symbol = symbol;
             return this;
         }
 
-        // ===== STEP 3: PRICE =====
+        // ===== STEP 5: PRICE =====
         public OrderBuilder withPrice(Money price) {
             // 1. Individual validation
             if (price == null) {
@@ -87,7 +105,7 @@ public class OrderBuilderValidation {
             return this;
         }
 
-        // ===== STEP 4: QUANTITY =====
+        // ===== STEP 6: QUANTITY =====
         public OrderBuilder withQuantity(BigDecimal quantity) {
             // 1. Individual validation
             if (quantity == null) {
@@ -105,14 +123,8 @@ public class OrderBuilderValidation {
             return this;
         }
 
-        // ===== BUILD - SET DEFAULTS =====
+        // ===== BUILD =====
         public OrderValidationResult build() {
-            // Set default values
-            order.status = new OrderStatus();  // PENDING by default
-            order.createdAt = LocalDateTime.now();
-            order.updatedAt = LocalDateTime.now();
-            order.executedQuantity = BigDecimal.ZERO;
-
             return new OrderValidationResult(order);
         }
     }
@@ -132,13 +144,11 @@ public class OrderBuilderValidation {
 
         // Getters for validated data
         public String getId() { return validatedData.id; }
+        public String getPortfolioId() { return validatedData.portfolioId; }
+        public String getReservationId() { return validatedData.reservationId; }
         public Symbol getSymbol() { return validatedData.symbol; }
         public Money getPrice() { return validatedData.price; }
         public BigDecimal getQuantity() { return validatedData.quantity; }
-        public OrderStatus getStatus() { return validatedData.status; }
-        public LocalDateTime getCreatedAt() { return validatedData.createdAt; }
-        public LocalDateTime getUpdatedAt() { return validatedData.updatedAt; }
-        public BigDecimal getExecutedQuantity() { return validatedData.executedQuantity; }
     }
 
     // ===== DOMAIN EXCEPTION =====

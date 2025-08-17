@@ -5,7 +5,8 @@ import core.ms.shared.money.Currency;
 import java.math.BigDecimal;
 
 public class CreateBuyOrderCommand {
-    private String userId;
+    private String portfolioId;
+    private String reservationId;
     private String symbolCode;
     private BigDecimal price;
     private Currency currency;
@@ -13,9 +14,10 @@ public class CreateBuyOrderCommand {
 
     public CreateBuyOrderCommand() {}
 
-    public CreateBuyOrderCommand(String userId, String symbolCode, BigDecimal price,
-                                 Currency currency, BigDecimal quantity) {
-        this.userId = userId;
+    public CreateBuyOrderCommand(String portfolioId, String reservationId, String symbolCode,
+                                 BigDecimal price, Currency currency, BigDecimal quantity) {
+        this.portfolioId = portfolioId;
+        this.reservationId = reservationId;
         this.symbolCode = symbolCode;
         this.price = price;
         this.currency = currency;
@@ -23,8 +25,10 @@ public class CreateBuyOrderCommand {
     }
 
     // Getters and Setters
-    public String getUserId() { return userId; }
-    public void setUserId(String userId) { this.userId = userId; }
+    public String getPortfolioId() { return portfolioId; }
+    public void setPortfolioId(String portfolioId) { this.portfolioId = portfolioId; }
+    public String getReservationId() { return reservationId; }
+    public void setReservationId(String reservationId) { this.reservationId = reservationId; }
     public String getSymbolCode() { return symbolCode; }
     public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
     public BigDecimal getPrice() { return price; }

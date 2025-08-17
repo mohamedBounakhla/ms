@@ -15,6 +15,8 @@ public class SellOrderMapper {
     public SellOrderEntity fromDomain(SellOrder order) {
         return new SellOrderEntity(
                 order.getId(),
+                order.getPortfolioId(),
+                order.getReservationId(),
                 order.getSymbol().getCode(),
                 order.getSymbol().getName(),
                 order.getPrice().getAmount(),
@@ -33,9 +35,15 @@ public class SellOrderMapper {
             Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
             Money price = Money.of(entity.getPrice(), entity.getCurrency());
 
-            // Use factory to create the order with proper validation
+            // TODO: Get portfolioId and reservationId from entity (need to add these fields to entity)
+            String portfolioId = entity.getPortfolioId(); // Assuming these fields are added to entity
+            String reservationId = entity.getReservationId();
+
+            // Use factory to create the order with proper validation - NOW WITH portfolioId and reservationId
             SellOrder order = OrderFactory.createSellOrderWithId(
                     entity.getId(),
+                    portfolioId,
+                    reservationId,
                     symbol,
                     price,
                     entity.getQuantity()

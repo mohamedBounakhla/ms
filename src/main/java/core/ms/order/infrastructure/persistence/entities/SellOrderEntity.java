@@ -14,11 +14,12 @@ public class SellOrderEntity extends AbstractOrderEntity {
 
     public SellOrderEntity() { super(); }
 
-    public SellOrderEntity(String id, String symbolCode, String symbolName,
+    public SellOrderEntity(String id, String portfolioId, String reservationId,
+                           String symbolCode, String symbolName,
                            BigDecimal price, Currency currency, BigDecimal quantity,
                            OrderStatusEnum status, BigDecimal executedQuantity,
                            LocalDateTime createdAt, LocalDateTime updatedAt) {
-        super(id, symbolCode, symbolName, price, currency, quantity,
+        super(id, portfolioId, reservationId, symbolCode, symbolName, price, currency, quantity,
                 status, executedQuantity, createdAt, updatedAt);
     }
 }

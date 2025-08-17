@@ -17,7 +17,8 @@ public class OrderWebMapper {
 
     public CreateBuyOrderCommand toCommand(CreateBuyOrderRequest request) {
         return new CreateBuyOrderCommand(
-                request.getUserId(),
+                request.getPortfolioId(),
+                request.getReservationId(),
                 request.getSymbolCode(),
                 request.getPrice(),
                 request.getCurrency(),
@@ -27,7 +28,8 @@ public class OrderWebMapper {
 
     public CreateSellOrderCommand toCommand(CreateSellOrderRequest request) {
         return new CreateSellOrderCommand(
-                request.getUserId(),
+                request.getPortfolioId(),
+                request.getReservationId(),
                 request.getSymbolCode(),
                 request.getPrice(),
                 request.getCurrency(),

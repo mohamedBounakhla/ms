@@ -11,6 +11,7 @@ import core.ms.order.domain.ports.outbound.TransactionRepository;
 import core.ms.order.domain.value_objects.OrderStatusEnum;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
+import core.ms.utils.idgenerator.IdGen;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -35,12 +36,13 @@ public class OrderApplicationService implements OrderService {
     // ===== ORDER CREATION =====
 
     @Override
-    public OrderOperationResultDTO createBuyOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
+    public OrderOperationResultDTO createBuyOrder(String portfolioId, String reservationId,
+                                                  Symbol symbol, Money price, BigDecimal quantity) {
         try {
-            // Create buy order using factory (includes validation)
-            BuyOrder buyOrder = OrderFactory.createBuyOrder(symbol, price, quantity);
+            // Create buy order using factory - portfolioId and reservationId are provided by the caller
+            BuyOrder buyOrder = OrderFactory.createBuyOrder(portfolioId, reservationId, symbol, price, quantity);
 
-            // Save order (Using Infrastructure Service)
+            // Save order
             IOrder savedOrder = orderRepository.save(buyOrder);
 
             return new OrderOperationResultDTO(true, savedOrder.getId(), "Buy order created successfully",
@@ -56,12 +58,13 @@ public class OrderApplicationService implements OrderService {
     }
 
     @Override
-    public OrderOperationResultDTO createSellOrder(String userId, Symbol symbol, Money price, BigDecimal quantity) {
+    public OrderOperationResultDTO createSellOrder(String portfolioId, String reservationId,
+                                                   Symbol symbol, Money price, BigDecimal quantity) {
         try {
-            // Create sell order using factory (includes validation)
-            SellOrder sellOrder = OrderFactory.createSellOrder(symbol, price, quantity);
+            // Create sell order using factory - portfolioId and reservationId are provided by the caller
+            SellOrder sellOrder = OrderFactory.createSellOrder(portfolioId, reservationId, symbol, price, quantity);
 
-            // Save order (Using Infrastructure Service)
+            // Save order
             IOrder savedOrder = orderRepository.save(sellOrder);
 
             return new OrderOperationResultDTO(true, savedOrder.getId(), "Sell order created successfully",
@@ -89,16 +92,16 @@ public class OrderApplicationService implements OrderService {
 
             IOrder order = orderOpt.get();
 
-            // Check if order can be cancelled (simple domain validation)
+            // Check if order can be cancelled
             if (order.getStatus().isTerminal()) {
                 return new OrderOperationResultDTO(false, orderId, "Cannot cancel order in terminal state",
                         LocalDateTime.now(), List.of("Order is in terminal state"));
             }
 
-            // Cancel the order (Domain Logic)
+            // Cancel the order
             order.cancel();
 
-            // Save updated order (Using Infrastructure Service)
+            // Save updated order
             orderRepository.save(order);
 
             return new OrderOperationResultDTO(true, orderId, "Order cancelled successfully",
@@ -121,7 +124,7 @@ public class OrderApplicationService implements OrderService {
 
             IOrder order = orderOpt.get();
 
-            // Simple validation
+            // Validation
             if (order.getStatus().isTerminal()) {
                 return new OrderOperationResultDTO(false, orderId, "Cannot modify order in terminal state",
                         LocalDateTime.now(), List.of("Order is in terminal state"));
@@ -137,10 +140,10 @@ public class OrderApplicationService implements OrderService {
                         LocalDateTime.now(), List.of("New price currency must match order currency"));
             }
 
-            // Update price (Domain Logic)
+            // Update price
             order.updatePrice(newPrice);
 
-            // Save updated order (Using Infrastructure Service)
+            // Save updated order
             orderRepository.save(order);
 
             return new OrderOperationResultDTO(true, orderId, "Order price updated successfully",
@@ -169,10 +172,10 @@ public class OrderApplicationService implements OrderService {
                         LocalDateTime.now(), List.of("Quantity to cancel exceeds remaining quantity"));
             }
 
-            // For partial cancellation (Domain Logic)
+            // Partial cancellation
             order.cancelPartial();
 
-            // Save updated order (Using Infrastructure Service)
+            // Save updated order
             orderRepository.save(order);
 
             return new OrderOperationResultDTO(true, orderId, "Order partially cancelled successfully",
@@ -214,19 +217,6 @@ public class OrderApplicationService implements OrderService {
         return orderRepository.findByStatus(status);
     }
 
-    // ===== ORDER VALIDATION (Simplified) =====
-
-    public boolean validateOrderCreation(String userId, Symbol symbol, Money price, BigDecimal quantity) {
-        // Basic validation - most validation is handled by the factory
-        return userId != null && !userId.trim().isEmpty() &&
-                symbol != null && price != null && quantity != null;
-    }
-
-    public boolean validateOrderCancellation(String orderId) {
-        Optional<IOrder> orderOpt = orderRepository.findById(orderId);
-        return orderOpt.isPresent() && !orderOpt.get().getStatus().isTerminal();
-    }
-
     // ===== DTO ORCHESTRATION METHODS =====
 
     public OrderOperationResultDTO createBuyOrder(CreateBuyOrderCommand command) {
@@ -234,7 +224,8 @@ public class OrderApplicationService implements OrderService {
         Money price = Money.of(command.getPrice(), command.getCurrency());
 
         return createBuyOrder(
-                command.getUserId(),
+                command.getPortfolioId(),
+                command.getReservationId(),
                 symbol,
                 price,
                 command.getQuantity()
@@ -246,7 +237,8 @@ public class OrderApplicationService implements OrderService {
         Money price = Money.of(command.getPrice(), command.getCurrency());
 
         return createSellOrder(
-                command.getUserId(),
+                command.getPortfolioId(),
+                command.getReservationId(),
                 symbol,
                 price,
                 command.getQuantity()

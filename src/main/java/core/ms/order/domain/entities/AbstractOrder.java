@@ -15,6 +15,8 @@ import java.util.Objects;
  */
 public abstract class AbstractOrder implements IOrder {
     protected final String id;
+    protected final String portfolioId;
+    protected final String reservationId;
     protected final Symbol symbol;
     protected Money price;
     protected final BigDecimal quantity;
@@ -22,8 +24,6 @@ public abstract class AbstractOrder implements IOrder {
     protected final LocalDateTime createdAt;
     protected LocalDateTime updatedAt;
     protected BigDecimal executedQuantity;
-    protected final String portfolioId;  // Add this
-    protected final String reservationId; // Add this
 
     protected AbstractOrder(String id, String portfolioId, String reservationId,
                             Symbol symbol, Money price, BigDecimal quantity) {
@@ -38,8 +38,6 @@ public abstract class AbstractOrder implements IOrder {
         this.updatedAt = LocalDateTime.now();
         this.executedQuantity = BigDecimal.ZERO;
     }
-
-
 
     // ===== PURE GETTERS =====
     @Override
@@ -71,8 +69,9 @@ public abstract class AbstractOrder implements IOrder {
         BigDecimal remaining = quantity.subtract(executedQuantity);
         return remaining.compareTo(BigDecimal.ZERO) <= 0 ? BigDecimal.ZERO : remaining;
     }
-
+    @Override
     public String getPortfolioId() { return portfolioId; }
+    @Override
     public String getReservationId() { return reservationId; }
 
     // ===== STATE CHANGE METHODS (Domain Behavior) =====

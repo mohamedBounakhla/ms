@@ -13,15 +13,9 @@ import java.time.LocalDateTime;
  */
 public class SellOrder extends AbstractOrder implements ISellOrder {
 
-    public SellOrder(String id, Symbol symbol, Money price, BigDecimal quantity) {
-        super(id, symbol, price, quantity);
-    }
-
-    // Constructor for builder pattern with all fields
-    public SellOrder(String id, Symbol symbol, Money price, BigDecimal quantity,
-                     OrderStatus status, LocalDateTime createdAt, LocalDateTime updatedAt,
-                     BigDecimal executedQuantity) {
-        super(id, symbol, price, quantity, status, createdAt, updatedAt, executedQuantity);
+    public SellOrder(String id, String portfolioId, String reservationId,
+                     Symbol symbol, Money price, BigDecimal quantity) {
+        super(id, portfolioId, reservationId, symbol, price, quantity);
     }
 
     @Override

@@ -12,15 +12,9 @@ import java.time.LocalDateTime;
  */
 public class BuyOrder extends AbstractOrder implements IBuyOrder {
 
-    public BuyOrder(String id, Symbol symbol, Money price, BigDecimal quantity) {
-        super(id, symbol, price, quantity);
-    }
-
-    // Constructor for builder pattern with all fields
-    public BuyOrder(String id, Symbol symbol, Money price, BigDecimal quantity,
-                    OrderStatus status, LocalDateTime createdAt, LocalDateTime updatedAt,
-                    BigDecimal executedQuantity) {
-        super(id, symbol, price, quantity, status, createdAt, updatedAt, executedQuantity);
+    public BuyOrder(String id, String portfolioId, String reservationId,
+                    Symbol symbol, Money price, BigDecimal quantity) {
+        super(id, portfolioId, reservationId, symbol, price, quantity);
     }
 
     @Override
@@ -28,4 +22,3 @@ public class BuyOrder extends AbstractOrder implements IBuyOrder {
         return getPrice().multiply(getExecutedQuantity());
     }
 }
-

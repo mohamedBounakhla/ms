@@ -15,6 +15,12 @@ public abstract class AbstractOrderEntity {
     @Column(name = "id", length = 50)
     protected String id;
 
+    @Column(name = "portfolio_id", length = 50)
+    protected String portfolioId;
+
+    @Column(name = "reservation_id", length = 50)
+    protected String reservationId;
+
     @Column(name = "symbol_code", nullable = false, length = 20)
     protected String symbolCode;
 
@@ -47,11 +53,14 @@ public abstract class AbstractOrderEntity {
     // Constructors
     protected AbstractOrderEntity() {}
 
-    protected AbstractOrderEntity(String id, String symbolCode, String symbolName,
+    protected AbstractOrderEntity(String id, String portfolioId, String reservationId,
+                                  String symbolCode, String symbolName,
                                   BigDecimal price, Currency currency, BigDecimal quantity,
                                   OrderStatusEnum status, BigDecimal executedQuantity,
                                   LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
+        this.portfolioId = portfolioId;
+        this.reservationId = reservationId;
         this.symbolCode = symbolCode;
         this.symbolName = symbolName;
         this.price = price;
@@ -66,6 +75,10 @@ public abstract class AbstractOrderEntity {
     // Getters and Setters
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
+    public String getPortfolioId() { return portfolioId; }
+    public void setPortfolioId(String portfolioId) { this.portfolioId = portfolioId; }
+    public String getReservationId() { return reservationId; }
+    public void setReservationId(String reservationId) { this.reservationId = reservationId; }
     public String getSymbolCode() { return symbolCode; }
     public void setSymbolCode(String symbolCode) { this.symbolCode = symbolCode; }
     public String getSymbolName() { return symbolName; }
