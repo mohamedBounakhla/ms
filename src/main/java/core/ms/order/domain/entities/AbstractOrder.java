@@ -39,19 +39,7 @@ public abstract class AbstractOrder implements IOrder {
         this.executedQuantity = BigDecimal.ZERO;
     }
 
-    // Alternative constructor for builder pattern
-    protected AbstractOrder(String id, Symbol symbol, Money price, BigDecimal quantity,
-                            OrderStatus status, LocalDateTime createdAt, LocalDateTime updatedAt,
-                            BigDecimal executedQuantity) {
-        this.id = id;
-        this.symbol = symbol;
-        this.price = price;
-        this.quantity = quantity;
-        this.status = status;
-        this.createdAt = createdAt;
-        this.updatedAt = updatedAt;
-        this.executedQuantity = executedQuantity;
-    }
+
 
     // ===== PURE GETTERS =====
     @Override
