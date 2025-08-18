@@ -1,6 +1,6 @@
 package core.ms.order_book.domain.ports.inbound;
 
-import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.domain.events.publish.OrderMatchedEvent;
 
 import java.time.LocalDateTime;
 import java.util.List;

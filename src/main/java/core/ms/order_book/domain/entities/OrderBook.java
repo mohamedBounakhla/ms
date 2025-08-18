@@ -3,7 +3,7 @@ package core.ms.order_book.domain.entities;
 import core.ms.order.domain.entities.IBuyOrder;
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.entities.ISellOrder;
-import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.domain.events.publish.OrderMatchedEvent;
 import core.ms.order_book.domain.factory.OrderMatchEventFactory;
 import core.ms.order_book.domain.value_object.*;
 import core.ms.shared.money.Money;

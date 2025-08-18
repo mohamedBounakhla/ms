@@ -3,6 +3,11 @@ spring:
   profiles:
     active: test
 
+  task:
+    scheduling:
+      pool:
+        size: 2
+
   # H2 In-Memory Database for Testing
   datasource:
     url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
@@ -52,3 +57,8 @@ logging:
     org.hibernate.SQL: WARN
     org.hibernate.type.descriptor.sql.BasicBinder: WARN
     core.ms: DEBUG
+
+orderbook:
+  cache:
+    enabled: true
+    ttl-seconds: 60

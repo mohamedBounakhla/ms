@@ -1,11 +1,9 @@
 package core.ms.order_book.infrastructure.events.publishers;
 
-import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.domain.events.publish.OrderMatchedEvent;
 import core.ms.order_book.domain.ports.outbound.OrderMatchEventPublisher;
-import core.ms.order_book.infrastructure.events.dto.OrderMatchedEventDTO;
 import core.ms.order_book.infrastructure.events.mappers.OrderMatchedEventMapper;
 import core.ms.shared.events.EventBus;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
 import java.util.List;

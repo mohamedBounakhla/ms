@@ -42,6 +42,10 @@ spring:
       write-dates-as-timestamps: false
     time-zone: UTC
 
+  task:
+    scheduling:
+      pool:
+        size: 2
 # Server Configuration
 server:
   port: 8080
@@ -70,3 +74,6 @@ orderbook:
     max-snapshots-per-symbol: 100
     cleanup:
       cron: "0 0 2 * * *"
+  cache:
+    enabled: true
+    ttl-seconds: 60

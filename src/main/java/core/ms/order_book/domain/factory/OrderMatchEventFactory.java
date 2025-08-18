@@ -1,6 +1,6 @@
 package core.ms.order_book.domain.factory;
 
-import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.domain.events.publish.OrderMatchedEvent;
 import core.ms.order_book.domain.value_object.*;
 import core.ms.shared.money.Money;
 

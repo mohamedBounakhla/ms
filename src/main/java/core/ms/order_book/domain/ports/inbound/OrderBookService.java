@@ -1,12 +1,17 @@
 package core.ms.order_book.domain.ports.inbound;
 
 import core.ms.order.domain.entities.IOrder;
-import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.application.dto.query.OrderBookStatisticsDTO;
+import core.ms.order_book.application.dto.query.OrderBookSummaryDTO;
+import core.ms.order_book.application.dto.query.OrderBookTickerDTO;
+import core.ms.order_book.domain.events.publish.OrderMatchedEvent;
 import core.ms.order_book.domain.value_object.MarketDepth;
 import core.ms.order_book.domain.value_object.MarketOverview;
 import core.ms.shared.money.Symbol;
 
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 public interface OrderBookService {
 
@@ -77,4 +82,38 @@ public interface OrderBookService {
      * @return Number of orders removed
      */
     int cleanupInactiveOrders();
+    /**
+     * Gets ticker information (best bid/ask) for a symbol.
+     */
+    OrderBookTickerDTO getOrderBookTicker(Symbol symbol);
+
+    /**
+     * Gets detailed statistics for an order book.
+     */
+    OrderBookStatisticsDTO getOrderBookStatistics(Symbol symbol);
+
+    /**
+     * Gets a summary of the order book.
+     */
+    OrderBookSummaryDTO getOrderBookSummary(Symbol symbol);
+
+    /**
+     * Gets all active trading symbols.
+     */
+    Set<Symbol> getActiveSymbols();
+
+    /**
+     * Checks if an order book is active for a symbol.
+     */
+    boolean isOrderBookActive(Symbol symbol);
+
+    /**
+     * Gets the total number of orders across all books.
+     */
+    int getTotalOrderCount();
+
+    /**
+     * Gets statistics for all markets.
+     */
+    Map<String, OrderBookStatisticsDTO> getAllMarketStatistics();
 }

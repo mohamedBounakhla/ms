@@ -1,6 +1,6 @@
 package core.ms.order_book.infrastructure.events.mappers;
 
-import core.ms.order_book.domain.events.OrderMatchedEvent;
+import core.ms.order_book.domain.events.publish.OrderMatchedEvent;
 import core.ms.order_book.infrastructure.events.dto.OrderMatchedEventDTO;
 import core.ms.order_book.infrastructure.events.dto.OrderMatchedEventMessage;
 

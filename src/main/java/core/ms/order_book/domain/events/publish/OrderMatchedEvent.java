@@ -1,4 +1,4 @@
-package core.ms.order_book.domain.events;
+package core.ms.order_book.domain.events.publish;
 
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;

@@ -27,6 +27,7 @@ repositories {
 extra["snippetsDir"] = file("build/generated-snippets")
 
 dependencies {
+    // Spring Boot Starters
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-cache")
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
@@ -38,8 +39,16 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-web")
     implementation("org.springframework.boot:spring-boot-starter-websocket")
+
+    // Observability & Metrics
     implementation("io.micrometer:micrometer-tracing-bridge-brave")
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
+
+    // Kafka
     implementation("org.springframework.kafka:spring-kafka")
+
+    // API Documentation (Swagger/OpenAPI)
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0")
 
     // Lombok
     compileOnly("org.projectlombok:lombok")
@@ -53,12 +62,9 @@ dependencies {
     runtimeOnly("org.postgresql:postgresql")
     runtimeOnly("com.h2database:h2:2.1.214")
 
-    // Flyway for database migrations (Spring Boot will handle this)
+    // Database Migrations
     implementation("org.flywaydb:flyway-core")
     runtimeOnly("org.flywaydb:flyway-database-postgresql")
-
-    // Metrics
-    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
 
     // Configuration processing
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
