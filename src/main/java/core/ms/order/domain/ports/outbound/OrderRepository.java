@@ -16,13 +16,11 @@ public interface OrderRepository {
     void deleteById(String orderId);
     boolean existsById(String orderId);
 
-
-    List<IOrder> findByUserId(String userId);
     List<IOrder> findBySymbol(Symbol symbol);
     List<IOrder> findByStatus(OrderStatusEnum status);
+    List<IOrder> findByPortfolioId(String portfolioId);
     List<IBuyOrder> findBuyOrdersBySymbol(Symbol symbol);
     List<ISellOrder> findSellOrdersBySymbol(Symbol symbol);
-
 
     List<IOrder> findAll();
     long count();

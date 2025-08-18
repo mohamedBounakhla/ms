@@ -1,0 +1,80 @@
+Core Responsibilities
+1. Order Lifecycle Management
+
+Creating Orders: Buy and sell orders with proper validation (price, quantity, symbol)
+Order State Transitions: Managing order states (PENDING → PARTIAL → FILLED or CANCELLED)
+Order Modifications: Price updates, partial/full cancellations
+Execution Tracking: Tracking executed vs remaining quantities
+
+2. Transaction Management
+
+Recording Matches: Creating transaction records when buy/sell orders are matched
+Transaction History: Maintaining immutable records of all executions
+Settlement Information: Capturing execution price, quantities, and both parties (buyer/seller portfolios)
+
+3. Event Publishing (Outbound)
+Publishing domain events to Market Engine for:
+
+OrderCreatedEvent
+OrderCancelledEvent
+OrderUpdatedEvent
+OrderPartiallyFilledEvent
+OrderFilledEvent
+TransactionCreatedEvent
+
+4. Command Processing (Inbound)
+Receiving and executing commands ONLY from Market Engine:
+
+CreateOrderCommand (with portfolioId & reservationId)
+CreateTransactionCommand (when orders match)
+CancelOrderCommand
+
+🎯 What Order BC is NOT Responsible For
+1. Business Logic Decisions
+
+NOT deciding if a user has sufficient funds
+NOT determining if orders should match
+NOT orchestrating multi-step workflows
+
+2. Cross-BC Communication
+
+NOT communicating directly with Portfolio BC
+NOT talking to OrderBook BC
+NOT coordinating with other bounded contexts
+
+3. External Validations
+
+NOT validating portfolio balances
+NOT checking market hours/trading restrictions
+NOT authorizing users
+
+🔑 Key Design Principles
+
+Pure State Management: Order BC is essentially a state machine that records order lifecycle changes based on commands from Market Engine
+Event Sourcing: Every state change produces an event that Market Engine can use to orchestrate other actions
+Reservation-Based: Orders require portfolioId and reservationId, meaning funds/assets are pre-reserved by Portfolio BC before order creation
+No Business Orchestration: Order BC doesn't make business decisions - it simply executes commands and reports what happened
+
+📊 In Simple Terms
+Think of Order BC as a "dumb" record keeper that:
+
+Takes orders when told to (by Market Engine)
+Updates them when instructed
+Records transactions when matches occur
+Reports everything that happens via events
+
+It's like a clerk at a desk who:
+
+Writes down orders in a ledger
+Crosses them out when cancelled
+Records trades when told they matched
+Sends notes about everything to the manager (Market Engine)
+
+The Order BC has no authority to:
+
+Decide if an order is valid from a business perspective
+Match orders together
+Move money or assets
+Talk to other departments directly
+
+All intelligence and orchestration lives in the Market Engine, making Order BC a focused, single-responsibility context that excels at one thing: managing the lifecycle and state of orders and transactions.

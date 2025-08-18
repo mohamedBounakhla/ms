@@ -1,4 +1,4 @@
-package core.ms.order.domain.events;
+package core.ms.order.domain.events.publish;
 
 import core.ms.shared.events.DomainEvent;
 import core.ms.shared.money.Money;
@@ -18,6 +18,7 @@ public class TransactionCreatedEvent implements DomainEvent {
     private final Symbol symbol;
     private final BigDecimal executedQuantity;
     private final Money executionPrice;
+    private final Money totalValue;
     private final LocalDateTime occurredAt;
 
     public TransactionCreatedEvent(String transactionId,
@@ -36,6 +37,7 @@ public class TransactionCreatedEvent implements DomainEvent {
         this.symbol = symbol;
         this.executedQuantity = executedQuantity;
         this.executionPrice = executionPrice;
+        this.totalValue = executionPrice.multiply(executedQuantity);
         this.occurredAt = LocalDateTime.now();
     }
 
@@ -50,6 +52,7 @@ public class TransactionCreatedEvent implements DomainEvent {
     public Symbol getSymbol() { return symbol; }
     public BigDecimal getExecutedQuantity() { return executedQuantity; }
     public Money getExecutionPrice() { return executionPrice; }
+    public Money getTotalValue() { return totalValue; }
     @Override
     public LocalDateTime getOccurredAt() { return occurredAt; }
 }

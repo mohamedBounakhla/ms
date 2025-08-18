@@ -59,7 +59,6 @@ public class OrderRepositoryService implements OrderRepository {
         // Try sell orders
         Optional<SellOrderEntity> sellEntity = sellOrderDAO.findById(orderId);
         return sellEntity.map(sellOrderEntity -> sellOrderMapper.toDomain(sellOrderEntity));
-
     }
 
     @Override
@@ -71,13 +70,6 @@ public class OrderRepositoryService implements OrderRepository {
     @Override
     public boolean existsById(String orderId) {
         return buyOrderDAO.existsById(orderId) || sellOrderDAO.existsById(orderId);
-    }
-
-    @Override
-    public List<IOrder> findByUserId(String userId) {
-        // This method shouldn't exist in this domain but it's in the port
-        // Return empty list since we don't handle users in this domain
-        return new ArrayList<>();
     }
 
     @Override
@@ -104,6 +96,21 @@ public class OrderRepositoryService implements OrderRepository {
                 .toList());
 
         orders.addAll(sellOrderDAO.findByStatus(status).stream()
+                .map(sellOrderMapper::toDomain)
+                .toList());
+
+        return orders;
+    }
+
+    @Override
+    public List<IOrder> findByPortfolioId(String portfolioId) {
+        List<IOrder> orders = new ArrayList<>();
+
+        orders.addAll(buyOrderDAO.findByPortfolioId(portfolioId).stream()
+                .map(buyOrderMapper::toDomain)
+                .toList());
+
+        orders.addAll(sellOrderDAO.findByPortfolioId(portfolioId).stream()
                 .map(sellOrderMapper::toDomain)
                 .toList());
 

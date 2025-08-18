@@ -9,6 +9,7 @@ import core.ms.order.domain.factories.TransactionFactory;
 import core.ms.order.domain.ports.inbound.TransactionService;
 import core.ms.order.domain.ports.outbound.OrderRepository;
 import core.ms.order.domain.ports.outbound.TransactionRepository;
+import core.ms.order.domain.value_objects.OrderStatusEnum;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,12 +24,15 @@ import java.util.stream.Collectors;
 @Service
 public class TransactionApplicationService implements TransactionService {
 
-    // Inject infrastructure services (outbound port implementations)
     @Autowired
     private TransactionRepository transactionRepository;
 
     @Autowired
     private OrderRepository orderRepository;
+
+    @Autowired
+    private OrderEventPublisher eventPublisher;
+
 
     // ===== TRANSACTION CREATION =====
 
@@ -36,13 +40,24 @@ public class TransactionApplicationService implements TransactionService {
     public TransactionResultDTO createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
                                                   Money executionPrice, BigDecimal quantity) {
         try {
+            // Store pre-transaction state
+            BigDecimal buyOrderPreExecuted = buyOrder.getExecutedQuantity();
+            BigDecimal sellOrderPreExecuted = sellOrder.getExecutedQuantity();
+
             // Create transaction using factory (includes validation)
             Transaction transaction = TransactionFactory.create(buyOrder, sellOrder, quantity);
 
-            // Save transaction (Using Infrastructure Service)
+            // Save transaction
             ITransaction savedTransaction = transactionRepository.save(transaction);
 
-            // Update orders after transaction (Using Infrastructure Service)
+            // Publish transaction created event
+            eventPublisher.publishTransactionCreated(savedTransaction);
+
+            // Check and publish order fill events
+            publishOrderFillEvents(buyOrder, buyOrderPreExecuted, quantity, executionPrice, "BUY");
+            publishOrderFillEvents(sellOrder, sellOrderPreExecuted, quantity, executionPrice, "SELL");
+
+            // Update orders after transaction
             orderRepository.save(buyOrder);
             orderRepository.save(sellOrder);
 
@@ -57,7 +72,20 @@ public class TransactionApplicationService implements TransactionService {
                     LocalDateTime.now(), List.of(e.getMessage()));
         }
     }
+    private void publishOrderFillEvents(IOrder order, BigDecimal preExecutedQty,
+                                        BigDecimal executedQty, Money executionPrice, String orderType) {
+        // Check if order is now partially filled
+        if (order.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0 &&
+                order.getExecutedQuantity().compareTo(preExecutedQty) > 0) {
+            eventPublisher.publishOrderPartiallyFilled(order, orderType, executedQty, executionPrice);
+        }
 
+        // Check if order is now completely filled
+        if (order.getRemainingQuantity().compareTo(BigDecimal.ZERO) == 0 &&
+                order.getStatus().getStatus() == OrderStatusEnum.FILLED) {
+            eventPublisher.publishOrderFilled(order, orderType, executionPrice);
+        }
+    }
     @Override
     public TransactionResultDTO createTransactionByOrderIds(String buyOrderId, String sellOrderId,
                                                             Money executionPrice, BigDecimal quantity) {
@@ -112,12 +140,6 @@ public class TransactionApplicationService implements TransactionService {
     @Override
     public List<ITransaction> findTransactionsBySymbol(Symbol symbol) {
         return transactionRepository.findBySymbol(symbol);
-    }
-
-    @Override
-    public List<ITransaction> findTransactionsByUserId(String userId) {
-        // This domain doesn't handle users directly
-        return new ArrayList<>();
     }
 
     @Override

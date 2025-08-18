@@ -1,0 +1,197 @@
+Order Bounded Context - Event Architecture
+Architecture Pattern: Pure Event-Driven with Spring Events
+🚀 Using Spring's Built-in Event System
+
+NO HTTP APIs for business operations
+NO REST calls between bounded contexts
+Async messaging using Spring's ApplicationEventPublisher
+RabbitMQ/Kafka can be added later (not needed now)
+
+⚡ Core Principles
+
+NO Direct BC-to-BC Communication - All communication flows through Market Engine
+Market Engine as Orchestrator - Central coordinator for all business flows
+Event Publishing - Order BC publishes events ONLY to Market Engine
+Command Reception - Order BC receives commands ONLY from Market Engine
+
+📊 Event Flow Architecture
+┌─────────────────────────────────────────────────────────────────────┐
+│                         MARKET ENGINE                               │
+│                     (Central Orchestrator)                          │
+│  - Receives all events from all BCs                                │
+│  - Makes orchestration decisions                                   │
+│  - Sends commands to appropriate BCs                               │
+└────────────┬───────────────────────────┬────────────────────────────┘
+             │                           │
+     Events ↑│                           │↓ Commands
+             │                           │
+┌────────────┴───────────┐   ┌──────────┴────────────┐
+│      ORDER BC          │   │    PORTFOLIO BC       │
+│                        │   │                       │
+│ Publishes:             │   │ (No direct           │
+│ - OrderCreatedEvent    │   │  communication       │
+│ - OrderCancelledEvent  │   │  with Order BC)      │
+│ - OrderUpdatedEvent    │   │                       │
+│ - OrderPartiallyFilled │   │                       │
+│ - OrderFilledEvent     │   │                       │
+│ - TransactionCreated   │   │                       │
+└────────────────────────┘   └───────────────────────┘
+🔄 Detailed Event Flows
+1. Order Placement Flow
+Portfolio BC → [BuyOrderRequestedEvent] → Market Engine
+                                              ↓
+                                    [CreateOrderCommand]
+                                              ↓
+                                         Order BC
+                                              ↓
+                                    [OrderCreatedEvent]
+                                              ↓
+                                       Market Engine
+                                              ↓
+                                 [Forwards to OrderBook BC]
+2. Transaction Execution Flow
+OrderBook BC → [OrderMatchedEvent] → Market Engine
+                                          ↓
+                                [CreateTransactionCommand]
+                                          ↓
+                                     Order BC
+                                          ↓
+                              [TransactionCreatedEvent]
+                                          ↓
+                                   Market Engine
+                                          ↓
+                    [Commands to Portfolio BC for settlement]
+3. Order Cancellation Flow
+Portfolio BC → [CancelOrderRequestedEvent] → Market Engine
+                                                  ↓
+                                        [CancelOrderCommand]
+                                                  ↓
+                                             Order BC
+                                                  ↓
+                                      [OrderCancelledEvent]
+                                                  ↓
+                                         Market Engine
+                                                  ↓
+                              [Commands to Portfolio & OrderBook BC]
+📝 Events Published by Order BC
+OrderCreatedEvent
+
+When: New buy/sell order is created
+Contains: orderId, portfolioId, reservationId, orderType, symbol, price, quantity, status
+Market Engine Actions: Forward to OrderBook BC, notify relevant services
+
+OrderCancelledEvent
+
+When: Order is fully or partially cancelled
+Contains: orderId, portfolioId, reservationId, cancelledQuantity, remainingQuantity, reason
+Market Engine Actions: Update OrderBook, release funds in Portfolio BC
+
+OrderUpdatedEvent
+
+When: Order price is modified
+Contains: orderId, portfolioId, updateType, symbol, oldPrice, newPrice
+Market Engine Actions: Update OrderBook, recalculate matching
+
+OrderPartiallyFilledEvent
+
+When: Order is partially executed
+Contains: orderId, portfolioId, filledQuantity, totalFilledQuantity, remainingQuantity
+Market Engine Actions: Update Portfolio positions, continue matching
+
+OrderFilledEvent
+
+When: Order is completely filled
+Contains: orderId, portfolioId, filledQuantity, averageExecutionPrice
+Market Engine Actions: Finalize Portfolio positions, remove from OrderBook
+
+TransactionCreatedEvent
+
+When: Buy and sell orders are matched
+Contains: transactionId, buyOrderId, sellOrderId, buyer/seller portfolioIds, quantity, price
+Market Engine Actions: Trigger settlement in Portfolio BC, update positions
+
+🎯 Commands Received by Order BC
+CreateOrderCommand (from Market Engine)
+json{
+  "portfolioId": "portfolio123",
+  "reservationId": "reservation456",
+  "orderType": "BUY",
+  "symbolCode": "BTC",
+  "price": 50000.00,
+  "currency": "USD",
+  "quantity": 0.5
+}
+CreateTransactionCommand (from Market Engine)
+json{
+  "buyOrderId": "order_buy_123",
+  "sellOrderId": "order_sell_456",
+  "executionPrice": 49500.00,
+  "currency": "USD",
+  "quantity": 0.25
+}
+CancelOrderCommand (from Market Engine)
+json{
+  "orderId": "order_123",
+  "reason": "User requested cancellation"
+}
+🔧 Implementation Details
+Event Publishing
+
+All events are published asynchronously to avoid blocking
+Events are wrapped with metadata (eventType, sourceBoundedContext, timestamp)
+Failed event publishing should be retried or sent to dead letter queue
+
+Command Reception
+
+Commands are received via REST endpoints (can be replaced with messaging)
+Only Market Engine is authorized to send commands
+Commands are validated before processing
+
+Consistency Guarantees
+
+Order BC maintains strong consistency within its boundary
+Events are published after successful state changes
+Eventual consistency across bounded contexts via Market Engine
+
+🚨 Important Notes
+
+NEVER create direct connections between Order BC and other BCs
+ALWAYS publish events to Market Engine only
+ONLY accept commands from Market Engine
+Market Engine is responsible for:
+
+Event routing decisions
+Orchestration logic
+Saga/workflow management
+Compensation handling
+
+
+
+🔄 Migration to Message Queue
+When migrating from REST to messaging (RabbitMQ/Kafka):
+
+Event Publishing:
+
+Create topic/exchange: market-engine.events
+Order BC publishes to this single destination
+Market Engine subscribes to all events
+
+
+Command Reception:
+
+Create queue: order-bc.commands
+Only Market Engine can publish to this queue
+Order BC consumes commands from this queue
+
+
+No Direct Queues between Order BC and other BCs
+
+📊 Monitoring & Observability
+Key metrics to track:
+
+Event publishing success/failure rates
+Command processing times
+Event-to-command latency through Market Engine
+Failed event retry counts
+
+This architecture ensures proper bounded context isolation while maintaining business flow coordination through the Market Engine orchestrator.

@@ -1,4 +1,4 @@
-package core.ms.order.domain.events;
+package core.ms.order.domain.events.publish;
 
 import core.ms.shared.events.DomainEvent;
 import core.ms.shared.money.Money;
@@ -15,10 +15,12 @@ public class OrderCreatedEvent implements DomainEvent {
     private final Symbol symbol;
     private final Money price;
     private final BigDecimal quantity;
+    private final String status;
     private final LocalDateTime occurredAt;
 
     public OrderCreatedEvent(String orderId, String portfolioId, String reservationId,
-                             String orderType, Symbol symbol, Money price, BigDecimal quantity) {
+                             String orderType, Symbol symbol, Money price,
+                             BigDecimal quantity, String status) {
         this.orderId = orderId;
         this.portfolioId = portfolioId;
         this.reservationId = reservationId;
@@ -26,6 +28,7 @@ public class OrderCreatedEvent implements DomainEvent {
         this.symbol = symbol;
         this.price = price;
         this.quantity = quantity;
+        this.status = status;
         this.occurredAt = LocalDateTime.now();
     }
 
@@ -37,6 +40,7 @@ public class OrderCreatedEvent implements DomainEvent {
     public Symbol getSymbol() { return symbol; }
     public Money getPrice() { return price; }
     public BigDecimal getQuantity() { return quantity; }
+    public String getStatus() { return status; }
     @Override
     public LocalDateTime getOccurredAt() { return occurredAt; }
-} 
+}

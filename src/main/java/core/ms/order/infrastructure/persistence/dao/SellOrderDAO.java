@@ -7,7 +7,9 @@ import org.springframework.stereotype.Repository;
 
 import java.util.List;
 
+@Repository
 public interface SellOrderDAO extends JpaRepository<SellOrderEntity, String> {
     List<SellOrderEntity> findBySymbolCode(String symbolCode);
     List<SellOrderEntity> findByStatus(OrderStatusEnum status);
+    List<SellOrderEntity> findByPortfolioId(String portfolioId);
 }

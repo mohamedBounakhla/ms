@@ -48,11 +48,6 @@ public interface TransactionService {
     List<ITransaction> findTransactionsBySymbol(Symbol symbol);
 
     /**
-     * Finds all transactions for a specific user
-     */
-    List<ITransaction> findTransactionsByUserId(String userId);
-
-    /**
      * Finds transactions within a date range
      */
     List<ITransaction> findTransactionsByDateRange(LocalDateTime startDate, LocalDateTime endDate);

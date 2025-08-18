@@ -39,11 +39,14 @@ public class OrderApplicationService implements OrderService {
     public OrderOperationResultDTO createBuyOrder(String portfolioId, String reservationId,
                                                   Symbol symbol, Money price, BigDecimal quantity) {
         try {
-            // Create buy order using factory - portfolioId and reservationId are provided by the caller
+            // Create buy order using factory
             BuyOrder buyOrder = OrderFactory.createBuyOrder(portfolioId, reservationId, symbol, price, quantity);
 
             // Save order
             IOrder savedOrder = orderRepository.save(buyOrder);
+
+            // Publish event
+            eventPublisher.publishOrderCreated(savedOrder, "BUY");
 
             return new OrderOperationResultDTO(true, savedOrder.getId(), "Buy order created successfully",
                     LocalDateTime.now(), null);
@@ -61,11 +64,14 @@ public class OrderApplicationService implements OrderService {
     public OrderOperationResultDTO createSellOrder(String portfolioId, String reservationId,
                                                    Symbol symbol, Money price, BigDecimal quantity) {
         try {
-            // Create sell order using factory - portfolioId and reservationId are provided by the caller
+            // Create sell order using factory
             SellOrder sellOrder = OrderFactory.createSellOrder(portfolioId, reservationId, symbol, price, quantity);
 
             // Save order
             IOrder savedOrder = orderRepository.save(sellOrder);
+
+            // Publish event
+            eventPublisher.publishOrderCreated(savedOrder, "SELL");
 
             return new OrderOperationResultDTO(true, savedOrder.getId(), "Sell order created successfully",
                     LocalDateTime.now(), null);
@@ -98,11 +104,17 @@ public class OrderApplicationService implements OrderService {
                         LocalDateTime.now(), List.of("Order is in terminal state"));
             }
 
+            // Determine order type for event
+            String orderType = order instanceof IBuyOrder ? "BUY" : "SELL";
+
             // Cancel the order
             order.cancel();
 
             // Save updated order
             orderRepository.save(order);
+
+            // Publish event
+            eventPublisher.publishOrderCancelled(order, orderType, "User requested cancellation");
 
             return new OrderOperationResultDTO(true, orderId, "Order cancelled successfully",
                     LocalDateTime.now(), null);
@@ -140,11 +152,17 @@ public class OrderApplicationService implements OrderService {
                         LocalDateTime.now(), List.of("New price currency must match order currency"));
             }
 
+            // Store old price for event
+            Money oldPrice = order.getPrice();
+
             // Update price
             order.updatePrice(newPrice);
 
             // Save updated order
             orderRepository.save(order);
+
+            // Publish event
+            eventPublisher.publishOrderUpdated(order, oldPrice, newPrice);
 
             return new OrderOperationResultDTO(true, orderId, "Order price updated successfully",
                     LocalDateTime.now(), null);
@@ -172,11 +190,18 @@ public class OrderApplicationService implements OrderService {
                         LocalDateTime.now(), List.of("Quantity to cancel exceeds remaining quantity"));
             }
 
+            // Determine order type for event
+            String orderType = order instanceof IBuyOrder ? "BUY" : "SELL";
+
             // Partial cancellation
             order.cancelPartial();
 
             // Save updated order
             orderRepository.save(order);
+
+            // Publish event
+            eventPublisher.publishOrderPartialCancelled(order, orderType, quantityToCancel,
+                    "User requested partial cancellation");
 
             return new OrderOperationResultDTO(true, orderId, "Order partially cancelled successfully",
                     LocalDateTime.now(), null);
