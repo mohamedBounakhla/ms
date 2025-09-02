@@ -7,10 +7,7 @@ import core.ms.shared.money.Symbol;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-/**
- * Pure sell order entity - NO validation.
- * Creation controlled by OrderFactory using validation builders.
- */
+
 public class SellOrder extends AbstractOrder implements ISellOrder {
 
     public SellOrder(String id, String portfolioId, String reservationId,

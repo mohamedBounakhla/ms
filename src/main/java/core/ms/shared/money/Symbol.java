@@ -107,6 +107,15 @@ public class Symbol {
         return new Symbol("GBPUSD", "British Pound US Dollar", AssetType.FOREX, Currency.GBP, Currency.USD);
     }
 
+    public static Symbol createFromCode(String symbolCode) {
+        return switch (symbolCode.toUpperCase()) {
+            case "BTC" -> btcUsd();
+            case "ETH" -> ethUsd();
+            case "EURUSD" -> eurUsd();
+            case "GBPUSD" -> gbpUsd();
+            default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
+        };
+    }
     // ===== OBJECT METHODS =====
 
     @Override

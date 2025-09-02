@@ -35,11 +35,11 @@ public class BuyOrderMapper {
             Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
             Money price = Money.of(entity.getPrice(), entity.getCurrency());
 
-            // TODO: Get portfolioId and reservationId from entity (need to add these fields to entity)
+
             String portfolioId = entity.getPortfolioId(); // Assuming these fields are added to entity
             String reservationId = entity.getReservationId();
 
-            // Use factory to create the order with proper validation - NOW WITH portfolioId and reservationId
+
             BuyOrder order = OrderFactory.createBuyOrderWithId(
                     entity.getId(),
                     portfolioId,
@@ -49,7 +49,7 @@ public class BuyOrderMapper {
                     entity.getQuantity()
             );
 
-            // Reconstruct the persisted state (executed quantity and status)
+
             order.setExecutedQuantity(entity.getExecutedQuantity());
             reconstructOrderState(order, entity);
 

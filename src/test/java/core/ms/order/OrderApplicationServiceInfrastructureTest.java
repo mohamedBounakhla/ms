@@ -1,8 +1,5 @@
 package core.ms.order;
 import core.ms.order.application.dto.command.*;
-import core.ms.order.application.dto.query.OrderDTO;
-import core.ms.order.application.dto.query.OrderOperationResultDTO;
-import core.ms.order.application.services.OrderApplicationService;
 import core.ms.order.domain.entities.*;
 import core.ms.order.domain.ports.outbound.OrderRepository;
 import core.ms.order.domain.validators.ValidationErrorMessage;

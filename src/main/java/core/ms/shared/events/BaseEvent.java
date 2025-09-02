@@ -13,12 +13,16 @@ public abstract class BaseEvent implements DomainEvent {
         this.occurredAt = LocalDateTime.now();
     }
 
-    @Override
-    public String getCorrelationId() { return correlationId; }
+    public String getCorrelationId() {
+        return correlationId;
+    }
+
+    public String getSourceBC() {
+        return sourceBC;
+    }
 
     @Override
-    public String getSourceBC() { return sourceBC; }
-
-    @Override
-    public LocalDateTime getOccurredAt() { return occurredAt; }
+    public LocalDateTime getOccurredAt() {
+        return occurredAt;
+    }
 }

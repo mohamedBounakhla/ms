@@ -31,15 +31,15 @@ public class SellOrderMapper {
 
     public SellOrder toDomain(SellOrderEntity entity) {
         try {
-            // Reconstruct domain objects
+
             Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
             Money price = Money.of(entity.getPrice(), entity.getCurrency());
 
-            // TODO: Get portfolioId and reservationId from entity (need to add these fields to entity)
-            String portfolioId = entity.getPortfolioId(); // Assuming these fields are added to entity
+
+            String portfolioId = entity.getPortfolioId();
             String reservationId = entity.getReservationId();
 
-            // Use factory to create the order with proper validation - NOW WITH portfolioId and reservationId
+
             SellOrder order = OrderFactory.createSellOrderWithId(
                     entity.getId(),
                     portfolioId,

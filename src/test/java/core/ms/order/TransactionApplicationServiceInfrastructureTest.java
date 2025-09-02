@@ -1,10 +1,6 @@
 package core.ms.order;
 
 import core.ms.order.application.dto.command.CreateTransactionCommand;
-import core.ms.order.application.dto.query.TransactionDTO;
-import core.ms.order.application.dto.query.TransactionResultDTO;
-import core.ms.order.application.dto.query.TransactionStatisticsDTO;
-import core.ms.order.application.services.TransactionApplicationService;
 import core.ms.order.domain.entities.*;
 import core.ms.order.domain.ports.outbound.OrderRepository;
 import core.ms.order.domain.ports.outbound.TransactionRepository;

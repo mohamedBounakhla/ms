@@ -1,6 +1,5 @@
 package core.ms.market_engine.application.handlers;
 
-import core.ms.order.application.services.OrderApplicationService;
 import core.ms.order_book.application.services.OrderBookApplicationService;
 import core.ms.portfolio.domain.events.publish.BuyOrderRequestedEvent;
 import core.ms.shared.events.EventBus;

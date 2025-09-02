@@ -1,13 +1,15 @@
 package core.ms.order.domain.events.publish;
 
+import core.ms.shared.events.BaseEvent;
 import core.ms.shared.events.DomainEvent;
+import core.ms.shared.money.Currency;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
-public class TransactionCreatedEvent implements DomainEvent {
+public class TransactionCreatedEvent extends BaseEvent {
     private final String transactionId;
     private final String buyOrderId;
     private final String sellOrderId;
@@ -15,18 +17,22 @@ public class TransactionCreatedEvent implements DomainEvent {
     private final String sellerPortfolioId;
     private final String buyerReservationId;
     private final String sellerReservationId;
-    private final Symbol symbol;
+    private final String symbolCode;
     private final BigDecimal executedQuantity;
-    private final Money executionPrice;
-    private final Money totalValue;
-    private final LocalDateTime occurredAt;
+    private final BigDecimal executionPrice;
+    private final Currency currency;
+    private final BigDecimal buyOrderRemainingQuantity;
+    private final BigDecimal sellOrderRemainingQuantity;
 
-    public TransactionCreatedEvent(String transactionId,
+    public TransactionCreatedEvent(String correlationId, String transactionId,
                                    String buyOrderId, String sellOrderId,
                                    String buyerPortfolioId, String sellerPortfolioId,
                                    String buyerReservationId, String sellerReservationId,
-                                   Symbol symbol, BigDecimal executedQuantity,
-                                   Money executionPrice) {
+                                   String symbolCode, BigDecimal executedQuantity,
+                                   BigDecimal executionPrice, Currency currency,
+                                   BigDecimal buyOrderRemainingQuantity,
+                                   BigDecimal sellOrderRemainingQuantity) {
+        super(correlationId, "ORDER_BC");
         this.transactionId = transactionId;
         this.buyOrderId = buyOrderId;
         this.sellOrderId = sellOrderId;
@@ -34,14 +40,15 @@ public class TransactionCreatedEvent implements DomainEvent {
         this.sellerPortfolioId = sellerPortfolioId;
         this.buyerReservationId = buyerReservationId;
         this.sellerReservationId = sellerReservationId;
-        this.symbol = symbol;
+        this.symbolCode = symbolCode;
         this.executedQuantity = executedQuantity;
         this.executionPrice = executionPrice;
-        this.totalValue = executionPrice.multiply(executedQuantity);
-        this.occurredAt = LocalDateTime.now();
+        this.currency = currency;
+        this.buyOrderRemainingQuantity = buyOrderRemainingQuantity;
+        this.sellOrderRemainingQuantity = sellOrderRemainingQuantity;
     }
 
-    // All getters
+    // Getters
     public String getTransactionId() { return transactionId; }
     public String getBuyOrderId() { return buyOrderId; }
     public String getSellOrderId() { return sellOrderId; }
@@ -49,10 +56,10 @@ public class TransactionCreatedEvent implements DomainEvent {
     public String getSellerPortfolioId() { return sellerPortfolioId; }
     public String getBuyerReservationId() { return buyerReservationId; }
     public String getSellerReservationId() { return sellerReservationId; }
-    public Symbol getSymbol() { return symbol; }
+    public String getSymbolCode() { return symbolCode; }
     public BigDecimal getExecutedQuantity() { return executedQuantity; }
-    public Money getExecutionPrice() { return executionPrice; }
-    public Money getTotalValue() { return totalValue; }
-    @Override
-    public LocalDateTime getOccurredAt() { return occurredAt; }
+    public BigDecimal getExecutionPrice() { return executionPrice; }
+    public Currency getCurrency() { return currency; }
+    public BigDecimal getBuyOrderRemainingQuantity() { return buyOrderRemainingQuantity; }
+    public BigDecimal getSellOrderRemainingQuantity() { return sellOrderRemainingQuantity; }
 }

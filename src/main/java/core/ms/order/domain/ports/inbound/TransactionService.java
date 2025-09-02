@@ -1,13 +1,8 @@
 package core.ms.order.domain.ports.inbound;
 
-import core.ms.order.application.dto.query.TransactionResultDTO;
-import core.ms.order.application.dto.query.TransactionStatisticsDTO;
-import core.ms.order.domain.entities.IBuyOrder;
-import core.ms.order.domain.entities.ISellOrder;
 import core.ms.order.domain.entities.ITransaction;
 import core.ms.shared.money.Symbol;
-import core.ms.shared.money.Money;
-import java.math.BigDecimal;
+
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -18,20 +13,8 @@ import java.util.Optional;
  */
 public interface TransactionService {
 
-    // ===== TRANSACTION CREATION =====
-    /**
-     * Creates a transaction from matching orders
-     */
-    TransactionResultDTO createTransaction(IBuyOrder buyOrder, ISellOrder sellOrder,
-                                           Money executionPrice, BigDecimal quantity);
+    // ===== QUERY OPERATIONS (For Internal Use/Monitoring) =====
 
-    /**
-     * Creates a transaction using order IDs
-     */
-    TransactionResultDTO createTransactionByOrderIds(String buyOrderId, String sellOrderId,
-                                                     Money executionPrice, BigDecimal quantity);
-
-    // ===== TRANSACTION QUERIES =====
     /**
      * Finds a transaction by its ID
      */
@@ -41,6 +24,11 @@ public interface TransactionService {
      * Finds all transactions for a specific order
      */
     List<ITransaction> findTransactionsByOrderId(String orderId);
+
+    /**
+     * Finds all transactions for a specific portfolio
+     */
+    List<ITransaction> findTransactionsByPortfolioId(String portfolioId);
 
     /**
      * Finds all transactions for a specific symbol
@@ -53,13 +41,12 @@ public interface TransactionService {
     List<ITransaction> findTransactionsByDateRange(LocalDateTime startDate, LocalDateTime endDate);
 
     /**
-     * Finds transactions by price range
+     * Get total count of transactions
      */
-    List<ITransaction> findTransactionsByPriceRange(Money minPrice, Money maxPrice);
+    long getTotalTransactionCount();
 
-    // ===== TRANSACTION ANALYTICS =====
     /**
-     * Gets transaction statistics for a symbol
+     * Get transaction volume for a symbol
      */
-    TransactionStatisticsDTO getTransactionStatistics(Symbol symbol);
+    java.math.BigDecimal getTransactionVolume(Symbol symbol);
 }
