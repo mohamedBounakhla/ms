@@ -1,39 +1,38 @@
 package core.ms.order_book.domain.events.publish;
 
+import core.ms.shared.events.BaseEvent;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.Objects;
 
-public class OrderMatchedEvent {
+public class OrderMatchedEvent extends BaseEvent {
     private final String buyOrderId;
     private final String sellOrderId;
     private final Symbol symbol;
-    private final BigDecimal quantity;
+    private final BigDecimal matchedQuantity;
     private final Money executionPrice;
-    private final LocalDateTime occurredAt;
 
-    public OrderMatchedEvent(String buyOrderId, String sellOrderId, Symbol symbol,
-                             BigDecimal quantity, Money executionPrice, LocalDateTime occurredAt) {
+    public OrderMatchedEvent(String correlationId, String buyOrderId, String sellOrderId,
+                             Symbol symbol, BigDecimal matchedQuantity, Money executionPrice) {
+        super(correlationId, "ORDER_BOOK_BC");
         this.buyOrderId = Objects.requireNonNull(buyOrderId, "Buy order ID cannot be null");
         this.sellOrderId = Objects.requireNonNull(sellOrderId, "Sell order ID cannot be null");
-        this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");  // ✅ Symbol validation
-        this.quantity = Objects.requireNonNull(quantity, "Quantity cannot be null");
+        this.symbol = Objects.requireNonNull(symbol, "Symbol cannot be null");
+        this.matchedQuantity = Objects.requireNonNull(matchedQuantity, "Matched quantity cannot be null");
         this.executionPrice = Objects.requireNonNull(executionPrice, "Execution price cannot be null");
-        this.occurredAt = Objects.requireNonNull(occurredAt, "Occurred at cannot be null");
     }
 
+    // Getters
     public String getBuyOrderId() { return buyOrderId; }
     public String getSellOrderId() { return sellOrderId; }
-    public Symbol getSymbol() { return symbol; }  // ✅ Return Symbol object
-    public BigDecimal getQuantity() { return quantity; }
+    public Symbol getSymbol() { return symbol; }
+    public BigDecimal getMatchedQuantity() { return matchedQuantity; }
     public Money getExecutionPrice() { return executionPrice; }
-    public LocalDateTime getOccurredAt() { return occurredAt; }
 
     public Money getTotalValue() {
-        return executionPrice.multiply(quantity);
+        return executionPrice.multiply(matchedQuantity);
     }
 
     @Override
@@ -44,20 +43,20 @@ public class OrderMatchedEvent {
         return Objects.equals(buyOrderId, that.buyOrderId) &&
                 Objects.equals(sellOrderId, that.sellOrderId) &&
                 Objects.equals(symbol, that.symbol) &&
-                Objects.equals(quantity, that.quantity) &&
-                Objects.equals(executionPrice, that.executionPrice) &&
-                Objects.equals(occurredAt, that.occurredAt);
+                Objects.equals(matchedQuantity, that.matchedQuantity) &&
+                Objects.equals(executionPrice, that.executionPrice);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(buyOrderId, sellOrderId, symbol, quantity, executionPrice, occurredAt);
+        return Objects.hash(buyOrderId, sellOrderId, symbol, matchedQuantity, executionPrice);
     }
 
     @Override
     public String toString() {
-        return String.format("OrderMatchedEvent{buyOrderId='%s', sellOrderId='%s', symbol='%s', " +
-                        "quantity=%s, executionPrice=%s, totalValue=%s, occurredAt=%s}",
-                buyOrderId, sellOrderId, symbol, quantity, executionPrice, getTotalValue(), occurredAt);
+        return String.format("OrderMatchedEvent{correlationId='%s', buyOrderId='%s', sellOrderId='%s', " +
+                        "symbol='%s', matchedQuantity=%s, executionPrice=%s, totalValue=%s}",
+                getCorrelationId(), buyOrderId, sellOrderId, symbol, matchedQuantity,
+                executionPrice, getTotalValue());
     }
 }

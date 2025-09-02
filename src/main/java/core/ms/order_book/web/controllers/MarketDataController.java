@@ -56,7 +56,7 @@ public class MarketDataController {
         logger.debug("Market depth request - Symbol: {}, Levels: {}", symbol, levels);
 
         try {
-            Symbol domainSymbol = webMapper.createSymbol(symbol);
+            Symbol domainSymbol = Symbol.createFromCode(symbol);
             var marketDepth = orderBookService.getMarketDepth(domainSymbol, levels);
             var dto = webMapper.toDTO(marketDepth);
 
@@ -81,7 +81,7 @@ public class MarketDataController {
         logger.debug("Ticker request - Symbol: {}", symbol);
 
         try {
-            Symbol domainSymbol = webMapper.createSymbol(symbol);
+            Symbol domainSymbol = Symbol.createFromCode(symbol);
             var stats = orderBookService.getOrderBookStatistics(domainSymbol);
             return ResponseEntity.ok(stats);
         } catch (IllegalArgumentException e) {
@@ -134,7 +134,7 @@ public class MarketDataController {
         logger.debug("Order book summary request - Symbol: {}", symbol);
 
         try {
-            Symbol domainSymbol = webMapper.createSymbol(symbol);
+            Symbol domainSymbol = Symbol.createFromCode(symbol);
             var summary = orderBookService.getOrderBookSummary(domainSymbol);
             return ResponseEntity.ok(summary);
         } catch (IllegalArgumentException e) {

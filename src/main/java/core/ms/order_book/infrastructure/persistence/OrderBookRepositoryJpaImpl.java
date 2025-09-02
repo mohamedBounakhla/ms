@@ -115,22 +115,14 @@ public class OrderBookRepositoryJpaImpl implements OrderBookRepository {
     public void initializeFromDatabase() {
         // Load all active order books from database
         orderBookDAO.findByActiveTrue().forEach(entity -> {
-            Symbol symbol = createSymbol(entity.getSymbolCode());
+            Symbol symbol = Symbol.createFromCode(entity.getSymbolCode());
             if (!orderBookManager.getActiveSymbols().contains(symbol)) {
                 orderBookManager.createOrderBook(symbol);
             }
         });
     }
 
-    private Symbol createSymbol(String symbolCode) {
-        return switch (symbolCode.toUpperCase()) {
-            case "BTC" -> Symbol.btcUsd();
-            case "ETH" -> Symbol.ethUsd();
-            case "EURUSD" -> Symbol.eurUsd();
-            case "GBPUSD" -> Symbol.gbpUsd();
-            default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
-        };
-    }
+   
 
     /**
      * Provides access to the manager for market overview functionality

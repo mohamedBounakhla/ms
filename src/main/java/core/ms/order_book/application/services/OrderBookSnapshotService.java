@@ -105,7 +105,7 @@ public class OrderBookSnapshotService {
     }
 
     public void createSnapshot(String symbolCode) {
-        Symbol symbol = createSymbol(symbolCode);
+        Symbol symbol = Symbol.createFromCode(symbolCode);
         Optional<OrderBook> orderBook = orderBookRepository.findBySymbol(symbol);
 
         if (orderBook.isPresent()) {
@@ -123,7 +123,7 @@ public class OrderBookSnapshotService {
     // ===== QUERY OPERATIONS =====
 
     public Optional<OrderBookSnapshotDTO> getLatestSnapshot(String symbolCode) {
-        Symbol symbol = createSymbol(symbolCode);
+        Symbol symbol = Symbol.createFromCode(symbolCode);
         return snapshotRepository.findLatestBySymbol(symbol)
                 .map(this::toDTO);
     }
@@ -131,7 +131,7 @@ public class OrderBookSnapshotService {
     public List<OrderBookSnapshotDTO> getSnapshotHistory(String symbolCode,
                                                          LocalDateTime from,
                                                          LocalDateTime to) {
-        Symbol symbol = createSymbol(symbolCode);
+        Symbol symbol = Symbol.createFromCode(symbolCode);
         Instant startTime = from.toInstant(java.time.ZoneOffset.UTC);
         Instant endTime = to.toInstant(java.time.ZoneOffset.UTC);
 
@@ -144,7 +144,7 @@ public class OrderBookSnapshotService {
     // ===== RESTORE OPERATIONS =====
 
     public void restoreFromLatestSnapshot(String symbolCode) {
-        Symbol symbol = createSymbol(symbolCode);
+        Symbol symbol = Symbol.createFromCode(symbolCode);
         Optional<OrderBookSnapshot> snapshot = snapshotRepository.findLatestBySymbol(symbol);
 
         if (snapshot.isPresent()) {
@@ -173,16 +173,7 @@ public class OrderBookSnapshotService {
         return orderBook.getOrderCount() > 0 ||
                 orderBook.getLastUpdate().isAfter(LocalDateTime.now().minusMinutes(30));
     }
-
-    private Symbol createSymbol(String symbolCode) {
-        return switch (symbolCode.toUpperCase()) {
-            case "BTC" -> Symbol.btcUsd();
-            case "ETH" -> Symbol.ethUsd();
-            case "EURUSD" -> Symbol.eurUsd();
-            case "GBPUSD" -> Symbol.gbpUsd();
-            default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
-        };
-    }
+    
 
     // ===== DTO MAPPING =====
 

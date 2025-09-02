@@ -2,7 +2,6 @@ package core.ms.order_book.web.mappers;
 
 import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.ports.outbound.OrderRepository;
-import core.ms.order.web.dto.response.ApiResponse;
 import core.ms.order_book.application.dto.query.MarketDepthDTO;
 import core.ms.order_book.application.dto.query.MarketOverviewDTO;
 import core.ms.order_book.application.dto.query.OrderBookOperationResultDTO;
@@ -11,8 +10,7 @@ import core.ms.order_book.domain.ports.inbound.OrderBookOperationResult;
 import core.ms.order_book.domain.value_object.IPriceLevel;
 import core.ms.order_book.domain.value_object.MarketDepth;
 import core.ms.order_book.domain.value_object.MarketOverview;
-import core.ms.order_book.infrastructure.events.dto.OrderMatchedEventDTO;
-import core.ms.order_book.infrastructure.events.mappers.OrderMatchedEventMapper;
+import core.ms.order_book.web.dto.ApiResponse;
 import core.ms.shared.money.Symbol;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -27,18 +25,6 @@ public class OrderBookWebMapper {
 
     @Autowired
     private OrderRepository orderRepository;
-
-    // ===== SYMBOL CREATION =====
-
-    public Symbol createSymbol(String symbolCode) {
-        return switch (symbolCode.toUpperCase()) {
-            case "BTC" -> Symbol.btcUsd();
-            case "ETH" -> Symbol.ethUsd();
-            case "EURUSD" -> Symbol.eurUsd();
-            case "GBPUSD" -> Symbol.gbpUsd();
-            default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
-        };
-    }
 
     // ===== ORDER FETCHING =====
 
@@ -60,16 +46,12 @@ public class OrderBookWebMapper {
     // ===== DTO MAPPING =====
 
     public OrderBookOperationResultDTO toDTO(OrderBookOperationResult result) {
-        List<OrderMatchedEventDTO> matchEventDtos = result.getMatchEvents().stream()
-                .map(OrderMatchedEventMapper::toDto)
-                .collect(Collectors.toList());
-
+        // Simple mapping - no match events in saga pattern
         return new OrderBookOperationResultDTO(
                 result.isSuccess(),
                 result.getMessage(),
                 result.getOrderId(),
-                result.getMatchCount(),
-                matchEventDtos,
+                0, // Match count not relevant in async processing
                 result.getTimestamp()
         );
     }

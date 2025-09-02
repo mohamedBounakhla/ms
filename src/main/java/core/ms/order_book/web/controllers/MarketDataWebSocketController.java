@@ -4,6 +4,7 @@ import core.ms.order_book.application.dto.query.MarketDepthDTO;
 import core.ms.order_book.application.dto.query.OrderBookTickerDTO;
 import core.ms.order_book.application.services.OrderBookApplicationService;
 import core.ms.order_book.web.mappers.OrderBookWebMapper;
+import core.ms.shared.money.Symbol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,7 +34,7 @@ public class MarketDataWebSocketController {
         logger.info("Client subscribed to order book: {}", symbol);
 
         try {
-            var domainSymbol = webMapper.createSymbol(symbol);
+            var domainSymbol = Symbol.createFromCode(symbol);
             var marketDepth = orderBookService.getMarketDepth(domainSymbol, 10);
             return webMapper.toDTO(marketDepth);
         } catch (Exception e) {
@@ -50,7 +51,7 @@ public class MarketDataWebSocketController {
         logger.info("Client subscribed to ticker: {}", symbol);
 
         try {
-            var domainSymbol = webMapper.createSymbol(symbol);
+            var domainSymbol = Symbol.createFromCode(symbol);
             return orderBookService.getOrderBookTicker(domainSymbol);
         } catch (Exception e) {
             logger.error("Failed to get ticker for subscription", e);
@@ -67,7 +68,7 @@ public class MarketDataWebSocketController {
         logger.debug("Snapshot request for symbol: {}", symbol);
 
         try {
-            var domainSymbol = webMapper.createSymbol(symbol);
+            var domainSymbol = Symbol.createFromCode(symbol);
             var marketDepth = orderBookService.getMarketDepth(domainSymbol, 25);
             return webMapper.toDTO(marketDepth);
         } catch (Exception e) {

@@ -3,6 +3,7 @@ package core.ms.order_book.web.controllers;
 
 import core.ms.order_book.application.services.OrderBookApplicationService;
 import core.ms.order_book.web.mappers.OrderBookWebMapper;
+import core.ms.shared.money.Symbol;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -28,9 +29,6 @@ public class OrderBookInternalController {
     @Autowired
     private OrderBookApplicationService orderBookService;
 
-    @Autowired
-    private OrderBookWebMapper webMapper;
-
     // ===== ORDER BOOK LIFECYCLE (Admin Only) =====
 
     @PostMapping("/create/{symbol}")
@@ -44,7 +42,7 @@ public class OrderBookInternalController {
         logger.info("Admin creating order book for symbol: {}", symbol);
 
         try {
-            var domainSymbol = webMapper.createSymbol(symbol);
+            var domainSymbol = Symbol.createFromCode(symbol);
             var result = orderBookService.createOrderBook(domainSymbol);
 
             if (result.isSuccess()) {
@@ -72,7 +70,7 @@ public class OrderBookInternalController {
         logger.warn("Admin removing order book for symbol: {}", symbol);
 
         try {
-            var domainSymbol = webMapper.createSymbol(symbol);
+            var domainSymbol = Symbol.createFromCode(symbol);
             var result = orderBookService.removeOrderBook(domainSymbol);
 
             if (result.isSuccess()) {
@@ -115,7 +113,7 @@ public class OrderBookInternalController {
 
     @PostMapping("/force-match/{symbol}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<ApiResponse<Integer>> forceProcessMatches(
+    public ResponseEntity<ApiResponse<String>> forceProcessMatches(
             @PathVariable
             @NotBlank(message = "Symbol cannot be blank")
             @Pattern(regexp = "^[A-Z0-9]+$", message = "Invalid symbol format")
@@ -124,13 +122,15 @@ public class OrderBookInternalController {
         logger.warn("Admin forcing match processing for symbol: {}", symbol);
 
         try {
-            var domainSymbol = webMapper.createSymbol(symbol);
-            var matchEvents = orderBookService.processPendingMatches(domainSymbol);
+            var domainSymbol = Symbol.createFromCode(symbol);
+
+            // Black box operation - fire and forget
+            orderBookService.processPendingMatches(domainSymbol);
 
             return ResponseEntity.ok(
                     ApiResponse.success(
-                            String.format("Processed %d matches", matchEvents.size()),
-                            matchEvents.size()));
+                            "Match processing triggered for " + symbol,
+                            symbol));
         } catch (Exception e) {
             logger.error("Force match processing failed", e);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)

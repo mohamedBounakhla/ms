@@ -2,10 +2,10 @@ package core.ms.order_book.domain.factory;
 
 import core.ms.order_book.domain.events.publish.OrderMatchedEvent;
 import core.ms.order_book.domain.value_object.*;
+import core.ms.shared.events.EventContext;
 import core.ms.shared.money.Money;
 
 import java.math.BigDecimal;
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Objects;
 import java.util.stream.Collectors;
@@ -18,6 +18,7 @@ public class OrderMatchEventFactory {
 
     /**
      * Creates order matched events using default algorithm and strategy.
+     * Uses current correlation ID from EventContext.
      */
     public static List<OrderMatchedEvent> createMatchEvents(BidSideManager bidSide, AskSideManager askSide) {
         return createMatchEvents(bidSide, askSide, DEFAULT_ALGORITHM, DEFAULT_STRATEGY);
@@ -25,7 +26,7 @@ public class OrderMatchEventFactory {
 
     /**
      * Creates order matched events using injected algorithm and strategy.
-     * Pure domain logic - no side effects.
+     * Maintains correlation ID for saga pattern.
      */
     public static List<OrderMatchedEvent> createMatchEvents(
             BidSideManager bidSide,
@@ -41,7 +42,7 @@ public class OrderMatchEventFactory {
         // Find matching candidates
         List<MatchCandidateExtractor> candidates = algorithm.findMatchCandidates(bidSide, askSide, strategy);
 
-        // Convert valid candidates to domain events
+        // Convert valid candidates to domain events with correlation ID
         return candidates.stream()
                 .filter(MatchCandidateExtractor::isValid)
                 .map(OrderMatchEventFactory::createEventFromCandidate)
@@ -51,27 +52,42 @@ public class OrderMatchEventFactory {
     /**
      * Creates OrderMatchedEvent from valid candidate.
      * Price is always set by the seller (business rule).
+     * Includes correlation ID for saga tracking.
      */
     private static OrderMatchedEvent createEventFromCandidate(MatchCandidateExtractor candidate) {
         Money executionPrice = candidate.getSellOrder().getPrice();
-        BigDecimal quantity = candidate.getBuyOrder().getRemainingQuantity()
+        BigDecimal matchedQuantity = candidate.getBuyOrder().getRemainingQuantity()
                 .min(candidate.getSellOrder().getRemainingQuantity());
 
+        // Get current correlation ID from context (will be set by the incoming event handler)
+        String correlationId = EventContext.getCurrentCorrelationId();
+
         return new OrderMatchedEvent(
+                correlationId,
                 candidate.getBuyOrder().getId(),
                 candidate.getSellOrder().getId(),
                 candidate.getBuyOrder().getSymbol(),
-                quantity,
-                executionPrice,
-                LocalDateTime.now()
+                matchedQuantity,
+                executionPrice
         );
     }
 
     /**
-     * Creates a single OrderMatchedEvent from a pair of orders.
-     * Useful for testing or direct event creation.
+     * Creates a single OrderMatchedEvent from a pair of orders with explicit correlation ID.
+     * Useful for testing or when correlation ID needs to be explicitly set.
      */
-    public static OrderMatchedEvent createMatchEvent(MatchCandidateExtractor candidate) {
-        return createEventFromCandidate(candidate);
+    public static OrderMatchedEvent createMatchEvent(String correlationId, MatchCandidateExtractor candidate) {
+        Money executionPrice = candidate.getSellOrder().getPrice();
+        BigDecimal matchedQuantity = candidate.getBuyOrder().getRemainingQuantity()
+                .min(candidate.getSellOrder().getRemainingQuantity());
+
+        return new OrderMatchedEvent(
+                correlationId,
+                candidate.getBuyOrder().getId(),
+                candidate.getSellOrder().getId(),
+                candidate.getBuyOrder().getSymbol(),
+                matchedQuantity,
+                executionPrice
+        );
     }
 }

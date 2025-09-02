@@ -27,7 +27,7 @@ public class OrderBookWebSocketService {
      */
     public void broadcastOrderBookUpdate(String symbolCode) {
         try {
-            Symbol symbol = webMapper.createSymbol(symbolCode);
+            Symbol symbol = Symbol.createFromCode(symbolCode);
 
             // Get market depth
             var marketDepth = orderBookService.getMarketDepth(symbol, 25);
@@ -58,7 +58,7 @@ public class OrderBookWebSocketService {
      */
     public void broadcastTickerUpdate(String symbolCode) {
         try {
-            Symbol symbol = webMapper.createSymbol(symbolCode);
+            Symbol symbol = Symbol.createFromCode(symbolCode);
 
             var ticker = orderBookService.getOrderBookTicker(symbol);
             messagingTemplate.convertAndSend(

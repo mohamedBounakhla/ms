@@ -15,8 +15,11 @@ import core.ms.order_book.domain.ports.outbound.OrderMatchEventPublisher;
 import core.ms.order_book.domain.value_object.MarketDepth;
 import core.ms.order_book.domain.value_object.MarketOverview;
 import core.ms.order_book.infrastructure.persistence.OrderBookRepositoryJpaImpl;
+import core.ms.shared.events.EventContext;
 import core.ms.shared.money.Symbol;
 import jakarta.transaction.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -30,6 +33,8 @@ import java.util.stream.Collectors;
 @Transactional
 public class OrderBookApplicationService implements OrderBookService {
 
+    private static final Logger logger = LoggerFactory.getLogger(OrderBookApplicationService.class);
+
     private final OrderBookRepository orderBookRepository;
     private final OrderMatchEventPublisher eventPublisher;
 
@@ -41,83 +46,13 @@ public class OrderBookApplicationService implements OrderBookService {
         this.eventPublisher = Objects.requireNonNull(eventPublisher);
     }
 
-    public OrderBookTickerDTO getOrderBookTicker(Symbol symbol) {
-        Objects.requireNonNull(symbol, "Symbol cannot be null");
-
-        OrderBook orderBook = getOrCreateOrderBook(symbol);
-        OrderBookTickerDTO ticker = new OrderBookTickerDTO();
-
-        ticker.setSymbol(symbol.getCode());
-        ticker.setCurrency(symbol.getQuoteCurrency());
-        ticker.setTimestamp(LocalDateTime.now());
-
-        // Get best bid
-        orderBook.getBestBid().ifPresent(bid -> {
-            ticker.setBidPrice(bid.getAmount());
-            orderBook.getBestBuyOrder().ifPresent(order ->
-                    ticker.setBidQuantity(order.getRemainingQuantity())
-            );
-        });
-
-        // Get best ask
-        orderBook.getBestAsk().ifPresent(ask -> {
-            ticker.setAskPrice(ask.getAmount());
-            orderBook.getBestSellOrder().ifPresent(order ->
-                    ticker.setAskQuantity(order.getRemainingQuantity())
-            );
-        });
-
-        // Calculate spread
-        orderBook.getSpread().ifPresent(spread ->
-                ticker.setSpread(spread.getAmount())
-        );
-
-        return ticker;
-    }
-    /**
-     * Gets detailed order book statistics.
-     */
-    public OrderBookStatisticsDTO getOrderBookStatistics(Symbol symbol) {
-        Objects.requireNonNull(symbol, "Symbol cannot be null");
-
-        OrderBook orderBook = getOrCreateOrderBook(symbol);
-        OrderBookStatisticsDTO stats = new OrderBookStatisticsDTO();
-
-        // Count orders
-        stats.setTotalBuyOrders((int) orderBook.getBidLevels().stream()
-                .mapToLong(level -> level.getOrderCount())
-                .sum());
-
-        stats.setTotalSellOrders((int) orderBook.getAskLevels().stream()
-                .mapToLong(level -> level.getOrderCount())
-                .sum());
-
-        // Volumes
-        stats.setTotalBuyVolume(orderBook.getTotalBidVolume());
-        stats.setTotalSellVolume(orderBook.getTotalAskVolume());
-
-        // Best prices
-        orderBook.getBestBid().ifPresent(bid -> {
-            stats.setBestBidPrice(bid.getAmount());
-            stats.setPriceCurrency(bid.getCurrency());
-        });
-
-        orderBook.getBestAsk().ifPresent(ask -> {
-            stats.setBestAskPrice(ask.getAmount());
-        });
-
-        // Spread
-        orderBook.getSpread().ifPresent(spread ->
-                stats.setSpread(spread.getAmount())
-        );
-
-        return stats;
-    }
-
     @Override
     public OrderBookOperationResult addOrderToBook(IOrder order) {
         try {
             Objects.requireNonNull(order, "Order cannot be null");
+
+            String correlationId = EventContext.getCurrentCorrelationId();
+            logger.debug("[SAGA: {}] Adding order {} to book", correlationId, order.getId());
 
             // Get or create order book for the symbol
             OrderBook orderBook = getOrCreateOrderBook(order.getSymbol());
@@ -138,28 +73,30 @@ public class OrderBookApplicationService implements OrderBookService {
             // Save the updated order book
             orderBookRepository.save(orderBook);
 
-            // Check for matches and process if found
+            // Check for matches and publish events if found
             if (orderBook.hasRecentMatches()) {
                 List<OrderMatchedEvent> matchEvents = orderBook.consumeRecentMatchEvents();
 
-                // Publish events through infrastructure
-                eventPublisher.publishOrderMatchedEvents(matchEvents);
+                // Log for debugging/monitoring
+                logger.info("[SAGA: {}] Found {} matches for order {}",
+                        correlationId, matchEvents.size(), order.getId());
 
-                return OrderBookOperationResult.builder()
-                        .success(true)
-                        .message(String.format("Order added with %d matches", matchEvents.size()))
-                        .matchEvents(matchEvents)
-                        .orderId(order.getId())
-                        .build();
+                // Publish events to the saga (async)
+                eventPublisher.publishOrderMatchedEvents(matchEvents);
             }
 
+            // Always return simple success - matches are handled asynchronously
             return OrderBookOperationResult.builder()
                     .success(true)
-                    .message("Order added to book, no matches found")
+                    .message("Order added to book")
                     .orderId(order.getId())
                     .build();
 
         } catch (Exception e) {
+            logger.error("[SAGA: {}] Failed to add order {} to book",
+                    EventContext.getCurrentCorrelationId(),
+                    order != null ? order.getId() : "null", e);
+
             return OrderBookOperationResult.builder()
                     .success(false)
                     .message("Failed to add order: " + e.getMessage())
@@ -167,80 +104,15 @@ public class OrderBookApplicationService implements OrderBookService {
                     .build();
         }
     }
-    public OrderBookSummaryDTO getOrderBookSummary(Symbol symbol) {
-        Objects.requireNonNull(symbol, "Symbol cannot be null");
-
-        OrderBook orderBook = getOrCreateOrderBook(symbol);
-        OrderBookSummaryDTO summary = new OrderBookSummaryDTO();
-
-        summary.setSymbol(symbol.getCode());
-        summary.setBidLevels(orderBook.getBidLevels().size());
-        summary.setAskLevels(orderBook.getAskLevels().size());
-        summary.setTotalBidVolume(orderBook.getTotalBidVolume());
-        summary.setTotalAskVolume(orderBook.getTotalAskVolume());
-        summary.setTimestamp(LocalDateTime.now());
-
-        // Calculate imbalance
-        BigDecimal totalVolume = summary.getTotalBidVolume().add(summary.getTotalAskVolume());
-        if (totalVolume.compareTo(BigDecimal.ZERO) > 0) {
-            BigDecimal volumeDiff = summary.getTotalBidVolume().subtract(summary.getTotalAskVolume());
-            BigDecimal imbalance = volumeDiff.divide(totalVolume, 4, RoundingMode.HALF_UP);
-            summary.setImbalance(imbalance);
-        } else {
-            summary.setImbalance(BigDecimal.ZERO);
-        }
-
-        return summary;
-    }
-
-    /**
-     * Gets all active trading symbols.
-     */
-    public Set<Symbol> getActiveSymbols() {
-        Collection<OrderBook> allOrderBooks = orderBookRepository.findAll();
-        return allOrderBooks.stream()
-                .map(OrderBook::getSymbol)
-                .collect(Collectors.toSet());
-    }
-
-    /**
-     * Checks if an order book exists and is active for a symbol.
-     */
-    public boolean isOrderBookActive(Symbol symbol) {
-        return orderBookRepository.existsBySymbol(symbol);
-    }
-
-    /**
-     * Gets the total number of orders across all books.
-     */
-    public int getTotalOrderCount() {
-        return orderBookRepository.findAll().stream()
-                .mapToInt(OrderBook::getOrderCount)
-                .sum();
-    }
-
-    /**
-     * Gets market statistics for all symbols.
-     */
-    public Map<String, OrderBookStatisticsDTO> getAllMarketStatistics() {
-        Map<String, OrderBookStatisticsDTO> allStats = new HashMap<>();
-
-        for (OrderBook orderBook : orderBookRepository.findAll()) {
-            OrderBookStatisticsDTO stats = getOrderBookStatistics(orderBook.getSymbol());
-            allStats.put(orderBook.getSymbol().getCode(), stats);
-        }
-
-        return allStats;
-    }
-
-    // ===== HELPER METHODS (keep existing one) =====
-
 
     @Override
     public OrderBookOperationResult removeOrderFromBook(String orderId, Symbol symbol) {
         try {
             Objects.requireNonNull(orderId, "Order ID cannot be null");
             Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+            String correlationId = EventContext.getCurrentCorrelationId();
+            logger.debug("[SAGA: {}] Removing order {} from book", correlationId, orderId);
 
             Optional<OrderBook> orderBookOpt = orderBookRepository.findBySymbol(symbol);
 
@@ -254,8 +126,13 @@ public class OrderBookApplicationService implements OrderBookService {
 
             OrderBook orderBook = orderBookOpt.get();
 
-            // Note: This requires OrderBook to have removeOrderById method
-            // For now, we'll return a placeholder response
+            // This would require OrderBook to have removeOrderById method
+            // For now, returning success as placeholder
+            // TODO: Implement removeOrderById in OrderBook domain entity
+
+            orderBookRepository.save(orderBook);
+
+            logger.debug("[SAGA: {}] Order {} removed from book", correlationId, orderId);
 
             return OrderBookOperationResult.builder()
                     .success(true)
@@ -264,6 +141,9 @@ public class OrderBookApplicationService implements OrderBookService {
                     .build();
 
         } catch (Exception e) {
+            logger.error("[SAGA: {}] Failed to remove order {} from book",
+                    EventContext.getCurrentCorrelationId(), orderId, e);
+
             return OrderBookOperationResult.builder()
                     .success(false)
                     .message("Failed to remove order: " + e.getMessage())
@@ -273,42 +153,53 @@ public class OrderBookApplicationService implements OrderBookService {
     }
 
     @Override
-    public List<OrderMatchedEvent> processPendingMatches(Symbol symbol) {
+    public void processPendingMatches(Symbol symbol) {
         Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+        String correlationId = EventContext.getCurrentCorrelationId();
+        logger.debug("[SAGA: {}] Processing pending matches for symbol {}",
+                correlationId, symbol.getCode());
 
         Optional<OrderBook> orderBookOpt = orderBookRepository.findBySymbol(symbol);
 
         if (orderBookOpt.isEmpty()) {
-            return new ArrayList<>();
+            return; // No order book, nothing to process
         }
 
         OrderBook orderBook = orderBookOpt.get();
 
         if (orderBook.hasRecentMatches()) {
             List<OrderMatchedEvent> events = orderBook.consumeRecentMatchEvents();
-            eventPublisher.publishOrderMatchedEvents(events);
-            return events;
-        }
 
-        return new ArrayList<>();
+            logger.info("[SAGA: {}] Publishing {} pending matches for symbol {}",
+                    correlationId, events.size(), symbol.getCode());
+
+            // Publish events and forget - true black box behavior
+            eventPublisher.publishOrderMatchedEvents(events);
+        }
     }
 
     @Override
-    public List<OrderMatchedEvent> processAllPendingMatches() {
-        List<OrderMatchedEvent> allEvents = new ArrayList<>();
+    public void processAllPendingMatches() {
+        String correlationId = EventContext.getCurrentCorrelationId();
+        logger.debug("[SAGA: {}] Processing all pending matches", correlationId);
+
+        int totalMatches = 0;
 
         for (OrderBook orderBook : orderBookRepository.findAll()) {
             if (orderBook.hasRecentMatches()) {
                 List<OrderMatchedEvent> events = orderBook.consumeRecentMatchEvents();
-                allEvents.addAll(events);
+                totalMatches += events.size();
+
+                // Publish events internally
+                eventPublisher.publishOrderMatchedEvents(events);
             }
         }
 
-        if (!allEvents.isEmpty()) {
-            eventPublisher.publishOrderMatchedEvents(allEvents);
+        if (totalMatches > 0) {
+            logger.info("[SAGA: {}] Published {} total pending matches",
+                    correlationId, totalMatches);
         }
-
-        return allEvents;
     }
 
     @Override
@@ -349,12 +240,15 @@ public class OrderBookApplicationService implements OrderBookService {
             OrderBook orderBook = new OrderBook(symbol);
             orderBookRepository.save(orderBook);
 
+            logger.info("Order book created for symbol: {}", symbol.getCode());
+
             return OrderBookOperationResult.builder()
                     .success(true)
                     .message("Order book created for symbol: " + symbol.getCode())
                     .build();
 
         } catch (Exception e) {
+            logger.error("Failed to create order book for symbol: {}", symbol.getCode(), e);
             return OrderBookOperationResult.builder()
                     .success(false)
                     .message("Failed to create order book: " + e.getMessage())
@@ -370,6 +264,7 @@ public class OrderBookApplicationService implements OrderBookService {
             boolean removed = orderBookRepository.deleteBySymbol(symbol);
 
             if (removed) {
+                logger.info("Order book removed for symbol: {}", symbol.getCode());
                 return OrderBookOperationResult.builder()
                         .success(true)
                         .message("Order book removed for symbol: " + symbol.getCode())
@@ -382,6 +277,7 @@ public class OrderBookApplicationService implements OrderBookService {
             }
 
         } catch (Exception e) {
+            logger.error("Failed to remove order book for symbol: {}", symbol.getCode(), e);
             return OrderBookOperationResult.builder()
                     .success(false)
                     .message("Failed to remove order book: " + e.getMessage())
@@ -403,7 +299,143 @@ public class OrderBookApplicationService implements OrderBookService {
             orderBookRepository.save(orderBook);
         }
 
+        if (totalRemoved > 0) {
+            logger.info("Cleaned up {} inactive orders", totalRemoved);
+        }
+
         return totalRemoved;
+    }
+
+    @Override
+    public OrderBookTickerDTO getOrderBookTicker(Symbol symbol) {
+        Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+        OrderBook orderBook = getOrCreateOrderBook(symbol);
+        OrderBookTickerDTO ticker = new OrderBookTickerDTO();
+
+        ticker.setSymbol(symbol.getCode());
+        ticker.setCurrency(symbol.getQuoteCurrency());
+        ticker.setTimestamp(LocalDateTime.now());
+
+        // Get best bid
+        orderBook.getBestBid().ifPresent(bid -> {
+            ticker.setBidPrice(bid.getAmount());
+            orderBook.getBestBuyOrder().ifPresent(order ->
+                    ticker.setBidQuantity(order.getRemainingQuantity())
+            );
+        });
+
+        // Get best ask
+        orderBook.getBestAsk().ifPresent(ask -> {
+            ticker.setAskPrice(ask.getAmount());
+            orderBook.getBestSellOrder().ifPresent(order ->
+                    ticker.setAskQuantity(order.getRemainingQuantity())
+            );
+        });
+
+        // Calculate spread
+        orderBook.getSpread().ifPresent(spread ->
+                ticker.setSpread(spread.getAmount())
+        );
+
+        return ticker;
+    }
+
+    @Override
+    public OrderBookStatisticsDTO getOrderBookStatistics(Symbol symbol) {
+        Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+        OrderBook orderBook = getOrCreateOrderBook(symbol);
+        OrderBookStatisticsDTO stats = new OrderBookStatisticsDTO();
+
+        // Count orders
+        stats.setTotalBuyOrders((int) orderBook.getBidLevels().stream()
+                .mapToLong(level -> level.getOrderCount())
+                .sum());
+
+        stats.setTotalSellOrders((int) orderBook.getAskLevels().stream()
+                .mapToLong(level -> level.getOrderCount())
+                .sum());
+
+        // Volumes
+        stats.setTotalBuyVolume(orderBook.getTotalBidVolume());
+        stats.setTotalSellVolume(orderBook.getTotalAskVolume());
+
+        // Best prices
+        orderBook.getBestBid().ifPresent(bid -> {
+            stats.setBestBidPrice(bid.getAmount());
+            stats.setPriceCurrency(bid.getCurrency());
+        });
+
+        orderBook.getBestAsk().ifPresent(ask -> {
+            stats.setBestAskPrice(ask.getAmount());
+        });
+
+        // Spread
+        orderBook.getSpread().ifPresent(spread ->
+                stats.setSpread(spread.getAmount())
+        );
+
+        return stats;
+    }
+
+    @Override
+    public OrderBookSummaryDTO getOrderBookSummary(Symbol symbol) {
+        Objects.requireNonNull(symbol, "Symbol cannot be null");
+
+        OrderBook orderBook = getOrCreateOrderBook(symbol);
+        OrderBookSummaryDTO summary = new OrderBookSummaryDTO();
+
+        summary.setSymbol(symbol.getCode());
+        summary.setBidLevels(orderBook.getBidLevels().size());
+        summary.setAskLevels(orderBook.getAskLevels().size());
+        summary.setTotalBidVolume(orderBook.getTotalBidVolume());
+        summary.setTotalAskVolume(orderBook.getTotalAskVolume());
+        summary.setTimestamp(LocalDateTime.now());
+
+        // Calculate imbalance
+        BigDecimal totalVolume = summary.getTotalBidVolume().add(summary.getTotalAskVolume());
+        if (totalVolume.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal volumeDiff = summary.getTotalBidVolume().subtract(summary.getTotalAskVolume());
+            BigDecimal imbalance = volumeDiff.divide(totalVolume, 4, RoundingMode.HALF_UP);
+            summary.setImbalance(imbalance);
+        } else {
+            summary.setImbalance(BigDecimal.ZERO);
+        }
+
+        return summary;
+    }
+
+    @Override
+    public Set<Symbol> getActiveSymbols() {
+        Collection<OrderBook> allOrderBooks = orderBookRepository.findAll();
+        return allOrderBooks.stream()
+                .map(OrderBook::getSymbol)
+                .collect(Collectors.toSet());
+    }
+
+    @Override
+    public boolean isOrderBookActive(Symbol symbol) {
+        return orderBookRepository.existsBySymbol(symbol);
+    }
+
+    @Override
+    public int getTotalOrderCount() {
+        return orderBookRepository.findAll().stream()
+                .mapToInt(OrderBook::getOrderCount)
+                .sum();
+    }
+
+    @Override
+    public Map<String, OrderBookStatisticsDTO> getAllMarketStatistics() {
+        Map<String, OrderBookStatisticsDTO> allStats = new HashMap<>();
+
+        for (OrderBook orderBook : orderBookRepository.findAll()) {
+            OrderBookStatisticsDTO stats = getOrderBookStatistics(orderBook.getSymbol());
+            allStats.put(orderBook.getSymbol().getCode(), stats);
+        }
+
+        return allStats;
     }
 
     // Private helper method

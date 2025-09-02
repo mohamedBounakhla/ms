@@ -57,7 +57,7 @@ public class OrderBookSnapshotMapper {
     }
 
     public OrderBookSnapshot toDomain(OrderBookSnapshotEntity entity) {
-        Symbol symbol = createSymbol(entity.getSymbolCode());
+        Symbol symbol = Symbol.createFromCode(entity.getSymbolCode());
 
         List<OrderBookSnapshot.OrderSnapshot> buyOrders = entity.getOrders().stream()
                 .filter(o -> "BUY".equals(o.getOrderType()))
@@ -165,14 +165,5 @@ public class OrderBookSnapshotMapper {
     private String generateSnapshotId(Symbol symbol) {
         return IdGen.generate("snapshot") + "-" + symbol.getCode();
     }
-
-    private Symbol createSymbol(String symbolCode) {
-        return switch (symbolCode.toUpperCase()) {
-            case "BTC" -> Symbol.btcUsd();
-            case "ETH" -> Symbol.ethUsd();
-            case "EURUSD" -> Symbol.eurUsd();
-            case "GBPUSD" -> Symbol.gbpUsd();
-            default -> throw new IllegalArgumentException("Unsupported symbol: " + symbolCode);
-        };
-    }
+    
 }
