@@ -1,0 +1,31 @@
+// When Portfolio initiates the saga
+public void placeOrder(PlaceOrderCommand command) {
+    EventContext.startNewSaga(); // New correlation ID
+
+    Reservation reservation = createReservation(...);
+
+    eventBus.publish(new OrderRequestedEvent(
+        EventContext.getCurrentCorrelationId(),
+        "PORTFOLIO_BC",
+        reservationId,
+        portfolioId,
+        symbol,
+        price,
+        quantity
+    ));
+}
+
+// When Order BC reacts
+@EventListener
+public void handle(OrderRequestedEvent event) {
+    EventContext.setCorrelationId(event.getCorrelationId());
+
+    Order order = createOrder(...);
+
+    eventBus.publish(new OrderCreatedEvent(
+        event.getCorrelationId(), // Propagate same correlation
+        "ORDER_BC",
+        orderId,
+        ...
+    ));
+}

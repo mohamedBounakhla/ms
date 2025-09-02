@@ -1,0 +1,36 @@
+@startuml
+!theme plain
+participant Client
+participant "Portfolio BC" as Portfolio
+participant "Order BC" as Order
+participant "Order Book BC" as OrderBook
+
+Client -> Portfolio : Place Order Request
+Portfolio -> Portfolio : Create Reservation
+Portfolio --> Order : OrderRequestedEvent\n(reservationId, portfolioId)
+
+Order -> Order : Create Order\n(with reservation ref)
+Order --> Portfolio : OrderCreatedEvent
+Order --> OrderBook : OrderCreatedEvent
+
+alt Order Created Successfully
+    Portfolio -> Portfolio : Maintain Reservation
+else Order Creation Failed
+    Portfolio -> Portfolio : Release Reservation\n(on timeout/failure event)
+end
+
+OrderBook -> OrderBook : Add to Book\n& Check Matches
+
+alt Match Found
+    OrderBook --> Order : OrderMatchedEvent\n(buyOrderId, sellOrderId)
+    Order -> Order : Create Transaction
+    Order --> Portfolio : TransactionCreatedEvent
+    Order --> OrderBook : TransactionCreatedEvent
+
+    Portfolio -> Portfolio : Execute Reservations\n& Update Balances
+    OrderBook -> OrderBook : Update Order States
+else No Match
+    note over OrderBook : Order remains in book\nwaiting for match
+end
+
+@enduml
