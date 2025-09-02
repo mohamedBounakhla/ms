@@ -107,49 +107,25 @@ public class OrderBookApplicationService implements OrderBookService {
 
     @Override
     public OrderBookOperationResult removeOrderFromBook(String orderId, Symbol symbol) {
-        try {
-            Objects.requireNonNull(orderId, "Order ID cannot be null");
-            Objects.requireNonNull(symbol, "Symbol cannot be null");
+        OrderBook orderBook = orderBookRepository.findBySymbol(symbol)
+                .orElseThrow(() -> new IllegalArgumentException("Order book not found"));
 
-            String correlationId = EventContext.getCurrentCorrelationId();
-            logger.debug("[SAGA: {}] Removing order {} from book", correlationId, orderId);
+        boolean removed = orderBook.removeOrderById(orderId); // Need this method
 
-            Optional<OrderBook> orderBookOpt = orderBookRepository.findBySymbol(symbol);
-
-            if (orderBookOpt.isEmpty()) {
-                return OrderBookOperationResult.builder()
-                        .success(false)
-                        .message("Order book not found for symbol: " + symbol.getCode())
-                        .orderId(orderId)
-                        .build();
-            }
-
-            OrderBook orderBook = orderBookOpt.get();
-
-            // This would require OrderBook to have removeOrderById method
-            // For now, returning success as placeholder
-            // TODO: Implement removeOrderById in OrderBook domain entity
-
+        if (removed) {
             orderBookRepository.save(orderBook);
-
-            logger.debug("[SAGA: {}] Order {} removed from book", correlationId, orderId);
-
             return OrderBookOperationResult.builder()
                     .success(true)
-                    .message("Order removed from book")
-                    .orderId(orderId)
-                    .build();
-
-        } catch (Exception e) {
-            logger.error("[SAGA: {}] Failed to remove order {} from book",
-                    EventContext.getCurrentCorrelationId(), orderId, e);
-
-            return OrderBookOperationResult.builder()
-                    .success(false)
-                    .message("Failed to remove order: " + e.getMessage())
+                    .message("Order removed")
                     .orderId(orderId)
                     .build();
         }
+
+        return OrderBookOperationResult.builder()
+                .success(false)
+                .message("Order not found")
+                .orderId(orderId)
+                .build();
     }
 
     @Override

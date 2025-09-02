@@ -48,7 +48,17 @@ public class OrderBook {
 
         checkForMatches();
     }
+    public boolean removeOrderById(String orderId) {
+        IOrder order = orderIndex.remove(orderId);
+        if (order == null) return false;
 
+        if (order instanceof IBuyOrder) {
+            return bidSide.removeOrder((IBuyOrder) order);
+        } else if (order instanceof ISellOrder) {
+            return askSide.removeOrder((ISellOrder) order);
+        }
+        return false;
+    }
     // ============ MATCHING LOGIC ============
 
     private void checkForMatches() {

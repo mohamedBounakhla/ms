@@ -1,7 +1,7 @@
 package core.ms.order_book.application.event_handlers;
 
 import core.ms.order.domain.entities.IOrder;
-import core.ms.order.domain.ports.outbound.OrderRepository;
+import core.ms.order.domain.ports.inbound.OrderService;
 import core.ms.order_book.application.services.OrderBookApplicationService;
 import core.ms.order_book.domain.events.subscribe.OrderCreatedEvent;
 import core.ms.order_book.domain.events.subscribe.TransactionCreatedEvent;
@@ -11,8 +11,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Async;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 
 @Component
@@ -24,7 +29,25 @@ public class OrderBookSagaEventHandler extends CorrelationAwareEventListener {
     private OrderBookApplicationService orderBookService;
 
     @Autowired
-    private OrderRepository orderRepository;
+    private OrderService orderService;
+
+    // Cache to reduce service calls
+    private final Map<String, CachedOrder> orderCache = new ConcurrentHashMap<>();
+
+    // Cache wrapper class
+    private static class CachedOrder {
+        final IOrder order;
+        final LocalDateTime fetchTime;
+
+        CachedOrder(IOrder order) {
+            this.order = order;
+            this.fetchTime = LocalDateTime.now();
+        }
+
+        boolean isStale() {
+            return fetchTime.isBefore(LocalDateTime.now().minusSeconds(10));
+        }
+    }
 
     /**
      * Handles OrderCreatedEvent from Order BC.
@@ -40,10 +63,13 @@ public class OrderBookSagaEventHandler extends CorrelationAwareEventListener {
                     event.getSymbol().getCode(), event.getOrderType());
 
             try {
-                // Fetch the actual order from the repository
-                IOrder order = orderRepository.findById(event.getOrderId())
+                // Fetch order through Order BC's service layer
+                IOrder order = orderService.findOrderById(event.getOrderId())
                         .orElseThrow(() -> new IllegalStateException(
                                 "Order not found: " + event.getOrderId()));
+
+                // Cache the order for potential future use
+                orderCache.put(event.getOrderId(), new CachedOrder(order));
 
                 // Add to order book - black box operation
                 var result = orderBookService.addOrderToBook(order);
@@ -84,6 +110,9 @@ public class OrderBookSagaEventHandler extends CorrelationAwareEventListener {
 
                     orderBookService.removeOrderFromBook(
                             event.getBuyOrderId(), event.getSymbol());
+
+                    // Remove from cache since it's fully executed
+                    orderCache.remove(event.getBuyOrderId());
                 } else {
                     logger.debug("[SAGA: {}] Updating buy order {}: {} remaining",
                             event.getCorrelationId(), event.getBuyOrderId(),
@@ -99,6 +128,9 @@ public class OrderBookSagaEventHandler extends CorrelationAwareEventListener {
 
                     orderBookService.removeOrderFromBook(
                             event.getSellOrderId(), event.getSymbol());
+
+                    // Remove from cache since it's fully executed
+                    orderCache.remove(event.getSellOrderId());
                 } else {
                     logger.debug("[SAGA: {}] Updating sell order {}: {} remaining",
                             event.getCorrelationId(), event.getSellOrderId(),
@@ -122,13 +154,27 @@ public class OrderBookSagaEventHandler extends CorrelationAwareEventListener {
 
     /**
      * Updates an order in the book by removing and re-adding it.
-     * This is a black box operation - we don't care about matches.
+     * Uses caching to reduce service calls.
      */
     private void updateOrderInBook(String orderId, String correlationId) {
         try {
-            IOrder order = orderRepository.findById(orderId)
-                    .orElseThrow(() -> new IllegalStateException(
-                            "Order not found for update: " + orderId));
+            // Try cache first, refresh if stale or missing
+            CachedOrder cached = orderCache.get(orderId);
+            IOrder order;
+
+            if (cached != null && !cached.isStale()) {
+                order = cached.order;
+                logger.debug("[SAGA: {}] Using cached order {}", correlationId, orderId);
+            } else {
+                // Fetch fresh order from service
+                order = orderService.findOrderById(orderId)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "Order not found for update: " + orderId));
+
+                // Update cache
+                orderCache.put(orderId, new CachedOrder(order));
+                logger.debug("[SAGA: {}] Fetched fresh order {}", correlationId, orderId);
+            }
 
             // Remove old version
             orderBookService.removeOrderFromBook(orderId, order.getSymbol());
@@ -141,10 +187,31 @@ public class OrderBookSagaEventHandler extends CorrelationAwareEventListener {
                     logger.warn("[SAGA: {}] Failed to re-add order {} after update",
                             correlationId, orderId);
                 }
+            } else {
+                // Order is done, remove from cache
+                orderCache.remove(orderId);
             }
         } catch (Exception e) {
             logger.error("[SAGA: {}] Failed to update order {} in book",
                     correlationId, orderId, e);
+            // Clear from cache on error
+            orderCache.remove(orderId);
+        }
+    }
+
+    /**
+     * Periodic cleanup of stale cache entries to prevent memory leaks.
+     * Runs every minute.
+     */
+    @Scheduled(fixedDelay = 60000)
+    public void cleanupCache() {
+        int sizeBefore = orderCache.size();
+        orderCache.entrySet().removeIf(entry -> entry.getValue().isStale());
+        int sizeAfter = orderCache.size();
+
+        if (sizeBefore != sizeAfter) {
+            logger.debug("Cache cleanup: removed {} stale entries, {} orders remaining",
+                    sizeBefore - sizeAfter, sizeAfter);
         }
     }
 }
