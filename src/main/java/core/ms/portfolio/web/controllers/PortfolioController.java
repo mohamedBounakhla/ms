@@ -1,9 +1,6 @@
 package core.ms.portfolio.web.controllers;
 
-import core.ms.order.web.dto.response.ApiResponse;
-import core.ms.portfolio.application.dto.command.CreatePortfolioCommand;
-import core.ms.portfolio.application.dto.command.DepositCashCommand;
-import core.ms.portfolio.application.dto.command.WithdrawCashCommand;
+import core.ms.portfolio.application.dto.command.*;
 import core.ms.portfolio.application.dto.query.CashBalanceDTO;
 import core.ms.portfolio.application.dto.query.PortfolioDTO;
 import core.ms.portfolio.application.dto.query.PortfolioOperationResultDTO;
@@ -11,9 +8,11 @@ import core.ms.portfolio.application.services.PortfolioApplicationService;
 import core.ms.portfolio.domain.ports.inbound.PortfolioSnapshot;
 import core.ms.portfolio.web.dto.request.CashOperationRequest;
 import core.ms.portfolio.web.dto.request.CreatePortfolioRequest;
+import core.ms.portfolio.web.dto.request.PlaceOrderRequest;
 import core.ms.portfolio.web.mappers.PortfolioWebMapper;
 import core.ms.shared.money.Currency;
 import core.ms.shared.money.Money;
+import core.ms.shared.web.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -88,6 +87,60 @@ public class PortfolioController {
         }
     }
 
+    // ===== ORDER PLACEMENT (SAGA INITIATION) =====
+
+    @PostMapping("/{portfolioId}/orders/buy")
+    public ResponseEntity<ApiResponse<String>> placeBuyOrder(
+            @PathVariable @NotBlank String portfolioId,
+            @Valid @RequestBody PlaceOrderRequest request) {
+        try {
+            PlaceBuyOrderCommand command = new PlaceBuyOrderCommand();
+            command.setPortfolioId(portfolioId);
+            command.setSymbolCode(request.getSymbolCode());
+            command.setPrice(request.getPrice());
+            command.setCurrency(request.getCurrency());
+            command.setQuantity(request.getQuantity());
+
+            PortfolioOperationResultDTO result = portfolioService.placeBuyOrder(command);
+
+            if (result.isSuccess()) {
+                return ResponseEntity.ok(ApiResponse.success(result.getMessage(), portfolioId));
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.error(result.getMessage()));
+            }
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to place buy order: " + e.getMessage()));
+        }
+    }
+
+    @PostMapping("/{portfolioId}/orders/sell")
+    public ResponseEntity<ApiResponse<String>> placeSellOrder(
+            @PathVariable @NotBlank String portfolioId,
+            @Valid @RequestBody PlaceOrderRequest request) {
+        try {
+            PlaceSellOrderCommand command = new PlaceSellOrderCommand();
+            command.setPortfolioId(portfolioId);
+            command.setSymbolCode(request.getSymbolCode());
+            command.setPrice(request.getPrice());
+            command.setCurrency(request.getCurrency());
+            command.setQuantity(request.getQuantity());
+
+            PortfolioOperationResultDTO result = portfolioService.placeSellOrder(command);
+
+            if (result.isSuccess()) {
+                return ResponseEntity.ok(ApiResponse.success(result.getMessage(), portfolioId));
+            } else {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(ApiResponse.error(result.getMessage()));
+            }
+        } catch (Exception e) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(ApiResponse.error("Failed to place sell order: " + e.getMessage()));
+        }
+    }
+
     // ===== CASH OPERATIONS =====
 
     @PostMapping("/{portfolioId}/cash/deposit")
@@ -101,7 +154,8 @@ public class PortfolioController {
             PortfolioOperationResultDTO result = portfolioService.depositCash(command);
 
             if (result.isSuccess()) {
-                return ResponseEntity.ok(ApiResponse.success(result.getMessage(),request.getAmount().toString()));
+                return ResponseEntity.ok(ApiResponse.success(result.getMessage(),
+                        request.getAmount().toString() + " " + request.getCurrency()));
             } else {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(ApiResponse.error(result.getMessage()));
@@ -123,7 +177,8 @@ public class PortfolioController {
             PortfolioOperationResultDTO result = portfolioService.withdrawCash(command);
 
             if (result.isSuccess()) {
-                return ResponseEntity.ok(ApiResponse.success(result.getMessage(),request.getAmount().toString()+" "+request.getCurrency()));
+                return ResponseEntity.ok(ApiResponse.success(result.getMessage(),
+                        request.getAmount().toString() + " " + request.getCurrency()));
             } else {
                 return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                         .body(ApiResponse.error(result.getMessage()));
@@ -177,7 +232,7 @@ public class PortfolioController {
     public ResponseEntity<ApiResponse<String>> cleanupExpiredReservations() {
         try {
             portfolioService.cleanupExpiredReservations();
-            return ResponseEntity.ok(ApiResponse.success("Expired reservations cleaned up", null));
+            return ResponseEntity.ok(ApiResponse.success("Expired reservations cleaned up",null));
         } catch (Exception e) {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
                     .body(ApiResponse.error("Failed to cleanup reservations: " + e.getMessage()));

@@ -4,6 +4,7 @@ package core.ms.order_book.web.controllers;
 import core.ms.order_book.application.services.OrderBookApplicationService;
 import core.ms.order_book.web.mappers.OrderBookWebMapper;
 import core.ms.shared.money.Symbol;
+import core.ms.shared.web.ApiResponse;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -15,7 +16,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.*;
-import core.ms.order_book.web.dto.ApiResponse;
 
 @RestController
 @RequestMapping("/api/v1/internal/order-books")

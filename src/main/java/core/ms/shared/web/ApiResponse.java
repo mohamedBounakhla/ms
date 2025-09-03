@@ -1,4 +1,4 @@
-package core.ms.order_book.web.dto;
+package core.ms.shared.web;
 
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;

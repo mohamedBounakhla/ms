@@ -1,26 +1,19 @@
 package core.ms.portfolio.application.services;
 
-import core.ms.order.domain.entities.IBuyOrder;
-import core.ms.order.domain.entities.ISellOrder;
-import core.ms.portfolio.application.dto.command.CreatePortfolioCommand;
-import core.ms.portfolio.application.dto.command.DepositCashCommand;
-import core.ms.portfolio.application.dto.command.WithdrawCashCommand;
+import core.ms.portfolio.application.dto.command.*;
 import core.ms.portfolio.application.dto.query.PortfolioDTO;
 import core.ms.portfolio.application.dto.query.PortfolioOperationResultDTO;
 import core.ms.portfolio.domain.Portfolio;
 import core.ms.portfolio.domain.cash.CashManager;
-import core.ms.portfolio.domain.cash.CashReservation;
-import core.ms.portfolio.domain.events.subscribe.OrderCancelledEvent;
-import core.ms.portfolio.domain.events.subscribe.OrderExpiredEvent;
-import core.ms.portfolio.domain.events.subscribe.OrderRejectedEvent;
+import core.ms.portfolio.domain.events.subscribe.OrderCreatedEvent;
+import core.ms.portfolio.domain.events.subscribe.OrderCreationFailedEvent;
 import core.ms.portfolio.domain.events.subscribe.TransactionCreatedEvent;
-import core.ms.portfolio.domain.ports.inbound.OrderReservationResult;
-import core.ms.portfolio.domain.ports.inbound.PortfolioOperationResult;
 import core.ms.portfolio.domain.ports.inbound.PortfolioService;
 import core.ms.portfolio.domain.ports.inbound.PortfolioSnapshot;
 import core.ms.portfolio.domain.ports.outbound.*;
-import core.ms.portfolio.domain.positions.AssetReservation;
 import core.ms.portfolio.domain.positions.PositionManager;
+import core.ms.shared.OrderType;
+import core.ms.shared.events.CorrelationAwareEventListener;
 import core.ms.shared.events.DomainEvent;
 import core.ms.shared.money.Currency;
 import core.ms.shared.money.Money;
@@ -32,7 +25,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,19 +33,13 @@ import java.util.Optional;
 
 @Service
 @Transactional
-public class PortfolioApplicationService implements PortfolioService {
+public class PortfolioApplicationService extends CorrelationAwareEventListener implements PortfolioService {
 
     @Autowired
     private PortfolioRepository portfolioRepository;
 
     @Autowired
-    private ReservationRepository reservationRepository;
-
-    @Autowired
     private PortfolioEventPublisher eventPublisher;
-
-    @Autowired
-    private OrderServiceAdapter orderServiceAdapter;
 
     @Autowired
     private MarketDataAdapter marketDataAdapter;
@@ -90,51 +77,185 @@ public class PortfolioApplicationService implements PortfolioService {
         portfolioRepository.deleteById(portfolioId);
     }
 
-    // ===== CASH OPERATIONS =====
+    // ===== ORDER PLACEMENT (SAGA INITIATION) =====
 
-    @Override
-    public PortfolioOperationResult depositCash(String portfolioId, Money amount) {
+    /**
+     * Places a buy order - initiates saga by creating reservation and emitting OrderRequestedEvent
+     */
+    public PortfolioOperationResultDTO placeBuyOrder(PlaceBuyOrderCommand command) {
         try {
-            Portfolio portfolio = getPortfolioOrThrow(portfolioId);
-            portfolio.depositCash(amount);
+            Portfolio portfolio = getPortfolioOrThrow(command.getPortfolioId());
+
+            Symbol symbol = Symbol.createFromCode(command.getSymbolCode());
+            Money price = Money.of(command.getPrice(), Currency.valueOf(command.getCurrency()));
+
+            // Create domain command
+            Portfolio.PlaceOrderCommand domainCommand = new Portfolio.PlaceOrderCommand(
+                    symbol, price, command.getQuantity(), OrderType.BUY
+            );
+
+            // Start saga
+            portfolio.placeOrder(domainCommand);
+
+            // Save portfolio
             portfolioRepository.save(portfolio);
 
-            return PortfolioOperationResult.builder()
-                    .success(true)
-                    .portfolioId(portfolioId)
-                    .message("Cash deposited successfully")
-                    .build();
+            // Publish events
+            List<DomainEvent> events = portfolio.getAndClearEvents();
+            eventPublisher.publishEvents(events);
+
+            return PortfolioOperationResultDTO.success(
+                    command.getPortfolioId(),
+                    "Buy order requested successfully"
+            );
 
         } catch (Exception e) {
-            return PortfolioOperationResult.builder()
-                    .success(false)
-                    .portfolioId(portfolioId)
-                    .message("Failed to deposit cash: " + e.getMessage())
-                    .errors(List.of(e.getMessage()))
-                    .build();
+            return PortfolioOperationResultDTO.error(
+                    command.getPortfolioId(),
+                    "Failed to place buy order: " + e.getMessage()
+            );
         }
     }
 
-    @Override
-    public PortfolioOperationResult withdrawCash(String portfolioId, Money amount) {
+    /**
+     * Places a sell order - initiates saga by creating reservation and emitting OrderRequestedEvent
+     */
+    public PortfolioOperationResultDTO placeSellOrder(PlaceSellOrderCommand command) {
         try {
-            Portfolio portfolio = getPortfolioOrThrow(portfolioId);
+            Portfolio portfolio = getPortfolioOrThrow(command.getPortfolioId());
+
+            Symbol symbol = Symbol.createFromCode(command.getSymbolCode());
+            Money price = Money.of(command.getPrice(), Currency.valueOf(command.getCurrency()));
+
+            // Create domain command
+            Portfolio.PlaceOrderCommand domainCommand = new Portfolio.PlaceOrderCommand(
+                    symbol, price, command.getQuantity(), OrderType.SELL
+            );
+
+            // Start saga
+            portfolio.placeOrder(domainCommand);
+
+            // Save portfolio
+            portfolioRepository.save(portfolio);
+
+            // Publish events
+            List<DomainEvent> events = portfolio.getAndClearEvents();
+            eventPublisher.publishEvents(events);
+
+            return PortfolioOperationResultDTO.success(
+                    command.getPortfolioId(),
+                    "Sell order requested successfully"
+            );
+
+        } catch (Exception e) {
+            return PortfolioOperationResultDTO.error(
+                    command.getPortfolioId(),
+                    "Failed to place sell order: " + e.getMessage()
+            );
+        }
+    }
+
+    // ===== EVENT HANDLERS (SAGA PARTICIPANTS) =====
+
+    /**
+     * Handle OrderCreatedEvent from Order BC
+     */
+    @EventListener
+    public void handleOrderCreated(OrderCreatedEvent event) {
+        handleEvent(event, () -> {
+            Optional<Portfolio> portfolioOpt = portfolioRepository.findById(event.getPortfolioId());
+            if (portfolioOpt.isPresent()) {
+                Portfolio portfolio = portfolioOpt.get();
+                portfolio.handleOrderCreated(event);
+                portfolioRepository.save(portfolio);
+            }
+        });
+    }
+
+    /**
+     * Handle OrderCreationFailedEvent from Order BC
+     */
+    @EventListener
+    public void handleOrderCreationFailed(OrderCreationFailedEvent event) {
+        handleEvent(event, () -> {
+            Optional<Portfolio> portfolioOpt = portfolioRepository.findById(event.getPortfolioId());
+            if (portfolioOpt.isPresent()) {
+                Portfolio portfolio = portfolioOpt.get();
+                portfolio.handleOrderCreationFailed(event);
+                portfolioRepository.save(portfolio);
+            }
+        });
+    }
+
+    /**
+     * Handle TransactionCreatedEvent from Order BC
+     */
+    @EventListener
+    public void handleTransactionCreated(TransactionCreatedEvent event) {
+        handleEvent(event, () -> {
+            // Handle buy side portfolio
+            if (event.getBuyPortfolioId() != null) {
+                Optional<Portfolio> buyPortfolio = portfolioRepository.findById(event.getBuyPortfolioId());
+                if (buyPortfolio.isPresent()) {
+                    Portfolio portfolio = buyPortfolio.get();
+                    portfolio.handleTransactionCreated(event);
+                    portfolioRepository.save(portfolio);
+                }
+            }
+
+            // Handle sell side portfolio
+            if (event.getSellPortfolioId() != null) {
+                Optional<Portfolio> sellPortfolio = portfolioRepository.findById(event.getSellPortfolioId());
+                if (sellPortfolio.isPresent()) {
+                    Portfolio portfolio = sellPortfolio.get();
+                    portfolio.handleTransactionCreated(event);
+                    portfolioRepository.save(portfolio);
+                }
+            }
+        });
+    }
+
+    // ===== CASH OPERATIONS =====
+
+    public PortfolioOperationResultDTO depositCash(DepositCashCommand command) {
+        try {
+            Portfolio portfolio = getPortfolioOrThrow(command.getPortfolioId());
+            Money amount = Money.of(command.getAmount(), command.getCurrency());
+
+            portfolio.depositCash(amount);
+            portfolioRepository.save(portfolio);
+
+            return PortfolioOperationResultDTO.success(
+                    command.getPortfolioId(),
+                    "Cash deposited successfully"
+            );
+
+        } catch (Exception e) {
+            return PortfolioOperationResultDTO.error(
+                    command.getPortfolioId(),
+                    "Failed to deposit cash: " + e.getMessage()
+            );
+        }
+    }
+
+    public PortfolioOperationResultDTO withdrawCash(WithdrawCashCommand command) {
+        try {
+            Portfolio portfolio = getPortfolioOrThrow(command.getPortfolioId());
+            Money amount = Money.of(command.getAmount(), command.getCurrency());
+
             portfolio.withdrawCash(amount);
             portfolioRepository.save(portfolio);
 
-            return PortfolioOperationResult.builder()
-                    .success(true)
-                    .portfolioId(portfolioId)
-                    .message("Cash withdrawn successfully")
-                    .build();
+            return PortfolioOperationResultDTO.success(
+                    command.getPortfolioId(),
+                    "Cash withdrawn successfully"
+            );
 
         } catch (Exception e) {
-            return PortfolioOperationResult.builder()
-                    .success(false)
-                    .portfolioId(portfolioId)
-                    .message("Failed to withdraw cash: " + e.getMessage())
-                    .errors(List.of(e.getMessage()))
-                    .build();
+            return PortfolioOperationResultDTO.error(
+                    command.getPortfolioId(),
+                    "Failed to withdraw cash: " + e.getMessage()
+            );
         }
     }
 
@@ -182,13 +303,11 @@ public class PortfolioApplicationService implements PortfolioService {
             }
         }
 
-        // Collect all positions
+        // Collect all positions (simplified - would need to track all symbols)
         Map<Symbol, BigDecimal> positions = new HashMap<>();
         Map<Symbol, BigDecimal> reservedAssets = new HashMap<>();
-        // Note: This would need to be enhanced to track all symbols in portfolio
-        // For now, simplified implementation
 
-        // Calculate total value (would need market prices)
+        // Calculate total value
         Money totalValue = calculatePortfolioValue(cashBalances, positions);
 
         return new PortfolioSnapshot(
@@ -202,116 +321,6 @@ public class PortfolioApplicationService implements PortfolioService {
         );
     }
 
-    // ===== ORDER OPERATIONS =====
-
-    @Override
-    public OrderReservationResult placeBuyOrder(String portfolioId, String orderId,
-                                                Symbol symbol, Money price, BigDecimal quantity) {
-        try {
-            Portfolio portfolio = getPortfolioOrThrow(portfolioId);
-
-            // Get order from Order BC
-            Optional<IBuyOrder> orderOpt = orderServiceAdapter.findBuyOrderById(orderId);
-            if (orderOpt.isEmpty()) {
-                return OrderReservationResult.failed("Buy order not found: " + orderId);
-            }
-
-            IBuyOrder order = orderOpt.get();
-            CashReservation reservation = portfolio.placeBuyOrder(order);
-
-            // Save reservation
-            reservationRepository.saveCashReservation(reservation);
-
-            // Save portfolio
-            portfolioRepository.save(portfolio);
-
-            // Publish events
-            List<DomainEvent> events = portfolio.getAndClearEvents();
-            eventPublisher.publishEvents(events);
-
-            return OrderReservationResult.successfulCashReservation(
-                    reservation.getReservationId(), orderId);
-
-        } catch (Exception e) {
-            return OrderReservationResult.failed("Failed to place buy order: " + e.getMessage());
-        }
-    }
-
-    @Override
-    public OrderReservationResult placeSellOrder(String portfolioId, String orderId,
-                                                 Symbol symbol, Money price, BigDecimal quantity) {
-        try {
-            Portfolio portfolio = getPortfolioOrThrow(portfolioId);
-
-            // Get order from Order BC
-            Optional<ISellOrder> orderOpt = orderServiceAdapter.findSellOrderById(orderId);
-            if (orderOpt.isEmpty()) {
-                return OrderReservationResult.failed("Sell order not found: " + orderId);
-            }
-
-            ISellOrder order = orderOpt.get();
-            AssetReservation reservation = portfolio.placeSellOrder(order);
-
-            // Save reservation
-            reservationRepository.saveAssetReservation(reservation);
-
-            // Save portfolio
-            portfolioRepository.save(portfolio);
-
-            // Publish events
-            List<DomainEvent> events = portfolio.getAndClearEvents();
-            eventPublisher.publishEvents(events);
-
-            return OrderReservationResult.successfulAssetReservation(
-                    reservation.getReservationId(), orderId);
-
-        } catch (Exception e) {
-            return OrderReservationResult.failed("Failed to place sell order: " + e.getMessage());
-        }
-    }
-
-    // ===== EVENT HANDLERS =====
-
-    @EventListener
-    public void handleTransactionCreated(TransactionCreatedEvent event) {
-        Optional<Portfolio> portfolioOpt = portfolioRepository.findById(event.getPortfolioId());
-        if (portfolioOpt.isPresent()) {
-            Portfolio portfolio = portfolioOpt.get();
-            portfolio.handleTransactionCreated(event);
-            portfolioRepository.save(portfolio);
-        }
-    }
-
-    @EventListener
-    public void handleOrderCancelled(OrderCancelledEvent event) {
-        Optional<Portfolio> portfolioOpt = portfolioRepository.findById(event.getPortfolioId());
-        if (portfolioOpt.isPresent()) {
-            Portfolio portfolio = portfolioOpt.get();
-            portfolio.handleOrderCancelled(event);
-            portfolioRepository.save(portfolio);
-        }
-    }
-
-    @EventListener
-    public void handleOrderExpired(OrderExpiredEvent event) {
-        Optional<Portfolio> portfolioOpt = portfolioRepository.findById(event.getPortfolioId());
-        if (portfolioOpt.isPresent()) {
-            Portfolio portfolio = portfolioOpt.get();
-            portfolio.handleOrderExpired(event);
-            portfolioRepository.save(portfolio);
-        }
-    }
-
-    @EventListener
-    public void handleOrderRejected(OrderRejectedEvent event) {
-        Optional<Portfolio> portfolioOpt = portfolioRepository.findById(event.getPortfolioId());
-        if (portfolioOpt.isPresent()) {
-            Portfolio portfolio = portfolioOpt.get();
-            portfolio.handleOrderRejected(event);
-            portfolioRepository.save(portfolio);
-        }
-    }
-
     // ===== MAINTENANCE =====
 
     @Override
@@ -322,22 +331,12 @@ public class PortfolioApplicationService implements PortfolioService {
             portfolio.cleanupExpiredReservations();
             portfolioRepository.save(portfolio);
         }
-
-        // Also cleanup from repository
-        Instant cutoff = Instant.now().minusSeconds(300); // 5 minutes ago
-        int deleted = reservationRepository.deleteExpiredReservationsBefore(cutoff);
-        if (deleted > 0) {
-            System.out.println("Cleaned up " + deleted + " expired reservations");
-        }
     }
 
     @Override
     public int getActiveReservationsCount(String portfolioId) {
-        List<CashReservation> cashReservations =
-                reservationRepository.findCashReservationsByPortfolioId(portfolioId);
-        List<AssetReservation> assetReservations =
-                reservationRepository.findAssetReservationsByPortfolioId(portfolioId);
-        return cashReservations.size() + assetReservations.size();
+        // This would need to be enhanced to track reservation counts
+        return 0;
     }
 
     // ===== DTO CONVERSION METHODS =====
@@ -345,24 +344,16 @@ public class PortfolioApplicationService implements PortfolioService {
     public PortfolioOperationResultDTO createPortfolio(CreatePortfolioCommand command) {
         try {
             Portfolio portfolio = createPortfolio(command.getPortfolioId(), command.getOwnerId());
-            return PortfolioOperationResultDTO.success(portfolio.getPortfolioId(),
-                    "Portfolio created successfully");
+            return PortfolioOperationResultDTO.success(
+                    portfolio.getPortfolioId(),
+                    "Portfolio created successfully"
+            );
         } catch (Exception e) {
-            return PortfolioOperationResultDTO.error(command.getPortfolioId(),
-                    "Failed to create portfolio: " + e.getMessage());
+            return PortfolioOperationResultDTO.error(
+                    command.getPortfolioId(),
+                    "Failed to create portfolio: " + e.getMessage()
+            );
         }
-    }
-
-    public PortfolioOperationResultDTO depositCash(DepositCashCommand command) {
-        Money amount = Money.of(command.getAmount(), command.getCurrency());
-        PortfolioOperationResult result = depositCash(command.getPortfolioId(), amount);
-        return mapToDTO(result);
-    }
-
-    public PortfolioOperationResultDTO withdrawCash(WithdrawCashCommand command) {
-        Money amount = Money.of(command.getAmount(), command.getCurrency());
-        PortfolioOperationResult result = withdrawCash(command.getPortfolioId(), amount);
-        return mapToDTO(result);
     }
 
     public Optional<PortfolioDTO> findPortfolioByIdAsDTO(String portfolioId) {
@@ -382,15 +373,15 @@ public class PortfolioApplicationService implements PortfolioService {
         // Calculate total value in USD (simplified)
         Money totalValue = Money.zero(Currency.USD);
 
-        // Add cash values (would need exchange rates for non-USD)
+        // Add cash values
         for (Money cash : cashBalances.values()) {
             if (cash.getCurrency() == Currency.USD) {
                 totalValue = totalValue.add(cash);
             }
-            // For other currencies, would need to convert
+            // For other currencies, would need exchange rates
         }
 
-        // Add position values (would need market prices)
+        // Add position values
         for (Map.Entry<Symbol, BigDecimal> entry : positions.entrySet()) {
             Optional<Money> priceOpt = marketDataAdapter.getCurrentPrice(entry.getKey());
             if (priceOpt.isPresent()) {
@@ -404,14 +395,6 @@ public class PortfolioApplicationService implements PortfolioService {
         return totalValue;
     }
 
-    private PortfolioOperationResultDTO mapToDTO(PortfolioOperationResult result) {
-        if (result.isSuccess()) {
-            return PortfolioOperationResultDTO.success(result.getPortfolioId(), result.getMessage());
-        } else {
-            return PortfolioOperationResultDTO.error(result.getPortfolioId(), result.getMessage());
-        }
-    }
-
     private PortfolioDTO mapToDTO(Portfolio portfolio) {
         PortfolioSnapshot snapshot = getPortfolioSnapshot(portfolio.getPortfolioId());
         return new PortfolioDTO(
@@ -420,7 +403,51 @@ public class PortfolioApplicationService implements PortfolioService {
                 snapshot.getCashBalances(),
                 snapshot.getPositions(),
                 snapshot.getTotalValue(),
-                snapshot.getTimestamp()
+                LocalDateTime.now()
         );
+    }
+
+    // ===== LEGACY INTERFACE IMPLEMENTATIONS =====
+
+    @Override
+    @Deprecated
+    public core.ms.portfolio.domain.ports.inbound.PortfolioOperationResult depositCash(String portfolioId, Money amount) {
+        DepositCashCommand command = new DepositCashCommand(portfolioId, amount.getAmount(), amount.getCurrency());
+        PortfolioOperationResultDTO result = depositCash(command);
+        return mapToLegacyResult(result);
+    }
+
+    @Override
+    @Deprecated
+    public core.ms.portfolio.domain.ports.inbound.PortfolioOperationResult withdrawCash(String portfolioId, Money amount) {
+        WithdrawCashCommand command = new WithdrawCashCommand(portfolioId, amount.getAmount(), amount.getCurrency());
+        PortfolioOperationResultDTO result = withdrawCash(command);
+        return mapToLegacyResult(result);
+    }
+
+    @Override
+    @Deprecated
+    public core.ms.portfolio.domain.ports.inbound.OrderReservationResult placeBuyOrder(
+            String portfolioId, String orderId, Symbol symbol, Money price, BigDecimal quantity) {
+        // This legacy method is no longer used with the saga pattern
+        throw new UnsupportedOperationException("Use placeBuyOrder(PlaceBuyOrderCommand) instead");
+    }
+
+    @Override
+    @Deprecated
+    public core.ms.portfolio.domain.ports.inbound.OrderReservationResult placeSellOrder(
+            String portfolioId, String orderId, Symbol symbol, Money price, BigDecimal quantity) {
+        // This legacy method is no longer used with the saga pattern
+        throw new UnsupportedOperationException("Use placeSellOrder(PlaceSellOrderCommand) instead");
+    }
+
+    private core.ms.portfolio.domain.ports.inbound.PortfolioOperationResult mapToLegacyResult(
+            PortfolioOperationResultDTO dto) {
+        return core.ms.portfolio.domain.ports.inbound.PortfolioOperationResult.builder()
+                .success(dto.isSuccess())
+                .portfolioId(dto.getPortfolioId())
+                .message(dto.getMessage())
+                .errors(dto.getErrors())
+                .build();
     }
 }
