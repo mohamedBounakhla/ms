@@ -2,18 +2,24 @@ spring:
   application:
     name: ms
 
-  # DataSource Configuration
+  # DataSource Configuration - CHANGED TO H2 FOR DEMO
   datasource:
-    url: jdbc:postgresql://localhost:5432/msdb
-    driver-class-name: org.postgresql.Driver
-    username: postgres
-    password: postgres
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  # H2 Console (useful for debugging)
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
 
   # JPA/Hibernate Configuration
   jpa:
-    database-platform: org.hibernate.dialect.PostgreSQLDialect
+    database-platform: org.hibernate.dialect.H2Dialect
     hibernate:
-      ddl-auto: validate
+      ddl-auto: create-drop  # CHANGED: Auto-create schema on startup
     show-sql: true
     properties:
       hibernate:
@@ -21,20 +27,16 @@ spring:
         jdbc:
           lob:
             non_contextual_creation: true
-    defer-datasource-initialization: false
+    defer-datasource-initialization: true  # CHANGED: Allow data.sql to run after schema creation
 
   # SQL Initialization
   sql:
     init:
-      mode: never
+      mode: always  # CHANGED: Initialize with sample data if needed
 
-  # Flyway Configuration
+  # Flyway Configuration - DISABLED FOR DEMO
   flyway:
-    enabled: true
-    locations: classpath:db/migration
-    baseline-on-migrate: true
-    baseline-version: 1
-    validate-on-migrate: true
+    enabled: false  # CHANGED: Disabled since we're using create-drop
 
   # Jackson Configuration (for JSON serialization)
   jackson:
@@ -46,6 +48,7 @@ spring:
     scheduling:
       pool:
         size: 2
+
 # Server Configuration
 server:
   port: 8080
@@ -61,7 +64,7 @@ logging:
     org.springframework: INFO
     org.hibernate.SQL: DEBUG
     org.hibernate.type.descriptor.sql.BasicBinder: TRACE
-    org.flywaydb: INFO
+    core.ms: DEBUG  # ADDED: Better logging for your code
 
 # OrderBook Configuration
 orderbook:
@@ -77,3 +80,8 @@ orderbook:
   cache:
     enabled: true
     ttl-seconds: 60
+
+# Order Service URL for internal communication
+order:
+  service:
+    url: http://localhost:8080

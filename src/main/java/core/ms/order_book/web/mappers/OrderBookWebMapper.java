@@ -10,8 +10,8 @@ import core.ms.order_book.domain.ports.inbound.OrderBookOperationResult;
 import core.ms.order_book.domain.value_object.IPriceLevel;
 import core.ms.order_book.domain.value_object.MarketDepth;
 import core.ms.order_book.domain.value_object.MarketOverview;
-import core.ms.order_book.web.dto.ApiResponse;
 import core.ms.shared.money.Symbol;
+import core.ms.shared.web.ApiResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
