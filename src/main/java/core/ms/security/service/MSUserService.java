@@ -4,7 +4,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import core.ms.security.domain.MSUser;
 import core.ms.security.domain.MSUserRole;
 import core.ms.security.exception.UsernameAlreadyExistException;
-import core.ms.security.DAO.MSUserDAO;
+import core.ms.security.dao.MSUserDAO;
 import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;

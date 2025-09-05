@@ -24,7 +24,7 @@ public interface TokenService {
      * @param subject Le sujet du token (généralement l'identifiant de l'utilisateur)
      * @return Le token généré
      */
-    String generateToken(Map<String, Object> claims, String subject);
+    public String generateToken(Map<String, Object> claims, String subject);
 
     /**
      * Extrait le nom d'utilisateur d'un token

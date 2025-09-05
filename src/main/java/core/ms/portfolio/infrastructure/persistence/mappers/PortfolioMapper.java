@@ -9,28 +9,38 @@ import core.ms.portfolio.infrastructure.persistence.entities.PositionEntity;
 import core.ms.shared.money.Money;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+
 @Component
 public class PortfolioMapper {
 
     public PortfolioEntity toEntity(Portfolio portfolio) {
+        // Check if entity already exists
         PortfolioEntity entity = new PortfolioEntity(
                 portfolio.getPortfolioId(),
                 portfolio.getOwnerId()
         );
 
-        // Map cash balances
+        // Map cash balances - check for existing ones
         for (var currency : core.ms.shared.money.Currency.values()) {
             Money total = portfolio.getTotalCash(currency);
             if (total.isPositive()) {
-                CashBalanceEntity cashBalance = new CashBalanceEntity(currency, total.getAmount());
+                // Check if cash balance already exists for this portfolio/currency
+                CashBalanceEntity cashBalance = entity.getCashBalances().stream()
+                        .filter(cb -> cb.getCurrency() == currency)
+                        .findFirst()
+                        .orElse(new CashBalanceEntity(currency, total.getAmount()));
+
                 Money reserved = portfolio.getReservedCash(currency);
+                cashBalance.setBalance(total.getAmount());
                 cashBalance.setReservedAmount(reserved.getAmount());
-                entity.addCashBalance(cashBalance);
+                cashBalance.setUpdatedAt(LocalDateTime.now());
+
+                if (!entity.getCashBalances().contains(cashBalance)) {
+                    entity.addCashBalance(cashBalance);
+                }
             }
         }
-
-        // Map positions (simplified - would need to track all symbols)
-        // This would need enhancement to properly track all positions
 
         return entity;
     }

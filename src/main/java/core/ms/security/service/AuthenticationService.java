@@ -1,7 +1,7 @@
 package core.ms.security.service;
 
-import core.ms.security.DTO.LoginRequestDTO;
-import core.ms.security.DTO.TokenResponseDTO;
+import core.ms.security.dto.LoginRequestDTO;
+import core.ms.security.dto.TokenResponseDTO;
 
 public interface AuthenticationService {
     /**

@@ -55,16 +55,16 @@ dependencies {
     annotationProcessor("org.projectlombok:lombok")
 
     // Development
-    developmentOnly("org.springframework.boot:spring-boot-devtools")
-    developmentOnly("org.springframework.boot:spring-boot-docker-compose")
+   // developmentOnly("org.springframework.boot:spring-boot-devtools")
+   // developmentOnly("org.springframework.boot:spring-boot-docker-compose")
 
     // Database
-    runtimeOnly("org.postgresql:postgresql")
+   // testRuntimeOnly("org.postgresql:postgresql")
     runtimeOnly("com.h2database:h2:2.1.214")
 
     // Database Migrations
     implementation("org.flywaydb:flyway-core")
-    runtimeOnly("org.flywaydb:flyway-database-postgresql")
+  //  runtimeOnly("org.flywaydb:flyway-database-postgresql")
 
     // Configuration processing
     annotationProcessor("org.springframework.boot:spring-boot-configuration-processor")
@@ -82,7 +82,7 @@ dependencies {
     testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.testcontainers:kafka")
-    testImplementation("org.testcontainers:postgresql")
+   // testImplementation("org.testcontainers:postgresql")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

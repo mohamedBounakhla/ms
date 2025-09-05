@@ -1,0 +1,153 @@
+Trading System Architecture - Bounded Contexts Overview
+1. Portfolio Bounded Context
+Purpose: Manages user portfolios, cash balances, and asset positions
+Core Responsibilities
+
+Portfolio lifecycle (creation, deletion)
+Cash management (deposits, withdrawals, reservations)
+Asset position tracking (quantities, average costs, P&L)
+Order placement initiation (saga orchestration starter)
+Transaction settlement (updating balances after trades)
+
+Domain Model
+
+Portfolio Aggregate: Root aggregate containing cash and positions
+CashManager: Manages multi-currency balances with reservation system
+PositionManager: Tracks asset holdings with reservation system
+Reservation System: Internal state management for pending orders
+
+Saga Participation
+
+Initiates: OrderRequestedEvent (starts order placement saga)
+Listens to: OrderCreatedEvent, OrderCreationFailedEvent, TransactionCreatedEvent
+Compensates: Releases reservations on failure
+
+
+2. Order Bounded Context
+Purpose: Manages order lifecycle and matching engine
+Core Responsibilities
+
+Order creation and validation
+Order state management (Open, Filled, Cancelled)
+Order matching logic
+Transaction creation when orders match
+Order book maintenance
+
+Domain Model
+
+Order Aggregate: Buy/Sell orders with status tracking
+MatchingEngine: Finds compatible orders and creates transactions
+Transaction: Record of executed trades between matched orders
+
+Saga Participation
+
+Listens to: OrderRequestedEvent (from Portfolio BC)
+Emits: OrderCreatedEvent, OrderCreationFailedEvent, TransactionCreatedEvent
+Handles: Order matching and transaction execution
+
+
+3. Order Book Bounded Context
+Purpose: Maintains market depth and price discovery
+Core Responsibilities
+
+Real-time bid/ask ladder maintenance
+Best bid/offer calculation
+Market depth analysis
+Price feed generation
+OHLC (candlestick) data aggregation
+
+Domain Model
+
+OrderBook Aggregate: Bid/ask levels for each symbol
+PriceLevel: Aggregated orders at specific price points
+MarketDepth: Liquidity analysis at various price levels
+
+Event Integration
+
+Listens to: OrderCreatedEvent, OrderCancelledEvent, TransactionCreatedEvent
+Provides: Real-time market data for other BCs
+
+
+4. Trading Bot Module (Utility Layer)
+Purpose: Automated trading agents for simulation
+Core Responsibilities
+
+Bot lifecycle management
+Strategy execution (Random, Momentum)
+Automated order placement
+Performance tracking
+
+Design Pattern
+
+Simple layered architecture (not hexagonal)
+Acts as external client to Portfolio BC
+No domain complexity - pure orchestration
+
+Integration
+
+Uses Portfolio BC APIs for order placement
+Consumes market data from Order Book BC
+Each bot owns one portfolio
+
+
+Event Choreography (Saga Pattern)
+Order Placement Saga Flow
+1. User/Bot → Portfolio BC: Place order request
+2. Portfolio BC: Create reservation → Emit OrderRequestedEvent
+3. Order BC: Receive event → Validate → Create order
+4. Order BC: Emit OrderCreatedEvent or OrderCreationFailedEvent
+5. Portfolio BC: Confirm or release reservation
+6. Order BC: Match orders → Create transaction
+7. Order BC: Emit TransactionCreatedEvent
+8. Portfolio BC: Execute reservations → Update balances
+9. Order Book BC: Update market depth
+Key Design Decisions
+
+Choreography over Orchestration: No central coordinator
+Eventual Consistency: Each BC maintains its own state
+Compensation Logic: Automatic rollback on failures
+Correlation Tracking: ThreadLocal correlation IDs for saga tracing
+
+
+Technical Architecture
+Shared Components
+
+EventBus: Spring ApplicationEventPublisher for in-JVM events
+Money/Currency: Value objects with precision handling
+Symbol: Trading pair definitions
+EventContext: Correlation ID management
+
+Persistence
+
+Each BC has its own data model
+JPA entities with repository pattern
+No shared database tables
+
+Communication
+
+Synchronous: REST APIs for queries
+Asynchronous: Domain events for commands
+WebSocket: Real-time updates (planned)
+
+Deployment Model (Academic)
+
+Single Spring Boot application
+Multiple modules within same JVM
+Shared event bus for simplicity
+H2 in-memory database for demo
+
+
+System Boundaries
+What Each BC Owns
+
+Portfolio BC: User funds and positions
+Order BC: Order state and matching
+Order Book BC: Market depth and prices
+Bot Module: Automation logic only
+
+What Each BC Doesn't Know
+
+Portfolio BC doesn't know about order matching algorithms
+Order BC doesn't know about user balances (only reservations)
+Order Book BC doesn't know about user portfolios
+Bots don't know about internal domain logic

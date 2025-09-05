@@ -1,7 +1,7 @@
 package core.ms.security.service;
 
-import core.ms.security.DTO.LoginRequestDTO;
-import core.ms.security.DTO.TokenResponseDTO;
+import core.ms.security.dto.LoginRequestDTO;
+import core.ms.security.dto.TokenResponseDTO;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UserDetails;

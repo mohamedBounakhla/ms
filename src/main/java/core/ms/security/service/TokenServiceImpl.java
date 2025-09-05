@@ -42,15 +42,15 @@ public class TokenServiceImpl implements TokenService {
         Date now = new Date();
         Date expiration = new Date(now.getTime() + this.jwtExpiration);
 
-        // Utilisation de Keys pour générer une clé sécurisée
         SecretKey key = Keys.hmacShaKeyFor(secretKey.getBytes());
 
+        // Ensure we're using the correct algorithm
         return Jwts.builder()
                 .claims(claims)
                 .subject(subject)
                 .issuedAt(now)
                 .expiration(expiration)
-                .signWith(key, SignatureAlgorithm.HS256)
+                .signWith(key) // Let the library choose the right algorithm
                 .compact();
     }
 

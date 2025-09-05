@@ -1,8 +1,10 @@
 package core.ms.shared.money;
 
+import core.ms.symbol.resolver.SymbolResolver;
+
 import java.util.Objects;
 
-public class Symbol {
+public class Symbol implements Comparable<Symbol> {
     private final String code;
     private final String name;
     private final AssetType type;
@@ -108,6 +110,12 @@ public class Symbol {
     }
 
     public static Symbol createFromCode(String symbolCode) {
+        // Try to get from service first if available
+        if (SymbolResolver.isInitialized()) {
+            return SymbolResolver.resolve(symbolCode);
+        }
+
+        // Fallback to hardcoded values
         return switch (symbolCode.toUpperCase()) {
             case "BTC" -> btcUsd();
             case "ETH" -> ethUsd();
@@ -128,6 +136,14 @@ public class Symbol {
                 type == symbol.type &&
                 baseCurrency == symbol.baseCurrency &&
                 quoteCurrency == symbol.quoteCurrency;
+    }
+    @Override
+    public int compareTo(Symbol other) {
+        if (other == null) {
+            return 1;
+        }
+        // Compare by code primarily
+        return this.code.compareTo(other.code);
     }
 
     @Override

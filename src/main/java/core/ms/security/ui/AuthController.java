@@ -1,7 +1,7 @@
 package core.ms.security.ui;
 
-import core.ms.security.DTO.LoginRequestDTO;
-import core.ms.security.DTO.TokenResponseDTO;
+import core.ms.security.dto.LoginRequestDTO;
+import core.ms.security.dto.TokenResponseDTO;
 import core.ms.security.domain.MSUserRole;
 import core.ms.security.exception.UsernameAlreadyExistException;
 import core.ms.security.service.AuthenticationService;

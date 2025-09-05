@@ -1,17 +1,17 @@
 package core.ms.order_book.application.services;
 
-import core.ms.order.web.controllers.TransactionController;
+import core.ms.order.domain.entities.ITransaction;
+import core.ms.order.domain.ports.inbound.TransactionService;
 import core.ms.order_book.application.dto.query.CandlestickDTO;
 import core.ms.order_book.application.dto.query.CandlestickUpdate;
 import core.ms.order_book.domain.events.subscribe.TransactionCreatedEvent;
+import core.ms.shared.money.Symbol;
 import core.ms.utils.TimeInterval;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.event.EventListener;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -24,13 +24,10 @@ import java.util.stream.Collectors;
 public class CandlestickService {
 
     @Autowired
-    private RestTemplate restTemplate;
+    private TransactionService transactionService;
 
     @Autowired
     private SimpMessagingTemplate messagingTemplate;
-
-    @Value("${order.service.url:http://localhost:8080}")
-    private String orderServiceUrl;
 
     // Active candle builders for real-time updates
     private final Map<String, CurrentCandleBuilder> activeCandles = new ConcurrentHashMap<>();
@@ -44,7 +41,7 @@ public class CandlestickService {
     public List<CandlestickDTO> getCandlesticks(String symbol, TimeInterval interval,
                                                 LocalDateTime from, LocalDateTime to) {
 
-        // Fetch historical transactions from Order BC
+        // Fetch historical transactions directly from service
         List<TransactionData> historicalData = fetchHistoricalTransactions(symbol, from, to);
 
         // Aggregate into candlesticks
@@ -73,6 +70,16 @@ public class CandlestickService {
                         event.getExecutedQuantity(),
                         event.getOccurredAt()
                 ));
+
+        // Clean up old entries if list gets too large
+        List<TransactionData> transactions = recentTransactions.get(symbol);
+        if (transactions.size() > 1000) {
+            // Keep only last 1000 transactions
+            List<TransactionData> trimmed = new ArrayList<>(
+                    transactions.subList(transactions.size() - 1000, transactions.size())
+            );
+            recentTransactions.put(symbol, trimmed);
+        }
 
         // Update all interval candles for this symbol
         for (TimeInterval interval : TimeInterval.values()) {
@@ -123,6 +130,11 @@ public class CandlestickService {
         closeAndBroadcastCandles(TimeInterval.ONE_HOUR);
     }
 
+    @Scheduled(cron = "0 0 0 * * *") // Every day at midnight
+    public void closeDailyCandles() {
+        closeAndBroadcastCandles(TimeInterval.ONE_DAY);
+    }
+
     private void closeAndBroadcastCandles(TimeInterval interval) {
         activeCandles.entrySet().stream()
                 .filter(e -> e.getKey().endsWith("-" + interval))
@@ -140,18 +152,27 @@ public class CandlestickService {
                 });
     }
 
+    /**
+     * Fetch historical transactions using direct service call
+     */
     private List<TransactionData> fetchHistoricalTransactions(String symbol,
                                                               LocalDateTime from,
                                                               LocalDateTime to) {
-        String url = orderServiceUrl + "/api/v1/internal/transactions/history" +
-                "?symbol={symbol}&from={from}&to={to}";
+        // Convert string symbol to domain Symbol
+        Symbol domainSymbol = Symbol.createFromCode(symbol);
 
-        TransactionController.TransactionDataDTO[] response = restTemplate.getForObject(
-                url, TransactionController.TransactionDataDTO[].class, symbol, from, to
-        );
+        // Direct service call - no REST, no authentication issues
+        List<ITransaction> transactions = transactionService.findTransactionsByDateRange(from, to);
 
-        return Arrays.stream(response)
-                .map(dto -> new TransactionData(dto.getPrice(), dto.getQuantity(), dto.getTimestamp()))
+        // Filter by symbol and convert to internal data structure
+        return transactions.stream()
+                .filter(tx -> tx.getSymbol().equals(domainSymbol))
+                .map(tx -> new TransactionData(
+                        tx.getPrice().getAmount(),
+                        tx.getQuantity(),
+                        tx.getCreatedAt()
+                ))
+                .sorted(Comparator.comparing(TransactionData::timestamp))
                 .collect(Collectors.toList());
     }
 
@@ -195,8 +216,22 @@ public class CandlestickService {
                     .withMinute((time.getMinute() / 15) * 15);
             case ONE_HOUR -> time.truncatedTo(ChronoUnit.HOURS);
             case ONE_DAY -> time.truncatedTo(ChronoUnit.DAYS);
-            default -> time.truncatedTo(ChronoUnit.MINUTES);
         };
+    }
+
+    /**
+     * Cleanup old cached transactions periodically
+     */
+    @Scheduled(fixedDelay = 3600000) // Every hour
+    public void cleanupOldTransactions() {
+        LocalDateTime cutoff = LocalDateTime.now().minusHours(24);
+
+        recentTransactions.forEach((symbol, transactions) -> {
+            List<TransactionData> filtered = transactions.stream()
+                    .filter(tx -> tx.timestamp.isAfter(cutoff))
+                    .collect(Collectors.toList());
+            recentTransactions.put(symbol, filtered);
+        });
     }
 
     // Inner classes
@@ -219,7 +254,7 @@ public class CandlestickService {
         synchronized void addTransaction(BigDecimal price, BigDecimal quantity) {
             if (open == null) {
                 open = high = low = close = price;
-                startTime = LocalDateTime.now();
+                startTime = truncateToInterval(LocalDateTime.now(), interval);
             } else {
                 high = high.max(price);
                 low = low.min(price);
@@ -242,6 +277,18 @@ public class CandlestickService {
             volume = BigDecimal.ZERO;
             startTime = LocalDateTime.now();
             return candle;
+        }
+
+        private LocalDateTime truncateToInterval(LocalDateTime time, TimeInterval interval) {
+            return switch (interval) {
+                case ONE_MINUTE -> time.truncatedTo(ChronoUnit.MINUTES);
+                case FIVE_MINUTES -> time.truncatedTo(ChronoUnit.MINUTES)
+                        .withMinute((time.getMinute() / 5) * 5);
+                case FIFTEEN_MINUTES -> time.truncatedTo(ChronoUnit.MINUTES)
+                        .withMinute((time.getMinute() / 15) * 15);
+                case ONE_HOUR -> time.truncatedTo(ChronoUnit.HOURS);
+                case ONE_DAY -> time.truncatedTo(ChronoUnit.DAYS);
+            };
         }
     }
 

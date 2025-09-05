@@ -12,7 +12,6 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/charts")
-@CrossOrigin(origins = "*") // For Vue.js frontend
 public class ChartDataController {
 
     @Autowired
@@ -29,7 +28,19 @@ public class ChartDataController {
             to = LocalDateTime.now();
         }
 
-        TimeInterval timeInterval = TimeInterval.valueOf(interval.toUpperCase());
+        // Convert interval parameter to enum
+        TimeInterval timeInterval = convertToTimeInterval(interval);
         return candlestickService.getCandlesticks(symbol, timeInterval, from, to);
+    }
+
+    private TimeInterval convertToTimeInterval(String interval) {
+        return switch (interval.toLowerCase()) {
+            case "1m" -> TimeInterval.ONE_MINUTE;
+            case "5m" -> TimeInterval.FIVE_MINUTES;
+            case "15m" -> TimeInterval.FIFTEEN_MINUTES;
+            case "1h" -> TimeInterval.ONE_HOUR;
+            case "1d" -> TimeInterval.ONE_DAY;
+            default -> throw new IllegalArgumentException("Invalid interval: " + interval);
+        };
     }
 }

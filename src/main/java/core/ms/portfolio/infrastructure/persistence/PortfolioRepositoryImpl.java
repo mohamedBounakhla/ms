@@ -3,12 +3,15 @@ package core.ms.portfolio.infrastructure.persistence;
 import core.ms.portfolio.domain.Portfolio;
 import core.ms.portfolio.domain.ports.outbound.PortfolioRepository;
 import core.ms.portfolio.infrastructure.persistence.dao.PortfolioDAO;
+import core.ms.portfolio.infrastructure.persistence.entities.CashBalanceEntity;
 import core.ms.portfolio.infrastructure.persistence.entities.PortfolioEntity;
 import core.ms.portfolio.infrastructure.persistence.mappers.PortfolioMapper;
+import core.ms.shared.money.Money;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
@@ -25,9 +28,44 @@ public class PortfolioRepositoryImpl implements PortfolioRepository {
 
     @Override
     public Portfolio save(Portfolio portfolio) {
-        PortfolioEntity entity = portfolioMapper.toEntity(portfolio);
-        PortfolioEntity saved = portfolioDAO.save(entity);
-        return portfolioMapper.toDomain(saved);
+        // Check if entity already exists
+        Optional<PortfolioEntity> existingEntity = portfolioDAO.findById(portfolio.getPortfolioId());
+
+        if (existingEntity.isPresent()) {
+            // Update existing entity
+            PortfolioEntity entity = existingEntity.get();
+            entity.setUpdatedAt(LocalDateTime.now());
+
+            // Update cash balances
+            for (var currency : core.ms.shared.money.Currency.values()) {
+                Money total = portfolio.getTotalCash(currency);
+                if (total.isPositive()) {
+                    // Find existing cash balance or create new one
+                    CashBalanceEntity cashBalance = entity.getCashBalances().stream()
+                            .filter(cb -> cb.getCurrency() == currency)
+                            .findFirst()
+                            .orElseGet(() -> {
+                                CashBalanceEntity newCb = new CashBalanceEntity(currency, total.getAmount());
+                                entity.addCashBalance(newCb);
+                                return newCb;
+                            });
+
+                    // Update values
+                    cashBalance.setBalance(total.getAmount());
+                    Money reserved = portfolio.getReservedCash(currency);
+                    cashBalance.setReservedAmount(reserved.getAmount());
+                    cashBalance.setUpdatedAt(LocalDateTime.now());
+                }
+            }
+
+            PortfolioEntity saved = portfolioDAO.save(entity);
+            return portfolioMapper.toDomain(saved);
+        } else {
+            // Create new entity
+            PortfolioEntity entity = portfolioMapper.toEntity(portfolio);
+            PortfolioEntity saved = portfolioDAO.save(entity);
+            return portfolioMapper.toDomain(saved);
+        }
     }
 
     @Override
