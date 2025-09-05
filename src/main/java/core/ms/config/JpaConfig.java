@@ -10,7 +10,8 @@ import org.springframework.transaction.annotation.EnableTransactionManagement;
         "core.ms.order_book.infrastructure.persistence.DAO",
         "core.ms.portfolio.infrastructure.persistence.dao",
         "core.ms.symbol.dao",
-        "core.ms.security.dao"
+        "core.ms.security.dao",
+        "core.ms.robot.dao"
 })
 @EnableTransactionManagement
 public class JpaConfig {

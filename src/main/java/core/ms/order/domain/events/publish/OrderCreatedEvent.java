@@ -1,5 +1,6 @@
 package core.ms.order.domain.events.publish;
 
+import core.ms.shared.OrderType;
 import core.ms.shared.events.BaseEvent;
 import core.ms.shared.events.DomainEvent;
 import core.ms.shared.money.Currency;
@@ -13,26 +14,23 @@ public class OrderCreatedEvent extends BaseEvent {
     private final String orderId;
     private final String portfolioId;
     private final String reservationId;
-    private final String orderType; // "BUY" or "SELL"
-    private final String symbolCode;
-    private final BigDecimal price;
-    private final Currency currency;
+    private final Symbol symbol;
+    private final Money price;
     private final BigDecimal quantity;
+    private final OrderType orderType;
     private final String status;
 
     public OrderCreatedEvent(String correlationId, String orderId, String portfolioId,
-                             String reservationId, String orderType, String symbolCode,
-                             BigDecimal price, Currency currency, BigDecimal quantity,
-                             String status) {
+                             String reservationId, Symbol symbol, Money price,
+                             BigDecimal quantity, OrderType orderType, String status) {
         super(correlationId, "ORDER_BC");
         this.orderId = orderId;
         this.portfolioId = portfolioId;
         this.reservationId = reservationId;
-        this.orderType = orderType;
-        this.symbolCode = symbolCode;
+        this.symbol = symbol;
         this.price = price;
-        this.currency = currency;
         this.quantity = quantity;
+        this.orderType = orderType;
         this.status = status;
     }
 
@@ -40,10 +38,9 @@ public class OrderCreatedEvent extends BaseEvent {
     public String getOrderId() { return orderId; }
     public String getPortfolioId() { return portfolioId; }
     public String getReservationId() { return reservationId; }
-    public String getOrderType() { return orderType; }
-    public String getSymbolCode() { return symbolCode; }
-    public BigDecimal getPrice() { return price; }
-    public Currency getCurrency() { return currency; }
+    public Symbol getSymbol() { return symbol; }
+    public Money getPrice() { return price; }
     public BigDecimal getQuantity() { return quantity; }
+    public OrderType getOrderType() { return orderType; }
     public String getStatus() { return status; }
 }

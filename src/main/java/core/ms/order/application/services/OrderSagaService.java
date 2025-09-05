@@ -11,6 +11,7 @@ import core.ms.order.domain.factories.OrderFactory;
 import core.ms.order.domain.factories.TransactionFactory;
 import core.ms.order.domain.ports.outbound.OrderRepository;
 import core.ms.order.domain.ports.outbound.TransactionRepository;
+import core.ms.shared.OrderType;
 import core.ms.shared.events.EventBus;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
@@ -162,23 +163,26 @@ public class OrderSagaService {
      * Publishes OrderCreatedEvent to Portfolio BC and OrderBook BC.
      */
     private void publishOrderCreated(String correlationId, IOrder order, String orderType) {
+        // Convert string orderType to enum
+        OrderType orderTypeEnum = "BUY".equalsIgnoreCase(orderType) ?
+                OrderType.BUY : OrderType.SELL;
+
         OrderCreatedEvent event = new OrderCreatedEvent(
                 correlationId,
                 order.getId(),
                 order.getPortfolioId(),
                 order.getReservationId(),
-                orderType,
-                order.getSymbol().getCode(),
-                order.getPrice().getAmount(),
-                order.getPrice().getCurrency(),
+                order.getSymbol(),  // Already a Symbol object
+                order.getPrice(),   // Already a Money object
                 order.getQuantity(),
+                orderTypeEnum,      // Use enum instead of string
                 order.getStatus().getStatus().name()
         );
 
         eventBus.publish(event);
 
         logger.info("📤 [SAGA: {}] Published OrderCreatedEvent - Order ID: {}, Type: {}, Reservation: {}",
-                correlationId, order.getId(), orderType, order.getReservationId());
+                correlationId, order.getId(), orderTypeEnum, order.getReservationId());
     }
 
     /**

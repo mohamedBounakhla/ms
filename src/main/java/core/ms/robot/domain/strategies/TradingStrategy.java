@@ -1,4 +1,4 @@
-package core.ms.robot.model.strategies;
+package core.ms.robot.domain.strategies;
 
 import core.ms.portfolio.domain.ports.inbound.PortfolioSnapshot;
 import core.ms.robot.config.BotConfig;

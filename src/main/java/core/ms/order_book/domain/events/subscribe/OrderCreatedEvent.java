@@ -14,7 +14,7 @@ public class OrderCreatedEvent extends BaseEvent {
     private final Symbol symbol;
     private final Money price;
     private final BigDecimal quantity;
-    private final OrderType orderType; // "BUY" or "SELL"
+    private final OrderType orderType;
     private final String status;
 
     public OrderCreatedEvent(String correlationId, String orderId, String portfolioId,
