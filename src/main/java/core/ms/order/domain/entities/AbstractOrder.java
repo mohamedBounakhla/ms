@@ -69,8 +69,10 @@ public abstract class AbstractOrder implements IOrder {
         BigDecimal remaining = quantity.subtract(executedQuantity);
         return remaining.compareTo(BigDecimal.ZERO) <= 0 ? BigDecimal.ZERO : remaining;
     }
+
     @Override
     public String getPortfolioId() { return portfolioId; }
+
     @Override
     public String getReservationId() { return reservationId; }
 
@@ -86,20 +88,23 @@ public abstract class AbstractOrder implements IOrder {
 
     @Override
     public void setExecutedQuantity(BigDecimal executedQuantity) {
-        // Domain behavior - set execution quantity directly
+        // Used for reconstruction from persistence - just set the value
+        // DO NOT change status here - status will be set separately during reconstruction
         this.executedQuantity = executedQuantity;
         this.updatedAt = LocalDateTime.now();
-        updateStatusAfterExecution();
+        // REMOVED: updateStatusAfterExecution() - this was causing the problem!
     }
 
     private void updateStatusAfterExecution() {
         BigDecimal remaining = getRemainingQuantity();
 
         if (remaining.compareTo(BigDecimal.ZERO) == 0) {
-            if (status.getStatus() != OrderStatusEnum.FILLED) {
+            // Only transition to FILLED if not already FILLED
+            if (status.getStatus() != OrderStatusEnum.FILLED && status.getStatus() != OrderStatusEnum.CANCELLED) {
                 status.completeOrder();
             }
         } else if (executedQuantity.compareTo(BigDecimal.ZERO) > 0) {
+            // Only transition to PARTIAL if currently PENDING
             if (status.getStatus() == OrderStatusEnum.PENDING) {
                 status.fillPartialOrder();
             }

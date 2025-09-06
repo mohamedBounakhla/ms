@@ -31,15 +31,13 @@ public class SellOrderMapper {
 
     public SellOrder toDomain(SellOrderEntity entity) {
         try {
-
             Symbol symbol = reconstructSymbol(entity.getSymbolCode(), entity.getSymbolName(), entity.getCurrency());
             Money price = Money.of(entity.getPrice(), entity.getCurrency());
-
 
             String portfolioId = entity.getPortfolioId();
             String reservationId = entity.getReservationId();
 
-
+            // Create order with factory
             SellOrder order = OrderFactory.createSellOrderWithId(
                     entity.getId(),
                     portfolioId,
@@ -49,9 +47,15 @@ public class SellOrderMapper {
                     entity.getQuantity()
             );
 
-            // Reconstruct the persisted state (executed quantity and status)
-            order.setExecutedQuantity(entity.getExecutedQuantity());
-            reconstructOrderState(order, entity);
+            // Set executed quantity WITHOUT changing status
+            if (entity.getExecutedQuantity() != null && entity.getExecutedQuantity().signum() > 0) {
+                order.setExecutedQuantity(entity.getExecutedQuantity());
+            }
+
+            // Only reconstruct state if it's different from default PENDING
+            if (entity.getStatus() != null && entity.getStatus() != core.ms.order.domain.value_objects.OrderStatusEnum.PENDING) {
+                reconstructOrderState(order, entity);
+            }
 
             return order;
 
@@ -61,10 +65,26 @@ public class SellOrderMapper {
     }
 
     private void reconstructOrderState(SellOrder order, SellOrderEntity entity) {
+        // Only change state if necessary, avoid redundant state transitions
         switch (entity.getStatus()) {
-            case PARTIAL -> order.fillPartial();
-            case FILLED -> order.complete();
-            case CANCELLED -> order.cancel();
+            case PARTIAL -> {
+                // Only transition if not already partial
+                if (order.getStatus().getStatus() != core.ms.order.domain.value_objects.OrderStatusEnum.PARTIAL) {
+                    order.fillPartial();
+                }
+            }
+            case FILLED -> {
+                // Only transition if not already filled
+                if (order.getStatus().getStatus() != core.ms.order.domain.value_objects.OrderStatusEnum.FILLED) {
+                    order.complete();
+                }
+            }
+            case CANCELLED -> {
+                // Only transition if not already cancelled
+                if (order.getStatus().getStatus() != core.ms.order.domain.value_objects.OrderStatusEnum.CANCELLED) {
+                    order.cancel();
+                }
+            }
             // PENDING is default state, no action needed
         }
     }

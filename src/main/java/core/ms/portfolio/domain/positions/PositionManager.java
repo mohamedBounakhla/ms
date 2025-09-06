@@ -207,4 +207,13 @@ public class PositionManager {
             super(message);
         }
     }
+    public void deposit(Symbol symbol, BigDecimal quantity) {
+        if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Deposit quantity must be positive");
+        }
+
+        AssetWallet wallet = getWallet(symbol);
+
+        wallet.addAssets(quantity, Money.zero(symbol.getQuoteCurrency()));
+    }
 }

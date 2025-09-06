@@ -8,7 +8,6 @@ import core.ms.portfolio.domain.cash.CashManager;
 import core.ms.portfolio.domain.events.subscribe.OrderCreatedEvent;
 import core.ms.portfolio.domain.events.subscribe.OrderCreationFailedEvent;
 import core.ms.portfolio.domain.events.subscribe.TransactionCreatedEvent;
-import core.ms.portfolio.domain.ports.inbound.PortfolioService;
 import core.ms.portfolio.domain.ports.inbound.PortfolioSnapshot;
 import core.ms.portfolio.domain.ports.outbound.*;
 import core.ms.portfolio.domain.positions.PositionManager;
@@ -18,6 +17,8 @@ import core.ms.shared.events.DomainEvent;
 import core.ms.shared.money.Currency;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,7 +34,9 @@ import java.util.Optional;
 
 @Service
 @Transactional
-public class PortfolioApplicationService extends CorrelationAwareEventListener implements PortfolioService {
+public class PortfolioApplicationService extends CorrelationAwareEventListener {
+
+    private static final Logger logger = LoggerFactory.getLogger(PortfolioApplicationService.class);
 
     @Autowired
     private PortfolioRepository portfolioRepository;
@@ -46,70 +49,113 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
 
     // ===== PORTFOLIO MANAGEMENT =====
 
-    @Override
-    public Portfolio createPortfolio(String portfolioId, String ownerId) {
-        // Check if portfolio already exists
-        if (portfolioRepository.existsById(portfolioId)) {
-            throw new IllegalArgumentException("Portfolio already exists: " + portfolioId);
+    public PortfolioOperationResultDTO createPortfolio(CreatePortfolioCommand command) {
+        try {
+            if (portfolioRepository.existsById(command.getPortfolioId())) {
+                return PortfolioOperationResultDTO.error(
+                        command.getPortfolioId(),
+                        "Portfolio already exists"
+                );
+            }
+
+            CashManager cashManager = new CashManager();
+            PositionManager positionManager = new PositionManager();
+            Portfolio portfolio = new Portfolio(
+                    command.getPortfolioId(),
+                    command.getOwnerId(),
+                    cashManager,
+                    positionManager
+            );
+
+            portfolioRepository.save(portfolio);
+            logger.info("Portfolio created: {} for owner: {}",
+                    portfolio.getPortfolioId(), portfolio.getOwnerId());
+
+            return PortfolioOperationResultDTO.success(
+                    portfolio.getPortfolioId(),
+                    "Portfolio created successfully"
+            );
+        } catch (Exception e) {
+            logger.error("Failed to create portfolio", e);
+            return PortfolioOperationResultDTO.error(
+                    command.getPortfolioId(),
+                    "Failed to create portfolio: " + e.getMessage()
+            );
         }
-
-        // Create new portfolio with managers
-        CashManager cashManager = new CashManager();
-        PositionManager positionManager = new PositionManager();
-        Portfolio portfolio = new Portfolio(portfolioId, ownerId, cashManager, positionManager);
-
-        // Save and return
-        return portfolioRepository.save(portfolio);
     }
 
-    @Override
+    public Optional<PortfolioDTO> findPortfolioByIdAsDTO(String portfolioId) {
+        return portfolioRepository.findById(portfolioId)
+                .map(this::mapToDTO);
+    }
+
     public Optional<Portfolio> findPortfolioById(String portfolioId) {
         return portfolioRepository.findById(portfolioId);
     }
 
-    @Override
     public Optional<Portfolio> findPortfolioByOwnerId(String ownerId) {
         return portfolioRepository.findByOwnerId(ownerId);
     }
 
-    @Override
     public void deletePortfolio(String portfolioId) {
         portfolioRepository.deleteById(portfolioId);
     }
 
-    // ===== ORDER PLACEMENT (SAGA INITIATION) =====
+    // ===== ORDER PLACEMENT (SAGA INITIATION) - FIXED =====
 
-    /**
-     * Places a buy order - initiates saga by creating reservation and emitting OrderRequestedEvent
-     */
     public PortfolioOperationResultDTO placeBuyOrder(PlaceBuyOrderCommand command) {
+        logger.info("Received placeBuyOrder request for portfolio: {}, symbol: {}, quantity: {}",
+                command.getPortfolioId(), command.getSymbolCode(), command.getQuantity());
+
         try {
             Portfolio portfolio = getPortfolioOrThrow(command.getPortfolioId());
 
             Symbol symbol = Symbol.createFromCode(command.getSymbolCode());
             Money price = Money.of(command.getPrice(), Currency.valueOf(command.getCurrency()));
 
-            // Create domain command
             Portfolio.PlaceOrderCommand domainCommand = new Portfolio.PlaceOrderCommand(
                     symbol, price, command.getQuantity(), OrderType.BUY
             );
 
-            // Start saga
+            // Execute command on aggregate
             portfolio.placeOrder(domainCommand);
 
-            // Save portfolio
+            // Get events BEFORE saving (this is the fix!)
+            List<DomainEvent> events = portfolio.getAndClearEvents();
+            logger.info("Retrieved {} events from portfolio", events.size());
+
+            // Save the portfolio state
             portfolioRepository.save(portfolio);
+            logger.info("Portfolio saved successfully");
 
             // Publish events
-            List<DomainEvent> events = portfolio.getAndClearEvents();
-            eventPublisher.publishEvents(events);
+            if (!events.isEmpty()) {
+                for (DomainEvent event : events) {
+                    logger.info("Publishing event: {} with correlation ID: {}",
+                            event.getClass().getSimpleName(), event.getCorrelationId());
+                }
+                eventPublisher.publishEvents(events);
 
-            return PortfolioOperationResultDTO.success(
+                return PortfolioOperationResultDTO.success(
+                        command.getPortfolioId(),
+                        "Buy order requested successfully"
+                );
+            } else {
+                logger.error("No events generated! Saga will not start!");
+                return PortfolioOperationResultDTO.error(
+                        command.getPortfolioId(),
+                        "Internal error: No saga events generated"
+                );
+            }
+
+        } catch (Portfolio.InsufficientFundsException e) {
+            logger.error("Insufficient funds for buy order: {}", e.getMessage());
+            return PortfolioOperationResultDTO.error(
                     command.getPortfolioId(),
-                    "Buy order requested successfully"
+                    "Insufficient funds: " + e.getMessage()
             );
-
         } catch (Exception e) {
+            logger.error("Failed to place buy order for portfolio: {}", command.getPortfolioId(), e);
             return PortfolioOperationResultDTO.error(
                     command.getPortfolioId(),
                     "Failed to place buy order: " + e.getMessage()
@@ -117,37 +163,59 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
         }
     }
 
-    /**
-     * Places a sell order - initiates saga by creating reservation and emitting OrderRequestedEvent
-     */
     public PortfolioOperationResultDTO placeSellOrder(PlaceSellOrderCommand command) {
+        logger.info("Received placeSellOrder request for portfolio: {}, symbol: {}, quantity: {}",
+                command.getPortfolioId(), command.getSymbolCode(), command.getQuantity());
+
         try {
             Portfolio portfolio = getPortfolioOrThrow(command.getPortfolioId());
 
             Symbol symbol = Symbol.createFromCode(command.getSymbolCode());
             Money price = Money.of(command.getPrice(), Currency.valueOf(command.getCurrency()));
 
-            // Create domain command
             Portfolio.PlaceOrderCommand domainCommand = new Portfolio.PlaceOrderCommand(
                     symbol, price, command.getQuantity(), OrderType.SELL
             );
 
-            // Start saga
+            // Execute command on aggregate
             portfolio.placeOrder(domainCommand);
 
-            // Save portfolio
+            // Get events BEFORE saving (this is the fix!)
+            List<DomainEvent> events = portfolio.getAndClearEvents();
+            logger.info("Retrieved {} events from portfolio", events.size());
+
+            // Save the portfolio state
             portfolioRepository.save(portfolio);
+            logger.info("Portfolio saved successfully");
 
             // Publish events
-            List<DomainEvent> events = portfolio.getAndClearEvents();
-            eventPublisher.publishEvents(events);
+            if (!events.isEmpty()) {
+                for (DomainEvent event : events) {
+                    logger.info("Publishing event: {} with correlation ID: {}",
+                            event.getClass().getSimpleName(), event.getCorrelationId());
+                }
+                eventPublisher.publishEvents(events);
 
-            return PortfolioOperationResultDTO.success(
+                return PortfolioOperationResultDTO.success(
+                        command.getPortfolioId(),
+                        "Sell order requested successfully"
+                );
+            } else {
+                logger.error("No events generated! Saga will not start!");
+                return PortfolioOperationResultDTO.error(
+                        command.getPortfolioId(),
+                        "Internal error: No saga events generated"
+                );
+            }
+
+        } catch (Portfolio.InsufficientAssetsException e) {
+            logger.warn("Insufficient assets for sell order: {}", e.getMessage());
+            return PortfolioOperationResultDTO.error(
                     command.getPortfolioId(),
-                    "Sell order requested successfully"
+                    "Insufficient assets: " + e.getMessage()
             );
-
         } catch (Exception e) {
+            logger.error("Failed to place sell order", e);
             return PortfolioOperationResultDTO.error(
                     command.getPortfolioId(),
                     "Failed to place sell order: " + e.getMessage()
@@ -157,42 +225,49 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
 
     // ===== EVENT HANDLERS (SAGA PARTICIPANTS) =====
 
-    /**
-     * Handle OrderCreatedEvent from Order BC
-     */
     @EventListener
     public void handleOrderCreated(OrderCreatedEvent event) {
         handleEvent(event, () -> {
+            logger.info("[SAGA: {}] OrderCreatedEvent received for portfolio: {}, order: {}",
+                    event.getCorrelationId(), event.getPortfolioId(), event.getOrderId());
+
             Optional<Portfolio> portfolioOpt = portfolioRepository.findById(event.getPortfolioId());
             if (portfolioOpt.isPresent()) {
                 Portfolio portfolio = portfolioOpt.get();
                 portfolio.handleOrderCreated(event);
                 portfolioRepository.save(portfolio);
+
+                logger.info("[SAGA: {}] Order creation confirmed for reservation: {}",
+                        event.getCorrelationId(), event.getReservationId());
             }
         });
     }
 
-    /**
-     * Handle OrderCreationFailedEvent from Order BC
-     */
     @EventListener
     public void handleOrderCreationFailed(OrderCreationFailedEvent event) {
         handleEvent(event, () -> {
+            logger.warn("[SAGA: {}] OrderCreationFailedEvent received for portfolio: {}, reason: {}",
+                    event.getCorrelationId(), event.getPortfolioId(), event.getReason());
+
             Optional<Portfolio> portfolioOpt = portfolioRepository.findById(event.getPortfolioId());
             if (portfolioOpt.isPresent()) {
                 Portfolio portfolio = portfolioOpt.get();
                 portfolio.handleOrderCreationFailed(event);
                 portfolioRepository.save(portfolio);
+
+                logger.info("[SAGA: {}] Reservation released: {}",
+                        event.getCorrelationId(), event.getReservationId());
             }
         });
     }
 
-    /**
-     * Handle TransactionCreatedEvent from Order BC
-     */
     @EventListener
     public void handleTransactionCreated(TransactionCreatedEvent event) {
         handleEvent(event, () -> {
+            logger.info("[SAGA: {}] TransactionCreatedEvent received - TX: {}, Buy: {}, Sell: {}",
+                    event.getCorrelationId(), event.getTransactionId(),
+                    event.getBuyOrderId(), event.getSellOrderId());
+
             // Handle buy side portfolio
             if (event.getBuyPortfolioId() != null) {
                 Optional<Portfolio> buyPortfolio = portfolioRepository.findById(event.getBuyPortfolioId());
@@ -200,6 +275,9 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
                     Portfolio portfolio = buyPortfolio.get();
                     portfolio.handleTransactionCreated(event);
                     portfolioRepository.save(portfolio);
+
+                    logger.info("[SAGA: {}] Buy side updated for portfolio: {}",
+                            event.getCorrelationId(), event.getBuyPortfolioId());
                 }
             }
 
@@ -210,6 +288,9 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
                     Portfolio portfolio = sellPortfolio.get();
                     portfolio.handleTransactionCreated(event);
                     portfolioRepository.save(portfolio);
+
+                    logger.info("[SAGA: {}] Sell side updated for portfolio: {}",
+                            event.getCorrelationId(), event.getSellPortfolioId());
                 }
             }
         });
@@ -225,12 +306,16 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
             portfolio.depositCash(amount);
             portfolioRepository.save(portfolio);
 
+            logger.info("Cash deposited: {} to portfolio: {}",
+                    amount.toDisplayString(), command.getPortfolioId());
+
             return PortfolioOperationResultDTO.success(
                     command.getPortfolioId(),
                     "Cash deposited successfully"
             );
 
         } catch (Exception e) {
+            logger.error("Failed to deposit cash", e);
             return PortfolioOperationResultDTO.error(
                     command.getPortfolioId(),
                     "Failed to deposit cash: " + e.getMessage()
@@ -246,12 +331,16 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
             portfolio.withdrawCash(amount);
             portfolioRepository.save(portfolio);
 
+            logger.info("Cash withdrawn: {} from portfolio: {}",
+                    amount.toDisplayString(), command.getPortfolioId());
+
             return PortfolioOperationResultDTO.success(
                     command.getPortfolioId(),
                     "Cash withdrawn successfully"
             );
 
         } catch (Exception e) {
+            logger.error("Failed to withdraw cash", e);
             return PortfolioOperationResultDTO.error(
                     command.getPortfolioId(),
                     "Failed to withdraw cash: " + e.getMessage()
@@ -259,13 +348,11 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
         }
     }
 
-    @Override
     public Money getAvailableCash(String portfolioId, Currency currency) {
         Portfolio portfolio = getPortfolioOrThrow(portfolioId);
         return portfolio.getAvailableCash(currency);
     }
 
-    @Override
     public Money getTotalCash(String portfolioId, Currency currency) {
         Portfolio portfolio = getPortfolioOrThrow(portfolioId);
         return portfolio.getTotalCash(currency);
@@ -273,23 +360,19 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
 
     // ===== POSITION OPERATIONS =====
 
-    @Override
     public BigDecimal getAvailableAssets(String portfolioId, Symbol symbol) {
         Portfolio portfolio = getPortfolioOrThrow(portfolioId);
         return portfolio.getAvailableAssets(symbol);
     }
 
-    @Override
     public BigDecimal getTotalAssets(String portfolioId, Symbol symbol) {
         Portfolio portfolio = getPortfolioOrThrow(portfolioId);
         return portfolio.getTotalAssets(symbol);
     }
 
-    @Override
     public PortfolioSnapshot getPortfolioSnapshot(String portfolioId) {
         Portfolio portfolio = getPortfolioOrThrow(portfolioId);
 
-        // Collect all cash balances
         Map<Currency, Money> cashBalances = new HashMap<>();
         Map<Currency, Money> reservedCash = new HashMap<>();
         for (Currency currency : Currency.values()) {
@@ -303,11 +386,10 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
             }
         }
 
-        // Collect all positions (simplified - would need to track all symbols)
+        // For a complete implementation, you'd need to track all symbols
         Map<Symbol, BigDecimal> positions = new HashMap<>();
         Map<Symbol, BigDecimal> reservedAssets = new HashMap<>();
 
-        // Calculate total value
         Money totalValue = calculatePortfolioValue(cashBalances, positions);
 
         return new PortfolioSnapshot(
@@ -323,42 +405,25 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
 
     // ===== MAINTENANCE =====
 
-    @Override
     @Scheduled(fixedDelay = 60000) // Every minute
     public void cleanupExpiredReservations() {
         List<Portfolio> portfolios = portfolioRepository.findAll();
+        int cleaned = 0;
+
         for (Portfolio portfolio : portfolios) {
             portfolio.cleanupExpiredReservations();
             portfolioRepository.save(portfolio);
+            cleaned++;
+        }
+
+        if (cleaned > 0) {
+            logger.debug("Cleaned up expired reservations for {} portfolios", cleaned);
         }
     }
 
-    @Override
     public int getActiveReservationsCount(String portfolioId) {
-        // This would need to be enhanced to track reservation counts
-        return 0;
-    }
-
-    // ===== DTO CONVERSION METHODS =====
-
-    public PortfolioOperationResultDTO createPortfolio(CreatePortfolioCommand command) {
-        try {
-            Portfolio portfolio = createPortfolio(command.getPortfolioId(), command.getOwnerId());
-            return PortfolioOperationResultDTO.success(
-                    portfolio.getPortfolioId(),
-                    "Portfolio created successfully"
-            );
-        } catch (Exception e) {
-            return PortfolioOperationResultDTO.error(
-                    command.getPortfolioId(),
-                    "Failed to create portfolio: " + e.getMessage()
-            );
-        }
-    }
-
-    public Optional<PortfolioDTO> findPortfolioByIdAsDTO(String portfolioId) {
-        Optional<Portfolio> portfolio = findPortfolioById(portfolioId);
-        return portfolio.map(this::mapToDTO);
+        Portfolio portfolio = getPortfolioOrThrow(portfolioId);
+        return portfolio.getActiveReservationsCount();
     }
 
     // ===== PRIVATE HELPER METHODS =====
@@ -370,7 +435,6 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
 
     private Money calculatePortfolioValue(Map<Currency, Money> cashBalances,
                                           Map<Symbol, BigDecimal> positions) {
-        // Calculate total value in USD (simplified)
         Money totalValue = Money.zero(Currency.USD);
 
         // Add cash values
@@ -406,48 +470,28 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener i
                 LocalDateTime.now()
         );
     }
+    public PortfolioOperationResultDTO depositAsset(DepositAssetCommand command) {
+        try {
+            Portfolio portfolio = getPortfolioOrThrow(command.getPortfolioId());
 
-    // ===== LEGACY INTERFACE IMPLEMENTATIONS =====
+            portfolio.depositAsset(command.getSymbol(), command.getQuantity());
+            portfolioRepository.save(portfolio);
 
-    @Override
-    @Deprecated
-    public core.ms.portfolio.domain.ports.inbound.PortfolioOperationResult depositCash(String portfolioId, Money amount) {
-        DepositCashCommand command = new DepositCashCommand(portfolioId, amount.getAmount(), amount.getCurrency());
-        PortfolioOperationResultDTO result = depositCash(command);
-        return mapToLegacyResult(result);
-    }
+            logger.info("📦 Assets deposited: {} {} to portfolio: {}",
+                    command.getQuantity(), command.getSymbol().getCode(), command.getPortfolioId());
 
-    @Override
-    @Deprecated
-    public core.ms.portfolio.domain.ports.inbound.PortfolioOperationResult withdrawCash(String portfolioId, Money amount) {
-        WithdrawCashCommand command = new WithdrawCashCommand(portfolioId, amount.getAmount(), amount.getCurrency());
-        PortfolioOperationResultDTO result = withdrawCash(command);
-        return mapToLegacyResult(result);
-    }
+            return PortfolioOperationResultDTO.success(
+                    command.getPortfolioId(),
+                    String.format("Successfully deposited %s %s",
+                            command.getQuantity(), command.getSymbol().getCode())
+            );
 
-    @Override
-    @Deprecated
-    public core.ms.portfolio.domain.ports.inbound.OrderReservationResult placeBuyOrder(
-            String portfolioId, String orderId, Symbol symbol, Money price, BigDecimal quantity) {
-        // This legacy method is no longer used with the saga pattern
-        throw new UnsupportedOperationException("Use placeBuyOrder(PlaceBuyOrderCommand) instead");
-    }
-
-    @Override
-    @Deprecated
-    public core.ms.portfolio.domain.ports.inbound.OrderReservationResult placeSellOrder(
-            String portfolioId, String orderId, Symbol symbol, Money price, BigDecimal quantity) {
-        // This legacy method is no longer used with the saga pattern
-        throw new UnsupportedOperationException("Use placeSellOrder(PlaceSellOrderCommand) instead");
-    }
-
-    private core.ms.portfolio.domain.ports.inbound.PortfolioOperationResult mapToLegacyResult(
-            PortfolioOperationResultDTO dto) {
-        return core.ms.portfolio.domain.ports.inbound.PortfolioOperationResult.builder()
-                .success(dto.isSuccess())
-                .portfolioId(dto.getPortfolioId())
-                .message(dto.getMessage())
-                .errors(dto.getErrors())
-                .build();
+        } catch (Exception e) {
+            logger.error("Failed to deposit assets", e);
+            return PortfolioOperationResultDTO.error(
+                    command.getPortfolioId(),
+                    "Failed to deposit assets: " + e.getMessage()
+            );
+        }
     }
 }

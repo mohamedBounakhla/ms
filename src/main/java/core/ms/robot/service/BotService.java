@@ -1,6 +1,8 @@
 package core.ms.robot.service;
 
+import core.ms.order_book.application.services.OrderBookApplicationService;
 import core.ms.portfolio.application.services.PortfolioApplicationService;
+import core.ms.portfolio.application.dto.command.DepositAssetCommand;
 import core.ms.portfolio.domain.ports.inbound.PortfolioSnapshot;
 import core.ms.portfolio.infrastructure.adapters.MarketDataAdapterImpl;
 import core.ms.robot.dto.BotListUpdateDTO;
@@ -8,9 +10,7 @@ import core.ms.robot.dto.BotStatusDTO;
 import core.ms.robot.dto.BotTradeEventDTO;
 import core.ms.robot.config.BotConfig;
 import core.ms.robot.domain.TradingBot;
-import core.ms.robot.domain.strategies.MomentumStrategy;
-import core.ms.robot.domain.strategies.RandomStrategy;
-import core.ms.robot.domain.strategies.TradingStrategy;
+import core.ms.robot.domain.strategies.*;
 import core.ms.shared.money.Currency;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
@@ -22,6 +22,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -53,6 +54,9 @@ public class BotService {
     @Autowired
     private TradingBotDAO botDAO;
 
+    @Autowired
+    private OrderBookApplicationService orderBookService;  // Add this
+
     @PostConstruct
     public void loadBots() {
         // Load all non-terminated bots on startup
@@ -78,6 +82,7 @@ public class BotService {
         logger.info("Loaded {} bots from database", activeBots.size());
     }
 
+    @Transactional
     public String createAndStartBot(BotConfig config) {
         try {
             // Create strategy based on config
@@ -86,13 +91,26 @@ public class BotService {
             // Create bot with WebSocket callback
             TradingBot bot = new TradingBot(config, strategy, portfolioService,
                     this::handleBotTradeEvent);
-            bot.initialize();
 
-            // Store bot in memory
+            // Save bot FIRST (to persist it)
+            bot = botDAO.save(bot);
+
+            // IMPORTANT: After saving, the transient fields are lost!
+            // We need to set them again
+            bot.setDependencies(strategy, portfolioService, this::handleBotTradeEvent);
+
+            // Store in memory with dependencies set
             activeBots.put(bot.getBotId(), bot);
 
-            // Save to database
-            botDAO.save(bot);
+            // Now initialize in a separate transaction
+            initializeBotPortfolio(bot, config);
+
+            // Update status and save again
+            bot = botDAO.save(bot);
+
+            // Set dependencies again after save
+            bot.setDependencies(strategy, portfolioService, this::handleBotTradeEvent);
+            activeBots.put(bot.getBotId(), bot);
 
             // Broadcast bot creation
             BotStatusDTO status = mapToStatusDTO(bot);
@@ -106,6 +124,44 @@ public class BotService {
         } catch (Exception e) {
             logger.error("Failed to create bot", e);
             throw new RuntimeException("Failed to create bot: " + e.getMessage(), e);
+        }
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    protected void initializeBotPortfolio(TradingBot bot, BotConfig config) {
+        // Ensure dependencies are set before initializing
+        if (bot.getPortfolioService() == null) {
+            TradingStrategy strategy = createStrategy(bot.getStrategyName());
+            bot.setDependencies(strategy, portfolioService, this::handleBotTradeEvent);
+        }
+
+        // Standard initialization (creates portfolio and deposits cash)
+        bot.initialize();
+
+        // If config specifies initial assets, deposit them
+        if (config.getInitialAssets() != null && config.getInitialAssets().compareTo(BigDecimal.ZERO) > 0) {
+            try {
+                Thread.sleep(100); // Wait for portfolio creation to commit
+
+                Symbol symbol = Symbol.createFromCode(config.getSymbolCode());
+                DepositAssetCommand assetCmd = new DepositAssetCommand(
+                        bot.getPortfolioId(),
+                        symbol,
+                        config.getInitialAssets()
+                );
+
+                var assetResult = portfolioService.depositAsset(assetCmd);
+
+                if (!assetResult.isSuccess()) {
+                    logger.warn("Failed to deposit initial assets for bot {}: {}",
+                            bot.getBotId(), assetResult.getMessage());
+                } else {
+                    logger.info("Bot {} initialized with {} {} assets",
+                            bot.getBotId(), config.getInitialAssets(), config.getSymbolCode());
+                }
+            } catch (Exception e) {
+                logger.error("Failed to deposit initial assets for bot {}", bot.getBotId(), e);
+            }
         }
     }
 
@@ -266,7 +322,11 @@ public class BotService {
         return switch (strategyName.toLowerCase()) {
             case "random" -> new RandomStrategy();
             case "momentum" -> new MomentumStrategy();
-            default -> new RandomStrategy();
+            case "spread" -> new SpreadStrategy();
+            case "marketmaker" -> new MarketMakerStrategy();
+            case "aggressive" -> new AggressiveStrategy();
+            case "competitive" -> new CompetitiveStrategy(orderBookService); // Pass the service
+            default -> new CompetitiveStrategy(orderBookService); // Default to competitive
         };
     }
 
@@ -292,6 +352,17 @@ public class BotService {
 
         // Calculate P&L from portfolio
         try {
+            // Check if portfolio exists first
+            if (portfolioService.findPortfolioById(bot.getPortfolioId()).isEmpty()) {
+                logger.warn("Portfolio {} not found for bot {}", bot.getPortfolioId(), bot.getBotId());
+                dto.setTotalValue(bot.getConfig().getInitialCash());
+                dto.setPnl(BigDecimal.ZERO);
+                dto.setPnlPercent(BigDecimal.ZERO);
+                dto.setCashBalance(bot.getConfig().getInitialCash());
+                dto.setPositionSize(BigDecimal.ZERO);
+                return dto;
+            }
+
             PortfolioSnapshot snapshot = portfolioService.getPortfolioSnapshot(bot.getPortfolioId());
 
             // Calculate total portfolio value
@@ -330,7 +401,13 @@ public class BotService {
             dto.setPositionSize(holdings != null ? holdings : BigDecimal.ZERO);
 
         } catch (Exception e) {
-            logger.error("Failed to calculate P&L for bot {}", bot.getBotId(), e);
+            logger.error("Failed to calculate P&L for bot {}: {}", bot.getBotId(), e.getMessage());
+            // Set default values on error
+            dto.setTotalValue(bot.getConfig().getInitialCash());
+            dto.setPnl(BigDecimal.ZERO);
+            dto.setPnlPercent(BigDecimal.ZERO);
+            dto.setCashBalance(bot.getConfig().getInitialCash());
+            dto.setPositionSize(BigDecimal.ZERO);
         }
 
         return dto;
@@ -347,6 +424,10 @@ public class BotService {
             }
         });
         logger.info("All bots stopped");
+    }
+
+    public PortfolioApplicationService getPortfolioService() {
+        return portfolioService;
     }
 
     // Additional utility method for cleanup
@@ -373,4 +454,5 @@ public class BotService {
             logger.info("Cleaned up history for {} terminated bots", cleaned);
         }
     }
+
 }

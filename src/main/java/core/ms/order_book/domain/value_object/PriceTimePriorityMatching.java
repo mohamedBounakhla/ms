@@ -10,12 +10,22 @@ public class PriceTimePriorityMatching implements MatchingStrategy {
 
     @Override
     public List<MatchCandidate> findMatchCandidates(IBuyOrder buyOrder, ISellOrder sellOrder) {
+        System.out.println("DEBUG PriceTimePriorityMatching: Evaluating match between Buy: " +
+                buyOrder.getId() + " (price: " + buyOrder.getPrice() +
+                ", remaining: " + buyOrder.getRemainingQuantity() +
+                ") and Sell: " + sellOrder.getId() +
+                " (price: " + sellOrder.getPrice() +
+                ", remaining: " + sellOrder.getRemainingQuantity() + ")");
+
         MatchCandidate candidate = new MatchValidationBuilder(buyOrder, sellOrder)
                 .validateSymbolCompatibility()
                 .validatePriceCompatibility()
                 .validateOrdersActive()
                 .validateRemainingQuantity()
                 .build();
+
+        System.out.println("DEBUG: Match candidate valid: " + candidate.isValid() +
+                (candidate.isValid() ? "" : " - Reason: " + candidate.getValidationContext()));
 
         return candidate.isValid() ? List.of(candidate) : Collections.emptyList();
     }
@@ -96,6 +106,7 @@ public class PriceTimePriorityMatching implements MatchingStrategy {
             if (isValid && !buyOrder.getSymbol().equals(sellOrder.getSymbol())) {
                 isValid = false;
                 failureReason = "Symbol mismatch: " + buyOrder.getSymbol() + " vs " + sellOrder.getSymbol();
+                System.out.println("DEBUG Validation: " + failureReason);
             }
             return this;
         }
@@ -104,23 +115,40 @@ public class PriceTimePriorityMatching implements MatchingStrategy {
             if (isValid && buyOrder.getPrice().isLessThan(sellOrder.getPrice())) {
                 isValid = false;
                 failureReason = "Price incompatible: buy " + buyOrder.getPrice() + " < sell " + sellOrder.getPrice();
+                System.out.println("DEBUG Validation: " + failureReason);
             }
             return this;
         }
 
         public MatchValidationBuilder validateOrdersActive() {
-            if (isValid && (!buyOrder.isActive() || !sellOrder.isActive())) {
-                isValid = false;
-                failureReason = "Inactive orders: buy active=" + buyOrder.isActive() + ", sell active=" + sellOrder.isActive();
+            if (isValid) {
+                if (!buyOrder.isActive()) {
+                    isValid = false;
+                    failureReason = "Buy order not active: " + buyOrder.getStatus().getStatus();
+                    System.out.println("DEBUG Validation: " + failureReason);
+                } else if (!sellOrder.isActive()) {
+                    isValid = false;
+                    failureReason = "Sell order not active: " + sellOrder.getStatus().getStatus();
+                    System.out.println("DEBUG Validation: " + failureReason);
+                }
             }
             return this;
         }
 
         public MatchValidationBuilder validateRemainingQuantity() {
-            if (isValid && (buyOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0 ||
-                    sellOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0)) {
-                isValid = false;
-                failureReason = "Insufficient quantity: buy=" + buyOrder.getRemainingQuantity() + ", sell=" + sellOrder.getRemainingQuantity();
+            if (isValid) {
+                BigDecimal buyRemaining = buyOrder.getRemainingQuantity();
+                BigDecimal sellRemaining = sellOrder.getRemainingQuantity();
+
+                if (buyRemaining.compareTo(BigDecimal.ZERO) <= 0) {
+                    isValid = false;
+                    failureReason = "Buy order has no remaining quantity: " + buyRemaining;
+                    System.out.println("DEBUG Validation: " + failureReason);
+                } else if (sellRemaining.compareTo(BigDecimal.ZERO) <= 0) {
+                    isValid = false;
+                    failureReason = "Sell order has no remaining quantity: " + sellRemaining;
+                    System.out.println("DEBUG Validation: " + failureReason);
+                }
             }
             return this;
         }

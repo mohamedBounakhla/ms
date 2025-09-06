@@ -33,21 +33,49 @@ public class OrderBook {
     // ============ ORDER OPERATIONS WITH MATCHING ============
 
     public void addOrder(IBuyOrder order) {
+        // Validate order state
+        if (!order.isActive() || order.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+            System.out.println("DEBUG: Rejecting inactive/fully executed buy order: " + order.getId());
+            return;
+        }
+
+        // Store reference in index
         orderIndex.put(order.getId(), order);
+
+        // Add to bid side
         bidSide.addOrder(order);
         lastUpdate = LocalDateTime.now();
+
+        System.out.println("DEBUG: Added buy order " + order.getId() +
+                " to book. Price: " + order.getPrice() +
+                ", Remaining qty: " + order.getRemainingQuantity() +
+                ", Status: " + order.getStatus().getStatus());
 
         checkForMatches();
     }
 
     public void addOrder(ISellOrder order) {
+        // Validate order state
+        if (!order.isActive() || order.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+            System.out.println("DEBUG: Rejecting inactive/fully executed sell order: " + order.getId());
+            return;
+        }
 
+        // Store reference in index
         orderIndex.put(order.getId(), order);
+
+        // Add to ask side
         askSide.addOrder(order);
         lastUpdate = LocalDateTime.now();
 
+        System.out.println("DEBUG: Added sell order " + order.getId() +
+                " to book. Price: " + order.getPrice() +
+                ", Remaining qty: " + order.getRemainingQuantity() +
+                ", Status: " + order.getStatus().getStatus());
+
         checkForMatches();
     }
+
     public boolean removeOrderById(String orderId) {
         IOrder order = orderIndex.remove(orderId);
         if (order == null) return false;
@@ -59,13 +87,76 @@ public class OrderBook {
         }
         return false;
     }
+
     // ============ MATCHING LOGIC ============
 
     private void checkForMatches() {
+        System.out.println("DEBUG: Checking for matches. Spread crossed: " + hasSpreadCrossed());
+
         if (hasSpreadCrossed()) {
+            Optional<Money> bestBid = getBestBid();
+            Optional<Money> bestAsk = getBestAsk();
+
+            System.out.println("DEBUG: Best Bid: " + bestBid.orElse(null) +
+                    ", Best Ask: " + bestAsk.orElse(null));
+
             List<OrderMatchedEvent> events = OrderMatchEventFactory.createMatchEvents(bidSide, askSide);
-            recentMatchEvents.addAll(events);
+
+            System.out.println("DEBUG: Found " + events.size() + " potential matches");
+
+            // Filter out null events and validate
+            List<OrderMatchedEvent> validEvents = events.stream()
+                    .filter(Objects::nonNull)
+                    .filter(this::isMatchStillValid)
+                    .collect(Collectors.toList());
+
+            System.out.println("DEBUG: " + validEvents.size() + " matches are valid");
+
+            recentMatchEvents.addAll(validEvents);
         }
+    }
+
+    private boolean isMatchStillValid(OrderMatchedEvent event) {
+        // Get the orders from our index
+        IOrder buyOrder = orderIndex.get(event.getBuyOrderId());
+        IOrder sellOrder = orderIndex.get(event.getSellOrderId());
+
+        if (buyOrder == null) {
+            System.out.println("DEBUG: Buy order " + event.getBuyOrderId() + " not found in index");
+            return false;
+        }
+        if (sellOrder == null) {
+            System.out.println("DEBUG: Sell order " + event.getSellOrderId() + " not found in index");
+            return false;
+        }
+
+        // Check if orders are still active
+        if (!buyOrder.isActive() || !sellOrder.isActive()) {
+            System.out.println("DEBUG: One or both orders are inactive");
+            return false;
+        }
+
+        // Check if both orders still have enough remaining quantity
+        BigDecimal matchQty = event.getMatchedQuantity();
+        BigDecimal buyRemaining = buyOrder.getRemainingQuantity();
+        BigDecimal sellRemaining = sellOrder.getRemainingQuantity();
+
+        // Log the validation check
+        System.out.println("DEBUG: Validating match - Buy: " + event.getBuyOrderId() +
+                " (remaining: " + buyRemaining + "), Sell: " + event.getSellOrderId() +
+                " (remaining: " + sellRemaining + "), Match qty: " + matchQty);
+
+        // Use conservative check
+        boolean buyHasQuantity = buyRemaining.compareTo(matchQty) >= 0;
+        boolean sellHasQuantity = sellRemaining.compareTo(matchQty) >= 0;
+
+        if (!buyHasQuantity || !sellHasQuantity) {
+            System.out.println("DEBUG: Match validation FAILED - insufficient quantity");
+            return false;
+        }
+
+        System.out.println("DEBUG: Match validation PASSED");
+        return true;
     }
 
     private boolean hasSpreadCrossed() {
@@ -101,7 +192,6 @@ public class OrderBook {
     }
 
     // ============ QUERY METHODS ============
-    // ... (all other methods remain the same)
 
     public Optional<Money> getBestBid() {
         return bidSide.getBestPrice();
@@ -170,17 +260,19 @@ public class OrderBook {
 
     public void removeInactiveOrders() {
         List<IOrder> inactiveOrders = orderIndex.values().stream()
-                .filter(order -> !order.isActive())
+                .filter(order -> !order.isActive() ||
+                        order.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0)
                 .collect(Collectors.toList());
 
         for (IOrder inactiveOrder : inactiveOrders) {
-            orderIndex.remove(inactiveOrder.getId());
+            removeOrderById(inactiveOrder.getId());
         }
 
         bidSide.removeInactiveOrders();
         askSide.removeInactiveOrders();
         lastUpdate = LocalDateTime.now();
     }
+
     public List<OrderMatchedEvent> getRecentMatchEvents() {
         return new ArrayList<>(recentMatchEvents);
     }
@@ -194,6 +286,7 @@ public class OrderBook {
         recentMatchEvents.clear();
         return events;
     }
+
     // ============ GETTERS ============
 
     public Symbol getSymbol() {

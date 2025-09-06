@@ -1,18 +1,18 @@
 package core.ms.order.application.event_handlers;
 
 import core.ms.order.application.services.OrderSagaService;
-import core.ms.order.domain.events.subscribe.OrderMatchedEvent;
-import core.ms.order.domain.events.subscribe.OrderRequestedEvent;
-import core.ms.shared.events.EventContext;
+import core.ms.order_book.domain.events.publish.OrderMatchedEvent;
+import core.ms.portfolio.domain.events.publish.OrderRequestedEvent;
+import core.ms.shared.events.CorrelationAwareEventListener;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 @Component
-public class OrderSagaEventHandler {
+public class OrderSagaEventHandler extends CorrelationAwareEventListener {
 
     private static final Logger logger = LoggerFactory.getLogger(OrderSagaEventHandler.class);
 
@@ -21,40 +21,65 @@ public class OrderSagaEventHandler {
 
     /**
      * Handles OrderRequestedEvent from Portfolio BC.
-     * Creates an order with reservation reference.
      */
     @EventListener
-    @Async
+    @Transactional
     public void handleOrderRequested(OrderRequestedEvent event) {
-        logger.info("📥 [SAGA: {}] Received OrderRequestedEvent from {} - Reservation: {}, Portfolio: {}, Type: {}, Symbol: {}",
-                event.getCorrelationId(), event.getSourceBC(), event.getReservationId(),
-                event.getPortfolioId(), event.getOrderType(), event.getSymbolCode());
+        logger.info("════════════════════════════════════════════════════════════════");
+        logger.info("🎯 ORDER BC: RECEIVED OrderRequestedEvent from Portfolio BC");
+        logger.info("📋 Event details:");
+        logger.info("   - Correlation ID: {}", event.getCorrelationId());
+        logger.info("   - Source: {}", event.getSourceBC());
+        logger.info("   - Reservation: {}", event.getReservationId());
+        logger.info("   - Portfolio: {}", event.getPortfolioId());
+        logger.info("   - Order Type: {}", event.getOrderType());
+        logger.info("   - Symbol: {}", event.getSymbol().getCode());
+        logger.info("   - Price: {}", event.getPrice().toDisplayString());
+        logger.info("   - Quantity: {}", event.getQuantity());
+        logger.info("════════════════════════════════════════════════════════════════");
 
-        try {
-            // Set correlation ID for the current thread
-            EventContext.setCorrelationId(event.getCorrelationId());
+        handleEvent(event, () -> {
+            try {
+                logger.info("🔄 ORDER BC: Starting order creation process");
 
-            // Process the order request
-            orderSagaService.processOrderRequest(event);
+                // Convert Portfolio's OrderRequestedEvent to internal format
+                core.ms.order.domain.events.subscribe.OrderRequestedEvent internalEvent =
+                        new core.ms.order.domain.events.subscribe.OrderRequestedEvent(
+                                event.getCorrelationId(),
+                                event.getSourceBC(),
+                                event.getReservationId(),
+                                event.getPortfolioId(),
+                                event.getOrderType().name(),
+                                event.getSymbol().getCode(),
+                                event.getPrice().getAmount(),
+                                event.getPrice().getCurrency(),
+                                event.getQuantity()
+                        );
 
-            logger.info("✅ [SAGA: {}] Successfully processed order request for reservation: {}",
-                    event.getCorrelationId(), event.getReservationId());
+                logger.info("📦 ORDER BC: Calling OrderSagaService.processOrderRequest");
 
-        } catch (Exception e) {
-            logger.error("❌ [SAGA: {}] Failed to process order request - Reservation: {}, Error: {}",
-                    event.getCorrelationId(), event.getReservationId(), e.getMessage(), e);
+                // Process the order request
+                orderSagaService.processOrderRequest(internalEvent);
 
-            // Publish failure event
-            orderSagaService.publishOrderCreationFailed(
-                    event.getCorrelationId(),
-                    event.getReservationId(),
-                    event.getPortfolioId(),
-                    e.getMessage()
-            );
+                logger.info("✅ ORDER BC: Successfully processed order request for reservation: {}",
+                        event.getReservationId());
 
-        } finally {
-            EventContext.clear();
-        }
+            } catch (Exception e) {
+                logger.error("❌ ORDER BC: Failed to process order request", e);
+                logger.error("   - Reservation: {}", event.getReservationId());
+                logger.error("   - Error: {}", e.getMessage());
+
+                // Publish failure event
+                orderSagaService.publishOrderCreationFailed(
+                        event.getCorrelationId(),
+                        event.getReservationId(),
+                        event.getPortfolioId(),
+                        e.getMessage()
+                );
+
+                throw new RuntimeException("Order creation failed", e);
+            }
+        });
     }
 
     /**
@@ -62,35 +87,62 @@ public class OrderSagaEventHandler {
      * Creates a transaction and updates both orders.
      */
     @EventListener
-    @Async
+    @Transactional
     public void handleOrderMatched(OrderMatchedEvent event) {
-        logger.info("📥 [SAGA: {}] Received OrderMatchedEvent from {} - Buy: {}, Sell: {}, Quantity: {}, Price: {}",
-                event.getCorrelationId(), event.getSourceBC(), event.getBuyOrderId(),
-                event.getSellOrderId(), event.getMatchedQuantity(), event.getExecutionPrice());
+        logger.info("════════════════════════════════════════════════════════════════");
+        logger.info("🎯 ORDER BC: RECEIVED OrderMatchedEvent from OrderBook BC");
+        logger.info("📋 Match details:");
+        logger.info("   - Correlation ID: {}", event.getCorrelationId());
+        logger.info("   - Source BC: {}", event.getSourceBC());
+        logger.info("   - Buy Order: {}", event.getBuyOrderId());
+        logger.info("   - Sell Order: {}", event.getSellOrderId());
+        logger.info("   - Symbol: {}", event.getSymbol().getCode());
+        logger.info("   - Matched Quantity: {}", event.getMatchedQuantity());
+        logger.info("   - Execution Price: {} {}",
+                event.getExecutionPrice().getAmount(),
+                event.getExecutionPrice().getCurrency());
+        logger.info("   - Total Value: {}", event.getTotalValue());
+        logger.info("════════════════════════════════════════════════════════════════");
 
-        try {
-            // Set correlation ID for the current thread
-            EventContext.setCorrelationId(event.getCorrelationId());
+        handleEvent(event, () -> {
+            try {
+                logger.info("🔄 ORDER BC: Starting transaction creation process");
 
-            // Process the matched orders
-            orderSagaService.processOrderMatch(event);
+                // Convert to internal event format if needed
+                core.ms.order.domain.events.subscribe.OrderMatchedEvent internalEvent =
+                        new core.ms.order.domain.events.subscribe.OrderMatchedEvent(
+                                event.getCorrelationId(),
+                                event.getSourceBC(),
+                                event.getBuyOrderId(),
+                                event.getSellOrderId(),
+                                event.getMatchedQuantity(),
+                                event.getExecutionPrice().getAmount(),
+                                event.getExecutionPrice().getCurrency()
+                        );
 
-            logger.info("✅ [SAGA: {}] Successfully processed order match - Buy: {}, Sell: {}",
-                    event.getCorrelationId(), event.getBuyOrderId(), event.getSellOrderId());
+                // Process the matched orders
+                logger.info("📦 ORDER BC: Calling OrderSagaService.processOrderMatch");
+                orderSagaService.processOrderMatch(internalEvent);
 
-        } catch (Exception e) {
-            logger.error("❌ [SAGA: {}] Failed to process order match - Buy: {}, Sell: {}, Error: {}",
-                    event.getCorrelationId(), event.getBuyOrderId(), event.getSellOrderId(), e.getMessage(), e);
+                logger.info("✅ ORDER BC: Successfully processed order match");
+                logger.info("   - Transaction created for Buy: {}, Sell: {}",
+                        event.getBuyOrderId(), event.getSellOrderId());
 
-            orderSagaService.publishTransactionCreationFailed(
-                    event.getCorrelationId(),
-                    event.getBuyOrderId(),
-                    event.getSellOrderId(),
-                    e.getMessage()
-            );
+            } catch (Exception e) {
+                logger.error("❌ ORDER BC: Failed to process order match", e);
+                logger.error("   - Buy Order: {}", event.getBuyOrderId());
+                logger.error("   - Sell Order: {}", event.getSellOrderId());
+                logger.error("   - Error: {}", e.getMessage());
 
-        } finally {
-            EventContext.clear();
-        }
+                orderSagaService.publishTransactionCreationFailed(
+                        event.getCorrelationId(),
+                        event.getBuyOrderId(),
+                        event.getSellOrderId(),
+                        e.getMessage()
+                );
+
+                throw new RuntimeException("Transaction creation failed", e);
+            }
+        });
     }
 }

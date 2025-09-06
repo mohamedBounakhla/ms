@@ -1,4 +1,3 @@
-// ./robot/domain/TradingBot.java
 package core.ms.robot.domain;
 
 import core.ms.portfolio.application.dto.command.CreatePortfolioCommand;
@@ -13,6 +12,8 @@ import core.ms.shared.money.Currency;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
 import jakarta.persistence.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -23,6 +24,7 @@ import java.util.UUID;
 @Entity
 @Table(name = "trading_bots")
 public class TradingBot {
+    private static final Logger logger = LoggerFactory.getLogger(TradingBot.class);
 
     @Id
     @Column(name = "bot_id")
@@ -42,6 +44,9 @@ public class TradingBot {
 
     @Column(name = "initial_cash")
     private BigDecimal initialCash;
+
+    @Column(name = "initial_assets")
+    private BigDecimal initialAssets;
 
     @Column(name = "max_order_size")
     private BigDecimal maxOrderSize;
@@ -105,6 +110,8 @@ public class TradingBot {
         this.strategyName = config.getStrategy();
         this.symbolCode = config.getSymbolCode();
         this.initialCash = config.getInitialCash();
+        this.initialAssets = config.getInitialAssets() != null ?
+                config.getInitialAssets() : BigDecimal.ZERO;
         this.maxOrderSize = config.getMaxOrderSize();
         this.minOrderSize = config.getMinOrderSize();
         this.tickIntervalSeconds = config.getTickIntervalSeconds();
@@ -125,26 +132,61 @@ public class TradingBot {
     }
 
     public void initialize() {
+        if (status != BotStatus.CREATED) {
+            logger.warn("Bot {} already initialized with status: {}", botId, status);
+            return;
+        }
+
         try {
+            // Check if portfolio already exists
+            if (portfolioService.findPortfolioById(portfolioId).isPresent()) {
+                logger.info("Portfolio {} already exists for bot {}", portfolioId, botId);
+                status = BotStatus.INITIALIZED;
+                if (autoStart) {
+                    start();
+                }
+                return;
+            }
+
             // Create portfolio for the bot
             CreatePortfolioCommand createCmd = new CreatePortfolioCommand(
                     portfolioId, "bot-" + botId
             );
-            portfolioService.createPortfolio(createCmd);
+            var result = portfolioService.createPortfolio(createCmd);
+
+            if (!result.isSuccess()) {
+                throw new RuntimeException("Failed to create portfolio: " + result.getMessage());
+            }
+
+            // Wait a bit for transaction to commit
+            Thread.sleep(100);
 
             // Deposit initial cash
             DepositCashCommand depositCmd = new DepositCashCommand(
                     portfolioId, initialCash, Currency.USD
             );
-            portfolioService.depositCash(depositCmd);
+            var depositResult = portfolioService.depositCash(depositCmd);
+
+            if (!depositResult.isSuccess()) {
+                throw new RuntimeException("Failed to deposit cash: " + depositResult.getMessage());
+            }
 
             status = BotStatus.INITIALIZED;
+
+            String initMessage = String.format("Bot initialized with portfolio %s (Cash: $%s",
+                    portfolioId, initialCash);
+            if (initialAssets != null && initialAssets.compareTo(BigDecimal.ZERO) > 0) {
+                initMessage += String.format(", Assets: %s %s", initialAssets, symbolCode);
+            }
+            initMessage += ")";
+            addToHistory(initMessage);
 
             if (autoStart) {
                 start();
             }
         } catch (Exception e) {
             status = BotStatus.ERROR;
+            addToHistory("ERROR during initialization: " + e.getMessage());
             throw new RuntimeException("Failed to initialize bot: " + e.getMessage(), e);
         }
     }
@@ -162,13 +204,17 @@ public class TradingBot {
         addToHistory("Bot stopped");
     }
 
-    public void tick(Money currentPrice) {
+    public PortfolioApplicationService getPortfolioService() {
+        return portfolioService;
+    }
+
+    public void tick(Money currentMarketPrice) {
         if (status != BotStatus.RUNNING) {
             return;
         }
 
         try {
-            lastKnownPrice = currentPrice.getAmount();
+            lastKnownPrice = currentMarketPrice.getAmount();
             Symbol symbol = Symbol.createFromCode(symbolCode);
 
             // Get current portfolio state
@@ -176,16 +222,20 @@ public class TradingBot {
 
             // Let strategy decide
             TradingStrategy.TradingDecision decision = strategy.decide(
-                    currentPrice, snapshot, symbol, getConfig()
+                    currentMarketPrice, snapshot, symbol, getConfig()
             );
+
+            // Use custom price if provided by strategy, otherwise use market price
+            Money orderPrice = decision.hasCustomPrice() ?
+                    decision.getCustomPrice() : currentMarketPrice;
 
             // Execute decision and notify via callback
             switch (decision.getAction()) {
-                case BUY -> executeBuy(decision, currentPrice);
-                case SELL -> executeSell(decision, currentPrice);
+                case BUY -> executeBuy(decision, orderPrice);
+                case SELL -> executeSell(decision, orderPrice);
                 case HOLD -> {
                     if (tradeEventCallback != null) {
-                        tradeEventCallback.onTradeEvent(this, decision, currentPrice, true, null);
+                        tradeEventCallback.onTradeEvent(this, decision, currentMarketPrice, true, null);
                     }
                 }
             }
@@ -213,8 +263,8 @@ public class TradingBot {
         try {
             portfolioService.placeBuyOrder(command);
             tradesExecuted++;
-            String historyEntry = String.format("BUY %.4f %s @ %s",
-                    decision.getQuantity(), symbolCode, price.toDisplayString());
+            String historyEntry = String.format("BUY %.4f %s @ %s (%s)",
+                    decision.getQuantity(), symbolCode, price.toDisplayString(), decision.getReason());
             addToHistory(historyEntry);
 
             if (tradeEventCallback != null) {
@@ -239,8 +289,8 @@ public class TradingBot {
         try {
             portfolioService.placeSellOrder(command);
             tradesExecuted++;
-            String historyEntry = String.format("SELL %.4f %s @ %s",
-                    decision.getQuantity(), symbolCode, price.toDisplayString());
+            String historyEntry = String.format("SELL %.4f %s @ %s (%s)",
+                    decision.getQuantity(), symbolCode, price.toDisplayString(), decision.getReason());
             addToHistory(historyEntry);
 
             if (tradeEventCallback != null) {
@@ -271,6 +321,7 @@ public class TradingBot {
         BotConfig config = new BotConfig();
         config.setBotName(botName);
         config.setInitialCash(initialCash);
+        config.setInitialAssets(initialAssets);
         config.setStrategy(strategyName);
         config.setSymbolCode(symbolCode);
         config.setMaxOrderSize(maxOrderSize);
@@ -292,6 +343,7 @@ public class TradingBot {
     public int getTradesExecuted() { return tradesExecuted; }
     public List<String> getTradeHistory() { return new ArrayList<>(tradeHistory); }
     public BigDecimal getLastKnownPrice() { return lastKnownPrice; }
+    public BigDecimal getInitialAssets() { return initialAssets; }
 
     public enum BotStatus {
         CREATED, INITIALIZED, RUNNING, STOPPED, ERROR, TERMINATED

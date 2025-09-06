@@ -43,17 +43,34 @@ public class OrderSagaService {
      * Creates an order with reservation reference and publishes events.
      */
     public void processOrderRequest(OrderRequestedEvent event) {
+        logger.info("🚀 [SAGA: {}] BEGIN processOrderRequest", event.getCorrelationId());
+        logger.info("📋 Processing details - Type: {}, Symbol: {}, Portfolio: {}, Reservation: {}",
+                event.getOrderType(), event.getSymbolCode(),
+                event.getPortfolioId(), event.getReservationId());
+
         try {
-            logger.info("[SAGA: {}] Processing order request - Type: {}, Symbol: {}, Reservation: {}",
-                    event.getCorrelationId(), event.getOrderType(), event.getSymbolCode(), event.getReservationId());
+            // Validate input
+            logger.info("🔍 Validating input parameters");
+            if (event.getPortfolioId() == null || event.getPortfolioId().trim().isEmpty()) {
+                throw new IllegalArgumentException("Portfolio ID is required");
+            }
+            if (event.getReservationId() == null || event.getReservationId().trim().isEmpty()) {
+                throw new IllegalArgumentException("Reservation ID is required");
+            }
 
             // Create domain objects
+            logger.info("🏗️ Creating domain objects - Symbol: {}, Price: {} {}",
+                    event.getSymbolCode(), event.getPrice(), event.getCurrency());
+
             Symbol symbol = Symbol.createFromCode(event.getSymbolCode());
             Money price = Money.of(event.getPrice(), event.getCurrency());
+
+            logger.info("✅ Domain objects created successfully");
 
             // Create order based on type with reservation reference
             IOrder order;
             if ("BUY".equalsIgnoreCase(event.getOrderType())) {
+                logger.info("💰 Creating BUY order with factory");
                 order = OrderFactory.createBuyOrder(
                         event.getPortfolioId(),
                         event.getReservationId(),
@@ -61,7 +78,10 @@ public class OrderSagaService {
                         price,
                         event.getQuantity()
                 );
+                logger.info("✅ BUY order created - ID: {}", order.getId());
+
             } else if ("SELL".equalsIgnoreCase(event.getOrderType())) {
+                logger.info("💸 Creating SELL order with factory");
                 order = OrderFactory.createSellOrder(
                         event.getPortfolioId(),
                         event.getReservationId(),
@@ -69,21 +89,47 @@ public class OrderSagaService {
                         price,
                         event.getQuantity()
                 );
+                logger.info("✅ SELL order created - ID: {}", order.getId());
+
             } else {
                 throw new IllegalArgumentException("Invalid order type: " + event.getOrderType());
             }
 
+            // Log order details before saving
+            logger.info("📝 Order details before save:");
+            logger.info("  - ID: {}", order.getId());
+            logger.info("  - Portfolio ID: {}", order.getPortfolioId());
+            logger.info("  - Reservation ID: {}", order.getReservationId());
+            logger.info("  - Symbol: {}", order.getSymbol().getCode());
+            logger.info("  - Price: {}", order.getPrice().toDisplayString());
+            logger.info("  - Quantity: {}", order.getQuantity());
+            logger.info("  - Status: {}", order.getStatus().getStatus());
+
             // Save order
+            logger.info("💾 Saving order to repository");
             IOrder savedOrder = orderRepository.save(order);
+            logger.info("✅ Order saved successfully - ID: {}, Type: {}",
+                    savedOrder.getId(), savedOrder.getClass().getSimpleName());
 
-            logger.info("[SAGA: {}] Order created successfully - Order ID: {}, Reservation: {}",
-                    event.getCorrelationId(), savedOrder.getId(), savedOrder.getReservationId());
+            // Verify save
+            logger.info("🔍 Verifying order was saved");
+            Optional<IOrder> verification = orderRepository.findById(savedOrder.getId());
+            if (verification.isPresent()) {
+                logger.info("✅ Order verified in repository - ID: {}", verification.get().getId());
+            } else {
+                logger.error("❌ Order NOT found in repository after save!");
+                throw new IllegalStateException("Order save verification failed");
+            }
 
-            // Publish OrderCreatedEvent (to Portfolio BC and OrderBook BC)
+            // Publish OrderCreatedEvent
+            logger.info("📤 Publishing OrderCreatedEvent");
             publishOrderCreated(event.getCorrelationId(), savedOrder, event.getOrderType());
 
+            logger.info("🎉 [SAGA: {}] COMPLETED processOrderRequest - Order ID: {}",
+                    event.getCorrelationId(), savedOrder.getId());
+
         } catch (Exception e) {
-            logger.error("[SAGA: {}] Failed to create order - Error: {}",
+            logger.error("💥 [SAGA: {}] FAILED processOrderRequest - Error: {}",
                     event.getCorrelationId(), e.getMessage(), e);
             throw new OrderCreationException("Failed to create order: " + e.getMessage(), e);
         }
@@ -94,53 +140,77 @@ public class OrderSagaService {
      * Creates a transaction and updates both orders.
      */
     public void processOrderMatch(OrderMatchedEvent event) {
-        try {
-            logger.info("[SAGA: {}] Processing order match - Buy: {}, Sell: {}, Quantity: {}",
-                    event.getCorrelationId(), event.getBuyOrderId(), event.getSellOrderId(), event.getMatchedQuantity());
+        logger.info("🚀 [SAGA: {}] BEGIN processOrderMatch", event.getCorrelationId());
+        logger.info("📋 Match details - Buy: {}, Sell: {}, Quantity: {}",
+                event.getBuyOrderId(), event.getSellOrderId(), event.getMatchedQuantity());
 
+        try {
             // Fetch orders
+            logger.info("🔍 Fetching buy order: {}", event.getBuyOrderId());
             Optional<IOrder> buyOrderOpt = orderRepository.findById(event.getBuyOrderId());
+
+            logger.info("🔍 Fetching sell order: {}", event.getSellOrderId());
             Optional<IOrder> sellOrderOpt = orderRepository.findById(event.getSellOrderId());
 
             if (buyOrderOpt.isEmpty()) {
+                logger.error("❌ Buy order not found: {}", event.getBuyOrderId());
                 throw new IllegalStateException("Buy order not found: " + event.getBuyOrderId());
             }
             if (sellOrderOpt.isEmpty()) {
+                logger.error("❌ Sell order not found: {}", event.getSellOrderId());
                 throw new IllegalStateException("Sell order not found: " + event.getSellOrderId());
             }
 
+            logger.info("✅ Both orders found");
+
             // Validate order types
             if (!(buyOrderOpt.get() instanceof IBuyOrder)) {
+                logger.error("❌ Invalid buy order type: {}", buyOrderOpt.get().getClass());
                 throw new IllegalStateException("Invalid buy order type: " + event.getBuyOrderId());
             }
             if (!(sellOrderOpt.get() instanceof ISellOrder)) {
+                logger.error("❌ Invalid sell order type: {}", sellOrderOpt.get().getClass());
                 throw new IllegalStateException("Invalid sell order type: " + event.getSellOrderId());
             }
 
             IBuyOrder buyOrder = (IBuyOrder) buyOrderOpt.get();
             ISellOrder sellOrder = (ISellOrder) sellOrderOpt.get();
 
-            // Store pre-transaction state for event publishing
+            logger.info("📝 Order states before transaction:");
+            logger.info("  Buy - Remaining: {}, Executed: {}",
+                    buyOrder.getRemainingQuantity(), buyOrder.getExecutedQuantity());
+            logger.info("  Sell - Remaining: {}, Executed: {}",
+                    sellOrder.getRemainingQuantity(), sellOrder.getExecutedQuantity());
+
+            // Store pre-transaction state
             String buyOrderPortfolioId = buyOrder.getPortfolioId();
             String sellOrderPortfolioId = sellOrder.getPortfolioId();
             String buyOrderReservationId = buyOrder.getReservationId();
             String sellOrderReservationId = sellOrder.getReservationId();
 
-            // Create transaction (this updates order execution quantities)
+            // Create transaction
+            logger.info("🏗️ Creating transaction with factory");
             Transaction transaction = TransactionFactory.create(buyOrder, sellOrder, event.getMatchedQuantity());
+            logger.info("✅ Transaction created - ID: {}", transaction.getId());
 
             // Save transaction
+            logger.info("💾 Saving transaction");
             ITransaction savedTransaction = transactionRepository.save(transaction);
+            logger.info("✅ Transaction saved - ID: {}", savedTransaction.getId());
 
             // Save updated orders
+            logger.info("💾 Saving updated orders");
             orderRepository.save(buyOrder);
             orderRepository.save(sellOrder);
 
-            logger.info("[SAGA: {}] Transaction created successfully - Transaction ID: {}, Buy remaining: {}, Sell remaining: {}",
-                    event.getCorrelationId(), savedTransaction.getId(),
-                    buyOrder.getRemainingQuantity(), sellOrder.getRemainingQuantity());
+            logger.info("📝 Order states after transaction:");
+            logger.info("  Buy - Remaining: {}, Executed: {}",
+                    buyOrder.getRemainingQuantity(), buyOrder.getExecutedQuantity());
+            logger.info("  Sell - Remaining: {}, Executed: {}",
+                    sellOrder.getRemainingQuantity(), sellOrder.getExecutedQuantity());
 
-            // Publish TransactionCreatedEvent (to Portfolio BC and OrderBook BC)
+            // Publish TransactionCreatedEvent
+            logger.info("📤 Publishing TransactionCreatedEvent");
             publishTransactionCreated(
                     event.getCorrelationId(),
                     savedTransaction,
@@ -152,8 +222,11 @@ public class OrderSagaService {
                     sellOrder.getRemainingQuantity()
             );
 
+            logger.info("🎉 [SAGA: {}] COMPLETED processOrderMatch - Transaction ID: {}",
+                    event.getCorrelationId(), savedTransaction.getId());
+
         } catch (Exception e) {
-            logger.error("[SAGA: {}] Failed to create transaction - Error: {}",
+            logger.error("💥 [SAGA: {}] FAILED processOrderMatch - Error: {}",
                     event.getCorrelationId(), e.getMessage(), e);
             throw new TransactionCreationException("Failed to create transaction: " + e.getMessage(), e);
         }
@@ -163,26 +236,24 @@ public class OrderSagaService {
      * Publishes OrderCreatedEvent to Portfolio BC and OrderBook BC.
      */
     private void publishOrderCreated(String correlationId, IOrder order, String orderType) {
-        // Convert string orderType to enum
-        OrderType orderTypeEnum = "BUY".equalsIgnoreCase(orderType) ?
-                OrderType.BUY : OrderType.SELL;
+        logger.info("📤 Creating OrderCreatedEvent for order: {}", order.getId());
 
         OrderCreatedEvent event = new OrderCreatedEvent(
                 correlationId,
                 order.getId(),
                 order.getPortfolioId(),
                 order.getReservationId(),
-                order.getSymbol(),  // Already a Symbol object
-                order.getPrice(),   // Already a Money object
+                order.getSymbol(),
+                order.getPrice(),
                 order.getQuantity(),
-                orderTypeEnum,      // Use enum instead of string
+                "BUY".equalsIgnoreCase(orderType) ? OrderType.BUY : OrderType.SELL,
                 order.getStatus().getStatus().name()
         );
 
+        logger.info("📨 Publishing to event bus - Correlation: {}", correlationId);
         eventBus.publish(event);
-
-        logger.info("📤 [SAGA: {}] Published OrderCreatedEvent - Order ID: {}, Type: {}, Reservation: {}",
-                correlationId, order.getId(), orderTypeEnum, order.getReservationId());
+        logger.info("✅ OrderCreatedEvent published - Order: {}, Type: {}, Reservation: {}",
+                order.getId(), orderType, order.getReservationId());
     }
 
     /**
@@ -190,6 +261,8 @@ public class OrderSagaService {
      */
     public void publishOrderCreationFailed(String correlationId, String reservationId,
                                            String portfolioId, String reason) {
+        logger.info("📤 Creating OrderCreationFailedEvent - Reservation: {}", reservationId);
+
         OrderCreationFailedEvent event = new OrderCreationFailedEvent(
                 correlationId,
                 reservationId,
@@ -198,10 +271,10 @@ public class OrderSagaService {
                 reason
         );
 
+        logger.info("📨 Publishing failure event to event bus");
         eventBus.publish(event);
-
-        logger.info("📤 [SAGA: {}] Published OrderCreationFailedEvent - Reservation: {}, Reason: {}",
-                correlationId, reservationId, reason);
+        logger.info("✅ OrderCreationFailedEvent published - Reservation: {}, Reason: {}",
+                reservationId, reason);
     }
 
     /**
@@ -212,6 +285,8 @@ public class OrderSagaService {
                                            String buyerReservationId, String sellerReservationId,
                                            java.math.BigDecimal buyOrderRemaining,
                                            java.math.BigDecimal sellOrderRemaining) {
+        logger.info("📤 Creating TransactionCreatedEvent - Transaction: {}", transaction.getId());
+
         TransactionCreatedEvent event = new TransactionCreatedEvent(
                 correlationId,
                 transaction.getId(),
@@ -229,13 +304,20 @@ public class OrderSagaService {
                 sellOrderRemaining
         );
 
+        logger.info("📨 Publishing to event bus - Correlation: {}", correlationId);
         eventBus.publish(event);
-
-        logger.info("📤 [SAGA: {}] Published TransactionCreatedEvent - Transaction ID: {}, Buy Order: {}, Sell Order: {}",
-                correlationId, transaction.getId(), transaction.getBuyOrder().getId(), transaction.getSellOrder().getId());
+        logger.info("✅ TransactionCreatedEvent published - Transaction: {}, Buy: {}, Sell: {}",
+                transaction.getId(), transaction.getBuyOrder().getId(), transaction.getSellOrder().getId());
     }
+
+    /**
+     * Publishes TransactionCreationFailedEvent.
+     */
     public void publishTransactionCreationFailed(String correlationId, String buyOrderId,
                                                  String sellOrderId, String reason) {
+        logger.info("📤 Creating TransactionCreationFailedEvent - Buy: {}, Sell: {}",
+                buyOrderId, sellOrderId);
+
         TransactionCreationFailedEvent event = new TransactionCreationFailedEvent(
                 correlationId,
                 buyOrderId,
@@ -244,12 +326,10 @@ public class OrderSagaService {
                 reason
         );
 
+        logger.info("📨 Publishing failure event to event bus");
         eventBus.publish(event);
-
-        logger.info("📤 [SAGA: {}] Published TransactionCreationFailedEvent - Buy: {}, Sell: {}, Reason: {}",
-                correlationId, buyOrderId, sellOrderId, reason);
+        logger.info("✅ TransactionCreationFailedEvent published - Reason: {}", reason);
     }
-
 
     // Exception classes
     public static class OrderCreationException extends RuntimeException {

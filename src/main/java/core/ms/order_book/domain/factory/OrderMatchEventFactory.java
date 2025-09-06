@@ -39,28 +39,66 @@ public class OrderMatchEventFactory {
         Objects.requireNonNull(algorithm, "MatchingAlgorithm cannot be null");
         Objects.requireNonNull(strategy, "MatchingStrategy cannot be null");
 
+        System.out.println("DEBUG OrderMatchEventFactory: Starting match event creation");
+
         // Find matching candidates
         List<MatchCandidateExtractor> candidates = algorithm.findMatchCandidates(bidSide, askSide, strategy);
 
+        System.out.println("DEBUG OrderMatchEventFactory: Found " + candidates.size() + " candidates");
+
         // Convert valid candidates to domain events with correlation ID
-        return candidates.stream()
+        List<OrderMatchedEvent> events = candidates.stream()
                 .filter(MatchCandidateExtractor::isValid)
                 .map(OrderMatchEventFactory::createEventFromCandidate)
+                .filter(Objects::nonNull)  // Filter out null events
                 .collect(Collectors.toList());
+
+        System.out.println("DEBUG OrderMatchEventFactory: Created " + events.size() + " match events");
+
+        return events;
     }
 
     /**
      * Creates OrderMatchedEvent from valid candidate.
      * Price is always set by the seller (business rule).
-     * Includes correlation ID for saga tracking.
+     * Uses CONSERVATIVE quantity calculation to prevent overmatching.
      */
     private static OrderMatchedEvent createEventFromCandidate(MatchCandidateExtractor candidate) {
+        if (!candidate.isValid()) {
+            System.out.println("DEBUG OrderMatchEventFactory: Invalid candidate, skipping");
+            return null;
+        }
+
         Money executionPrice = candidate.getSellOrder().getPrice();
-        BigDecimal matchedQuantity = candidate.getBuyOrder().getRemainingQuantity()
-                .min(candidate.getSellOrder().getRemainingQuantity());
+
+        // CONSERVATIVE: Use the minimum of both remaining quantities
+        BigDecimal buyRemaining = candidate.getBuyOrder().getRemainingQuantity();
+        BigDecimal sellRemaining = candidate.getSellOrder().getRemainingQuantity();
+        BigDecimal matchedQuantity = buyRemaining.min(sellRemaining);
+
+        // Log the candidate details
+        System.out.println("DEBUG OrderMatchEventFactory: Processing candidate - Buy: " +
+                candidate.getBuyOrder().getId() + " (remaining: " + buyRemaining +
+                ", status: " + candidate.getBuyOrder().getStatus().getStatus() +
+                "), Sell: " + candidate.getSellOrder().getId() +
+                " (remaining: " + sellRemaining +
+                ", status: " + candidate.getSellOrder().getStatus().getStatus() + ")");
+
+        // Additional safety check - ensure positive quantity
+        if (matchedQuantity.compareTo(BigDecimal.ZERO) <= 0) {
+            System.out.println("WARNING: Skipping match with zero/negative quantity");
+            return null;
+        }
 
         // Get current correlation ID from context (will be set by the incoming event handler)
         String correlationId = EventContext.getCurrentCorrelationId();
+        if (correlationId == null) {
+            correlationId = "ORDERBOOK-" + System.currentTimeMillis();
+            System.out.println("WARNING: No correlation ID in context, using: " + correlationId);
+        }
+
+        System.out.println("DEBUG: Creating match event with quantity: " + matchedQuantity +
+                ", correlation ID: " + correlationId);
 
         return new OrderMatchedEvent(
                 correlationId,
@@ -77,9 +115,21 @@ public class OrderMatchEventFactory {
      * Useful for testing or when correlation ID needs to be explicitly set.
      */
     public static OrderMatchedEvent createMatchEvent(String correlationId, MatchCandidateExtractor candidate) {
+        if (!candidate.isValid()) {
+            return null;
+        }
+
         Money executionPrice = candidate.getSellOrder().getPrice();
-        BigDecimal matchedQuantity = candidate.getBuyOrder().getRemainingQuantity()
-                .min(candidate.getSellOrder().getRemainingQuantity());
+
+        // CONSERVATIVE: Use the minimum of both remaining quantities
+        BigDecimal buyRemaining = candidate.getBuyOrder().getRemainingQuantity();
+        BigDecimal sellRemaining = candidate.getSellOrder().getRemainingQuantity();
+        BigDecimal matchedQuantity = buyRemaining.min(sellRemaining);
+
+        // Safety check
+        if (matchedQuantity.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
 
         return new OrderMatchedEvent(
                 correlationId,

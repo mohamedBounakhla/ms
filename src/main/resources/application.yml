@@ -62,7 +62,14 @@ logging:
     root: INFO
     core.ms: DEBUG
     org.hibernate.SQL: WARN
-
+    core.ms.robot: DEBUG
+    core.ms.portfolio: DEBUG
+    core.ms.order: DEBUG
+    core.ms.order_book: DEBUG
+    core.ms.shared.events: DEBUG
+    org.springframework.context: INFO
+    org.springframework.messaging: DEBUG
+    org.springframework.web.socket: DEBUG
 # Server
 server:
   port: 8080
