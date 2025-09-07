@@ -34,10 +34,20 @@ public class SecurityConfig {
                 .authorizeHttpRequests(authz -> authz
                         .requestMatchers("/login", "/register", "/validate", "/refresh").permitAll()
                         .requestMatchers("/h2-console/**").permitAll()
-                        .requestMatchers("/api/v1/market-data/**").permitAll() // Public market data
+                        .requestMatchers("/api/v1/market-data/**").permitAll()
                         .requestMatchers("/api/v1/charts/**").permitAll()
                         .requestMatchers("/api/v1/internal/**").permitAll()
                         .requestMatchers("/api/v1/market/**").permitAll()
+
+                        .requestMatchers("/ws/**").permitAll()
+                        .requestMatchers("/ws/info").permitAll()
+                        .requestMatchers("/ws/market-data/**").permitAll()
+                        .requestMatchers("/app/**").permitAll()
+                        .requestMatchers("/topic/**").permitAll()
+
+                        // Bot endpoints
+                        .requestMatchers("/api/v1/bots/**").permitAll()
+
                         .anyRequest().authenticated()
                 )
                 .sessionManagement(session -> session

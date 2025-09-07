@@ -7,8 +7,12 @@ import core.ms.order.infrastructure.persistence.dao.TransactionDAO;
 import core.ms.order.infrastructure.persistence.entities.TransactionEntity;
 import core.ms.order.infrastructure.persistence.mappers.TransactionMapper;
 import core.ms.shared.money.Symbol;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -17,6 +21,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
+@Transactional
 public class TransactionRepositoryService implements TransactionRepository {
 
     @Autowired
@@ -27,6 +32,9 @@ public class TransactionRepositoryService implements TransactionRepository {
 
     @Autowired
     private OrderRepository orderRepository;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Override
     public ITransaction save(ITransaction transaction) {
@@ -39,6 +47,13 @@ public class TransactionRepositoryService implements TransactionRepository {
         ISellOrder sellOrder = getSellOrderById(saved.getSellOrderId());
 
         return transactionMapper.toDomain(saved, buyOrder, sellOrder);
+    }
+
+    @Override
+    public ITransaction saveAndFlush(ITransaction transaction) {
+        ITransaction saved = save(transaction);
+        entityManager.flush();
+        return saved;
     }
 
     @Override
@@ -57,6 +72,20 @@ public class TransactionRepositoryService implements TransactionRepository {
     }
 
     @Override
+    public Optional<ITransaction> findByIdWithLock(String transactionId, LockModeType lockMode) {
+        TransactionEntity entity = entityManager.find(TransactionEntity.class, transactionId, lockMode);
+
+        if (entity == null) {
+            return Optional.empty();
+        }
+
+        IBuyOrder buyOrder = getBuyOrderById(entity.getBuyOrderId());
+        ISellOrder sellOrder = getSellOrderById(entity.getSellOrderId());
+
+        return Optional.of(transactionMapper.toDomain(entity, buyOrder, sellOrder));
+    }
+
+    @Override
     public void deleteById(String transactionId) {
         transactionDAO.deleteById(transactionId);
     }
@@ -64,6 +93,11 @@ public class TransactionRepositoryService implements TransactionRepository {
     @Override
     public boolean existsById(String transactionId) {
         return transactionDAO.existsById(transactionId);
+    }
+
+    @Override
+    public void flush() {
+        entityManager.flush();
     }
 
     @Override
@@ -84,6 +118,34 @@ public class TransactionRepositoryService implements TransactionRepository {
     public List<ITransaction> findByDateRange(LocalDateTime startDate, LocalDateTime endDate) {
         List<TransactionEntity> entities = transactionDAO.findByCreatedAtBetween(startDate, endDate);
         return mapToDomain(entities);
+    }
+
+    @Override
+    public boolean existsByBuyOrderIdAndSellOrderId(String buyOrderId, String sellOrderId) {
+        // Check if a transaction exists with these order IDs
+        List<TransactionEntity> all = transactionDAO.findAll();
+        return all.stream().anyMatch(t ->
+                buyOrderId.equals(t.getBuyOrderId()) && sellOrderId.equals(t.getSellOrderId())
+        );
+    }
+
+    @Override
+    public Optional<ITransaction> findByBuyOrderIdAndSellOrderId(String buyOrderId, String sellOrderId) {
+        // Find transaction with these order IDs
+        List<TransactionEntity> all = transactionDAO.findAll();
+        Optional<TransactionEntity> entityOpt = all.stream()
+                .filter(t -> buyOrderId.equals(t.getBuyOrderId()) && sellOrderId.equals(t.getSellOrderId()))
+                .findFirst();
+
+        if (entityOpt.isEmpty()) {
+            return Optional.empty();
+        }
+
+        TransactionEntity entity = entityOpt.get();
+        IBuyOrder buyOrder = getBuyOrderById(entity.getBuyOrderId());
+        ISellOrder sellOrder = getSellOrderById(entity.getSellOrderId());
+
+        return Optional.of(transactionMapper.toDomain(entity, buyOrder, sellOrder));
     }
 
     @Override

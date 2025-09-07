@@ -9,6 +9,8 @@ import core.ms.shared.money.Symbol;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Primary;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
@@ -33,28 +35,44 @@ public class OrderBookRepositoryJpaImpl implements OrderBookRepository {
     public OrderBook save(OrderBook orderBook) {
         Symbol symbol = orderBook.getSymbol();
 
-        // Save metadata to database
-        OrderBookEntity entity = orderBookDAO.findBySymbolCode(symbol.getCode())
-                .orElse(new OrderBookEntity(
-                        symbol.getCode(),
-                        symbol.getName(),
-                        symbol.getBaseCurrency().name(),
-                        symbol.getQuoteCurrency().name()
-                ));
+        // Don't update DB metadata on every save - only periodically
+        boolean shouldUpdateMetadata = shouldUpdateDatabaseMetadata();
 
-        // Update activity
-        entity.setLastActivity(Instant.now());
-        entity.setTotalOrders(orderBook.getOrderCount());
-        entity.setTotalVolume(orderBook.getTotalBidVolume().add(orderBook.getTotalAskVolume()));
+        if (shouldUpdateMetadata) {
+            // Only update metadata occasionally
+            OrderBookEntity entity = orderBookDAO.findBySymbolCode(symbol.getCode())
+                    .orElse(new OrderBookEntity(
+                            symbol.getCode(),
+                            symbol.getName(),
+                            symbol.getBaseCurrency().name(),
+                            symbol.getQuoteCurrency().name()
+                    ));
 
-        orderBookDAO.save(entity);
+            entity.setLastActivity(Instant.now());
+            entity.setTotalOrders(orderBook.getOrderCount());
+            entity.setTotalVolume(orderBook.getTotalBidVolume().add(orderBook.getTotalAskVolume()));
 
-        // Ensure it exists in manager (in-memory state)
+            orderBookDAO.save(entity);
+        }
+
+        // Keep in-memory state updated
         if (!orderBookManager.getActiveSymbols().contains(symbol)) {
             orderBookManager.createOrderBook(symbol);
         }
 
         return orderBook;
+    }
+
+    private volatile long lastMetadataUpdate = 0;
+    private static final long METADATA_UPDATE_INTERVAL = 5000; // 5 seconds
+
+    private boolean shouldUpdateDatabaseMetadata() {
+        long now = System.currentTimeMillis();
+        if (now - lastMetadataUpdate > METADATA_UPDATE_INTERVAL) {
+            lastMetadataUpdate = now;
+            return true;
+        }
+        return false;
     }
 
     @Override

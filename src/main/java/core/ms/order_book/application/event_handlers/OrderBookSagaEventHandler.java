@@ -4,6 +4,7 @@ import core.ms.order.domain.entities.IOrder;
 import core.ms.order.domain.ports.inbound.OrderService;
 import core.ms.order_book.application.services.OrderBookApplicationService;
 import core.ms.shared.events.CorrelationAwareEventListener;
+import core.ms.shared.money.Symbol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -29,7 +30,7 @@ public class OrderBookSagaEventHandler extends CorrelationAwareEventListener {
      * Handles OrderCreatedEvent DIRECTLY from Order BC.
      * No mapping needed - listen to the actual event from Order BC.
      */
-    @EventListener
+    /*@EventListener
     @Async
     @Transactional
     public void handleOrderCreatedFromOrderBC(core.ms.order.domain.events.publish.OrderCreatedEvent event) {
@@ -122,15 +123,59 @@ public class OrderBookSagaEventHandler extends CorrelationAwareEventListener {
                 logger.info("════════════════════════════════════════════════════════════════");
             }
         });
+    }*/
+    @EventListener
+    @Async
+// NO @Transactional annotation - handle everything in memory
+    public void handleOrderCreatedFromOrderBC(core.ms.order.domain.events.publish.OrderCreatedEvent event) {
+        logger.info("📥 ORDERBOOK BC: RECEIVED OrderCreatedEvent");
+
+        handleEvent(event, () -> {
+            // Fetch order with retries
+            IOrder order = fetchOrderWithRetries(event.getOrderId(), 3);
+
+            if (order == null) {
+                logger.warn("Order {} not found after retries - skipping", event.getOrderId());
+                return;
+            }
+
+            // Add to in-memory order book (no database transaction)
+            try {
+                var result = orderBookService.addOrderToBook(order);
+                if (result.isSuccess()) {
+                    logger.info("✅ Order {} added to book", event.getOrderId());
+                } else {
+                    logger.warn("Failed to add order: {}", result.getMessage());
+                }
+            } catch (Exception e) {
+                logger.error("Error adding order to book", e);
+            }
+        });
     }
 
+    private IOrder fetchOrderWithRetries(String orderId, int maxRetries) {
+        for (int i = 0; i < maxRetries; i++) {
+            try {
+                Optional<IOrder> orderOpt = orderService.findOrderById(orderId);
+                if (orderOpt.isPresent()) {
+                    return orderOpt.get();
+                }
+
+                if (i < maxRetries - 1) {
+                    Thread.sleep(100 * (i + 1));
+                }
+            } catch (Exception e) {
+                logger.debug("Attempt {} failed: {}", i + 1, e.getMessage());
+            }
+        }
+        return null;
+    }
     /**
      * Handles TransactionCreatedEvent from Order BC.
      * Updates or removes orders based on execution status.
      */
     @EventListener
     @Async
-    @Transactional
     public void handleTransactionCreatedFromOrderBC(core.ms.order.domain.events.publish.TransactionCreatedEvent event) {
 
         // LOG ENTRY POINT
@@ -224,46 +269,59 @@ public class OrderBookSagaEventHandler extends CorrelationAwareEventListener {
     /**
      * Updates an order in the book by removing and re-adding it.
      */
-    private void updateOrderInBook(String orderId, core.ms.shared.money.Symbol symbol, String correlationId) {
+    private void updateOrderInBook(String orderId, Symbol symbol, String correlationId) {
         logger.info("🔄 ORDERBOOK BC: Updating order {} in book", orderId);
 
-        try {
-            // Fetch fresh order from service
-            logger.info("   - Fetching updated order from Order Service");
+        // Use retries with exponential backoff for lock timeouts
+        int maxRetries = 3;
+        int retryCount = 0;
 
-            IOrder order = orderService.findOrderById(orderId)
-                    .orElseThrow(() -> {
-                        logger.error("   ❌ Order {} not found for update", orderId);
-                        return new IllegalStateException("Order not found for update: " + orderId);
-                    });
+        while (retryCount < maxRetries) {
+            try {
+                // Fetch fresh order from service
+                IOrder order = orderService.findOrderById(orderId)
+                        .orElse(null);
 
-            logger.info("   - Order fetched successfully");
-            logger.info("   - Is Active: {}", order.isActive());
-            logger.info("   - Remaining Quantity: {}", order.getRemainingQuantity());
-
-            // Remove old version
-            logger.info("   - Removing old version from book");
-            orderBookService.removeOrderFromBook(orderId, symbol);
-
-            // Add updated version if still active
-            if (order.isActive() && order.getRemainingQuantity().signum() > 0) {
-                logger.info("   - Adding updated version to book");
-
-                var result = orderBookService.addOrderToBook(order);
-
-                if (result.isSuccess()) {
-                    logger.info("   ✅ Order {} successfully updated in book", orderId);
-                } else {
-                    logger.warn("   ⚠️ Failed to re-add order {} after update: {}",
-                            orderId, result.getMessage());
+                if (order == null) {
+                    logger.warn("Order {} not found, skipping update", orderId);
+                    return;
                 }
-            } else {
-                logger.info("   - Order {} is no longer active/has no remaining quantity - not re-adding",
-                        orderId);
-            }
 
-        } catch (Exception e) {
-            logger.error("💥 Failed to update order {} in book", orderId, e);
+                // Quick check - should it be in the book?
+                if (!order.isActive() || order.getRemainingQuantity().signum() == 0) {
+                    logger.info("Order {} is inactive/complete - removing from book", orderId);
+                    orderBookService.removeOrderFromBook(orderId, symbol);
+                    return;
+                }
+
+                // Try to update
+                var removeResult = orderBookService.removeOrderFromBook(orderId, symbol);
+                if (removeResult.isSuccess() || removeResult.getMessage().contains("not found")) {
+                    // Either removed successfully or wasn't there
+                    var addResult = orderBookService.addOrderToBook(order);
+                    if (addResult.isSuccess()) {
+                        logger.info("✅ Order {} successfully updated in book", orderId);
+                    }
+                }
+
+                return; // Success, exit
+
+            } catch (Exception e) {
+                if (e.getMessage() != null && e.getMessage().contains("busy")) {
+                    retryCount++;
+                    if (retryCount < maxRetries) {
+                        try {
+                            Thread.sleep(100 * retryCount); // Exponential backoff
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            return;
+                        }
+                        continue;
+                    }
+                }
+                logger.error("Failed to update order {} after {} retries", orderId, retryCount, e);
+                return;
+            }
         }
     }
 }

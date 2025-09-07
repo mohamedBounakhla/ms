@@ -1,4 +1,4 @@
-package core.ms.order_book.config;
+package core.ms.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;

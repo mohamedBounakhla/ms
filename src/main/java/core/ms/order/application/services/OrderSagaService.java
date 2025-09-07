@@ -13,21 +13,41 @@ import core.ms.order.domain.ports.outbound.OrderRepository;
 import core.ms.order.domain.ports.outbound.TransactionRepository;
 import core.ms.shared.OrderType;
 import core.ms.shared.events.EventBus;
+import core.ms.shared.events.EventContext;
 import core.ms.shared.money.Money;
 import core.ms.shared.money.Symbol;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.retry.annotation.Backoff;
+import org.springframework.retry.annotation.Retryable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Isolation;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
+import jakarta.persistence.LockModeType;
+import java.math.BigDecimal;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Service
-@Transactional
 public class OrderSagaService {
 
     private static final Logger logger = LoggerFactory.getLogger(OrderSagaService.class);
+    private static final int MAX_RETRY_ATTEMPTS = 3;
+    private static final long LOCK_TIMEOUT_SECONDS = 5;
+
+    // Order-level locks for match processing
+    private final Map<String, ReentrantLock> orderLocks = new ConcurrentHashMap<>();
+
+    // Idempotency tracking for order creation
+    private final Map<String, String> reservationToOrderMap = new ConcurrentHashMap<>();
 
     @Autowired
     private OrderRepository orderRepository;
@@ -39,205 +59,317 @@ public class OrderSagaService {
     private EventBus eventBus;
 
     /**
-     * Processes an order request from Portfolio BC.
-     * Creates an order with reservation reference and publishes events.
+     * Processes order request with idempotency and thread safety.
+     * Uses REQUIRES_NEW to isolate from calling transaction.
      */
+    @Transactional(propagation = Propagation.REQUIRES_NEW,
+            isolation = Isolation.READ_COMMITTED,
+            timeout = 10)
+    @Retryable(
+            value = {OptimisticLockingFailureException.class},
+            maxAttempts = MAX_RETRY_ATTEMPTS,
+            backoff = @Backoff(delay = 100, multiplier = 2)
+    )
     public void processOrderRequest(OrderRequestedEvent event) {
-        logger.info("🚀 [SAGA: {}] BEGIN processOrderRequest", event.getCorrelationId());
-        logger.info("📋 Processing details - Type: {}, Symbol: {}, Portfolio: {}, Reservation: {}",
-                event.getOrderType(), event.getSymbolCode(),
-                event.getPortfolioId(), event.getReservationId());
+        String correlationId = event.getCorrelationId();
+        String reservationId = event.getReservationId();
+
+        logger.info("🚀 [SAGA: {}] BEGIN processOrderRequest - Reservation: {}",
+                correlationId, reservationId);
 
         try {
+            // Propagate correlation for saga tracking
+            EventContext.setCorrelationId(correlationId);
+
+            // Check idempotency - prevent duplicate order creation
+            String existingOrderId = reservationToOrderMap.get(reservationId);
+            if (existingOrderId != null) {
+                logger.warn("⚠️ [SAGA: {}] Duplicate order request for reservation: {}, existing order: {}",
+                        correlationId, reservationId, existingOrderId);
+
+                // Check if order actually exists in DB
+                Optional<IOrder> existingOrder = orderRepository.findById(existingOrderId);
+                if (existingOrder.isPresent()) {
+                    logger.info("✅ [SAGA: {}] Order already exists, republishing success event",
+                            correlationId);
+                    publishOrderCreated(correlationId, existingOrder.get(), event.getOrderType());
+                    return;
+                } else {
+                    // Stale cache entry, remove it
+                    reservationToOrderMap.remove(reservationId);
+                }
+            }
+
             // Validate input
-            logger.info("🔍 Validating input parameters");
-            if (event.getPortfolioId() == null || event.getPortfolioId().trim().isEmpty()) {
-                throw new IllegalArgumentException("Portfolio ID is required");
-            }
-            if (event.getReservationId() == null || event.getReservationId().trim().isEmpty()) {
-                throw new IllegalArgumentException("Reservation ID is required");
-            }
+            validateOrderRequest(event);
 
             // Create domain objects
-            logger.info("🏗️ Creating domain objects - Symbol: {}, Price: {} {}",
-                    event.getSymbolCode(), event.getPrice(), event.getCurrency());
-
             Symbol symbol = Symbol.createFromCode(event.getSymbolCode());
             Money price = Money.of(event.getPrice(), event.getCurrency());
 
-            logger.info("✅ Domain objects created successfully");
+            // Create order with factory (includes validation)
+            IOrder order = createOrder(event, symbol, price);
 
-            // Create order based on type with reservation reference
-            IOrder order;
-            if ("BUY".equalsIgnoreCase(event.getOrderType())) {
-                logger.info("💰 Creating BUY order with factory");
-                order = OrderFactory.createBuyOrder(
-                        event.getPortfolioId(),
-                        event.getReservationId(),
-                        symbol,
-                        price,
-                        event.getQuantity()
-                );
-                logger.info("✅ BUY order created - ID: {}", order.getId());
+            logger.info("📝 Order created in memory - ID: {}, Type: {}",
+                    order.getId(), order.getClass().getSimpleName());
 
-            } else if ("SELL".equalsIgnoreCase(event.getOrderType())) {
-                logger.info("💸 Creating SELL order with factory");
-                order = OrderFactory.createSellOrder(
-                        event.getPortfolioId(),
-                        event.getReservationId(),
-                        symbol,
-                        price,
-                        event.getQuantity()
-                );
-                logger.info("✅ SELL order created - ID: {}", order.getId());
-
-            } else {
-                throw new IllegalArgumentException("Invalid order type: " + event.getOrderType());
-            }
-
-            // Log order details before saving
-            logger.info("📝 Order details before save:");
-            logger.info("  - ID: {}", order.getId());
-            logger.info("  - Portfolio ID: {}", order.getPortfolioId());
-            logger.info("  - Reservation ID: {}", order.getReservationId());
-            logger.info("  - Symbol: {}", order.getSymbol().getCode());
-            logger.info("  - Price: {}", order.getPrice().toDisplayString());
-            logger.info("  - Quantity: {}", order.getQuantity());
-            logger.info("  - Status: {}", order.getStatus().getStatus());
-
-            // Save order
-            logger.info("💾 Saving order to repository");
+            // Save order with immediate flush
             IOrder savedOrder = orderRepository.save(order);
-            logger.info("✅ Order saved successfully - ID: {}, Type: {}",
-                    savedOrder.getId(), savedOrder.getClass().getSimpleName());
+            orderRepository.flush(); // Force immediate DB write
 
-            // Verify save
-            logger.info("🔍 Verifying order was saved");
-            Optional<IOrder> verification = orderRepository.findById(savedOrder.getId());
-            if (verification.isPresent()) {
-                logger.info("✅ Order verified in repository - ID: {}", verification.get().getId());
-            } else {
-                logger.error("❌ Order NOT found in repository after save!");
-                throw new IllegalStateException("Order save verification failed");
-            }
+            // Track idempotency after successful save
+            reservationToOrderMap.put(reservationId, savedOrder.getId());
 
-            // Publish OrderCreatedEvent
-            logger.info("📤 Publishing OrderCreatedEvent");
-            publishOrderCreated(event.getCorrelationId(), savedOrder, event.getOrderType());
+            logger.info("💾 Order persisted - ID: {}, Reservation: {}",
+                    savedOrder.getId(), reservationId);
 
-            logger.info("🎉 [SAGA: {}] COMPLETED processOrderRequest - Order ID: {}",
-                    event.getCorrelationId(), savedOrder.getId());
+            // Publish success event
+            publishOrderCreated(correlationId, savedOrder, event.getOrderType());
+
+            logger.info("🎉 [SAGA: {}] COMPLETED processOrderRequest - Order: {}",
+                    correlationId, savedOrder.getId());
 
         } catch (Exception e) {
             logger.error("💥 [SAGA: {}] FAILED processOrderRequest - Error: {}",
-                    event.getCorrelationId(), e.getMessage(), e);
-            throw new OrderCreationException("Failed to create order: " + e.getMessage(), e);
+                    correlationId, e.getMessage(), e);
+
+            // Publish failure event for compensation
+            publishOrderCreationFailed(correlationId, reservationId,
+                    event.getPortfolioId(), e.getMessage());
+
+            throw new OrderCreationException(
+                    "Failed to create order for reservation: " + reservationId, e);
+        } finally {
+            EventContext.clear();
         }
     }
 
     /**
-     * Processes an order match from OrderBook BC.
-     * Creates a transaction and updates both orders.
+     * Processes order match with pessimistic locking to prevent race conditions.
+     * Critical section for transaction creation.
      */
+    @Transactional(propagation = Propagation.REQUIRES_NEW,
+            isolation = Isolation.SERIALIZABLE,
+            timeout = 15)
+    @Retryable(
+            value = {OptimisticLockingFailureException.class},
+            maxAttempts = MAX_RETRY_ATTEMPTS,
+            backoff = @Backoff(delay = 200, multiplier = 2)
+    )
     public void processOrderMatch(OrderMatchedEvent event) {
-        logger.info("🚀 [SAGA: {}] BEGIN processOrderMatch", event.getCorrelationId());
-        logger.info("📋 Match details - Buy: {}, Sell: {}, Quantity: {}",
-                event.getBuyOrderId(), event.getSellOrderId(), event.getMatchedQuantity());
+        String correlationId = event.getCorrelationId();
+        String buyOrderId = event.getBuyOrderId();
+        String sellOrderId = event.getSellOrderId();
+
+        logger.info("🚀 [SAGA: {}] BEGIN processOrderMatch - Buy: {}, Sell: {}",
+                correlationId, buyOrderId, sellOrderId);
+
+        // Acquire locks in consistent order to prevent deadlock
+        String firstLockId = buyOrderId.compareTo(sellOrderId) < 0 ? buyOrderId : sellOrderId;
+        String secondLockId = firstLockId.equals(buyOrderId) ? sellOrderId : buyOrderId;
+
+        Lock firstLock = getOrderLock(firstLockId);
+        Lock secondLock = getOrderLock(secondLockId);
 
         try {
-            // Fetch orders
-            logger.info("🔍 Fetching buy order: {}", event.getBuyOrderId());
-            Optional<IOrder> buyOrderOpt = orderRepository.findById(event.getBuyOrderId());
-
-            logger.info("🔍 Fetching sell order: {}", event.getSellOrderId());
-            Optional<IOrder> sellOrderOpt = orderRepository.findById(event.getSellOrderId());
-
-            if (buyOrderOpt.isEmpty()) {
-                logger.error("❌ Buy order not found: {}", event.getBuyOrderId());
-                throw new IllegalStateException("Buy order not found: " + event.getBuyOrderId());
-            }
-            if (sellOrderOpt.isEmpty()) {
-                logger.error("❌ Sell order not found: {}", event.getSellOrderId());
-                throw new IllegalStateException("Sell order not found: " + event.getSellOrderId());
+            // Try to acquire both locks with timeout
+            if (!firstLock.tryLock(LOCK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                throw new LockAcquisitionException("Failed to acquire lock for order: " + firstLockId);
             }
 
-            logger.info("✅ Both orders found");
+            try {
+                if (!secondLock.tryLock(LOCK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                    throw new LockAcquisitionException("Failed to acquire lock for order: " + secondLockId);
+                }
 
-            // Validate order types
-            if (!(buyOrderOpt.get() instanceof IBuyOrder)) {
-                logger.error("❌ Invalid buy order type: {}", buyOrderOpt.get().getClass());
-                throw new IllegalStateException("Invalid buy order type: " + event.getBuyOrderId());
+                try {
+                    logger.info("🔒 Acquired locks for both orders");
+
+                    // Propagate correlation
+                    EventContext.setCorrelationId(correlationId);
+
+                    // Process the match with locks held
+                    processMatchWithLocks(event);
+
+                } finally {
+                    secondLock.unlock();
+                }
+            } finally {
+                firstLock.unlock();
             }
-            if (!(sellOrderOpt.get() instanceof ISellOrder)) {
-                logger.error("❌ Invalid sell order type: {}", sellOrderOpt.get().getClass());
-                throw new IllegalStateException("Invalid sell order type: " + event.getSellOrderId());
-            }
 
-            IBuyOrder buyOrder = (IBuyOrder) buyOrderOpt.get();
-            ISellOrder sellOrder = (ISellOrder) sellOrderOpt.get();
+            logger.info("🔓 Released locks for both orders");
 
-            logger.info("📝 Order states before transaction:");
-            logger.info("  Buy - Remaining: {}, Executed: {}",
-                    buyOrder.getRemainingQuantity(), buyOrder.getExecutedQuantity());
-            logger.info("  Sell - Remaining: {}, Executed: {}",
-                    sellOrder.getRemainingQuantity(), sellOrder.getExecutedQuantity());
-
-            // Store pre-transaction state
-            String buyOrderPortfolioId = buyOrder.getPortfolioId();
-            String sellOrderPortfolioId = sellOrder.getPortfolioId();
-            String buyOrderReservationId = buyOrder.getReservationId();
-            String sellOrderReservationId = sellOrder.getReservationId();
-
-            // Create transaction
-            logger.info("🏗️ Creating transaction with factory");
-            Transaction transaction = TransactionFactory.create(buyOrder, sellOrder, event.getMatchedQuantity());
-            logger.info("✅ Transaction created - ID: {}", transaction.getId());
-
-            // Save transaction
-            logger.info("💾 Saving transaction");
-            ITransaction savedTransaction = transactionRepository.save(transaction);
-            logger.info("✅ Transaction saved - ID: {}", savedTransaction.getId());
-
-            // Save updated orders
-            logger.info("💾 Saving updated orders");
-            orderRepository.save(buyOrder);
-            orderRepository.save(sellOrder);
-
-            logger.info("📝 Order states after transaction:");
-            logger.info("  Buy - Remaining: {}, Executed: {}",
-                    buyOrder.getRemainingQuantity(), buyOrder.getExecutedQuantity());
-            logger.info("  Sell - Remaining: {}, Executed: {}",
-                    sellOrder.getRemainingQuantity(), sellOrder.getExecutedQuantity());
-
-            // Publish TransactionCreatedEvent
-            logger.info("📤 Publishing TransactionCreatedEvent");
-            publishTransactionCreated(
-                    event.getCorrelationId(),
-                    savedTransaction,
-                    buyOrderPortfolioId,
-                    sellOrderPortfolioId,
-                    buyOrderReservationId,
-                    sellOrderReservationId,
-                    buyOrder.getRemainingQuantity(),
-                    sellOrder.getRemainingQuantity()
-            );
-
-            logger.info("🎉 [SAGA: {}] COMPLETED processOrderMatch - Transaction ID: {}",
-                    event.getCorrelationId(), savedTransaction.getId());
-
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            logger.error("⚠️ Interrupted while acquiring locks", e);
+            throw new TransactionCreationException(
+                    "Interrupted during order match processing", e);
         } catch (Exception e) {
-            logger.error("💥 [SAGA: {}] FAILED processOrderMatch - Error: {}",
-                    event.getCorrelationId(), e.getMessage(), e);
-            throw new TransactionCreationException("Failed to create transaction: " + e.getMessage(), e);
+            logger.error("💥 [SAGA: {}] FAILED processOrderMatch", correlationId, e);
+
+            // Publish failure event
+            publishTransactionCreationFailed(correlationId, buyOrderId, sellOrderId, e.getMessage());
+
+            throw new TransactionCreationException(
+                    "Failed to process order match", e);
+        } finally {
+            EventContext.clear();
         }
     }
 
     /**
-     * Publishes OrderCreatedEvent to Portfolio BC and OrderBook BC.
+     * Internal method to process match with locks already acquired.
+     */
+    private void processMatchWithLocks(OrderMatchedEvent event) {
+        String buyOrderId = event.getBuyOrderId();
+        String sellOrderId = event.getSellOrderId();
+
+        // Fetch orders with pessimistic write locks
+        logger.info("🔍 Fetching orders with pessimistic locks");
+
+        IBuyOrder buyOrder = orderRepository.findByIdWithLock(buyOrderId, LockModeType.PESSIMISTIC_WRITE)
+                .filter(o -> o instanceof IBuyOrder)
+                .map(o -> (IBuyOrder) o)
+                .orElseThrow(() -> new IllegalStateException("Buy order not found: " + buyOrderId));
+
+        ISellOrder sellOrder = orderRepository.findByIdWithLock(sellOrderId, LockModeType.PESSIMISTIC_WRITE)
+                .filter(o -> o instanceof ISellOrder)
+                .map(o -> (ISellOrder) o)
+                .orElseThrow(() -> new IllegalStateException("Sell order not found: " + sellOrderId));
+
+        logger.info("📊 Order states before transaction:");
+        logger.info("  Buy - Status: {}, Remaining: {}, Executed: {}",
+                buyOrder.getStatus().getStatus(),
+                buyOrder.getRemainingQuantity(),
+                buyOrder.getExecutedQuantity());
+        logger.info("  Sell - Status: {}, Remaining: {}, Executed: {}",
+                sellOrder.getStatus().getStatus(),
+                sellOrder.getRemainingQuantity(),
+                sellOrder.getExecutedQuantity());
+
+        // CHANGE: Check remaining quantity instead of active status
+        BigDecimal buyRemaining = buyOrder.getRemainingQuantity();
+        BigDecimal sellRemaining = sellOrder.getRemainingQuantity();
+
+        if (buyRemaining.compareTo(BigDecimal.ZERO) <= 0) {
+            logger.warn("Buy order {} has no remaining quantity", buyOrderId);
+            return; // Skip this match
+        }
+        if (sellRemaining.compareTo(BigDecimal.ZERO) <= 0) {
+            logger.warn("Sell order {} has no remaining quantity", sellOrderId);
+            return; // Skip this match
+        }
+
+        // Calculate actual match quantity
+        BigDecimal matchQuantity = event.getMatchedQuantity();
+        BigDecimal actualQuantity = matchQuantity.min(buyRemaining).min(sellRemaining);
+
+        if (actualQuantity.compareTo(BigDecimal.ZERO) <= 0) {
+            logger.warn("No quantity available for matching");
+            return; // Skip this match
+        }
+
+        // Store portfolio/reservation info before transaction
+        String buyPortfolioId = buyOrder.getPortfolioId();
+        String sellPortfolioId = sellOrder.getPortfolioId();
+        String buyReservationId = buyOrder.getReservationId();
+        String sellReservationId = sellOrder.getReservationId();
+
+        // Create transaction (updates order states)
+        logger.info("🏗️ Creating transaction for quantity: {}", actualQuantity);
+        Transaction transaction = TransactionFactory.create(buyOrder, sellOrder, actualQuantity);
+
+        // Save transaction
+        ITransaction savedTransaction = transactionRepository.save(transaction);
+        transactionRepository.flush();
+
+        logger.info("💾 Transaction saved - ID: {}", savedTransaction.getId());
+
+        // Save updated orders
+        orderRepository.save(buyOrder);
+        orderRepository.save(sellOrder);
+        orderRepository.flush();
+
+        logger.info("📊 Order states after transaction:");
+        logger.info("  Buy - Status: {}, Remaining: {}, Executed: {}",
+                buyOrder.getStatus().getStatus(),
+                buyOrder.getRemainingQuantity(),
+                buyOrder.getExecutedQuantity());
+        logger.info("  Sell - Status: {}, Remaining: {}, Executed: {}",
+                sellOrder.getStatus().getStatus(),
+                sellOrder.getRemainingQuantity(),
+                sellOrder.getExecutedQuantity());
+
+        // Publish success event
+        publishTransactionCreated(
+                event.getCorrelationId(),
+                savedTransaction,
+                buyPortfolioId,
+                sellPortfolioId,
+                buyReservationId,
+                sellReservationId,
+                buyOrder.getRemainingQuantity(),
+                sellOrder.getRemainingQuantity()
+        );
+
+        logger.info("🎉 Transaction completed - ID: {}", savedTransaction.getId());
+    }
+
+    /**
+     * Helper method to create order based on type.
+     */
+    private IOrder createOrder(OrderRequestedEvent event, Symbol symbol, Money price) {
+        if ("BUY".equalsIgnoreCase(event.getOrderType())) {
+            return OrderFactory.createBuyOrder(
+                    event.getPortfolioId(),
+                    event.getReservationId(),
+                    symbol,
+                    price,
+                    event.getQuantity()
+            );
+        } else if ("SELL".equalsIgnoreCase(event.getOrderType())) {
+            return OrderFactory.createSellOrder(
+                    event.getPortfolioId(),
+                    event.getReservationId(),
+                    symbol,
+                    price,
+                    event.getQuantity()
+            );
+        } else {
+            throw new IllegalArgumentException("Invalid order type: " + event.getOrderType());
+        }
+    }
+
+    /**
+     * Validates order request parameters.
+     */
+    private void validateOrderRequest(OrderRequestedEvent event) {
+        if (event.getPortfolioId() == null || event.getPortfolioId().trim().isEmpty()) {
+            throw new IllegalArgumentException("Portfolio ID is required");
+        }
+        if (event.getReservationId() == null || event.getReservationId().trim().isEmpty()) {
+            throw new IllegalArgumentException("Reservation ID is required");
+        }
+        if (event.getPrice() == null || event.getPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Price must be positive");
+        }
+        if (event.getQuantity() == null || event.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Quantity must be positive");
+        }
+    }
+
+    /**
+     * Gets or creates a lock for an order.
+     */
+    private Lock getOrderLock(String orderId) {
+        return orderLocks.computeIfAbsent(orderId, k -> new ReentrantLock(true));
+    }
+
+    /**
+     * Publishes OrderCreatedEvent.
      */
     private void publishOrderCreated(String correlationId, IOrder order, String orderType) {
-        logger.info("📤 Creating OrderCreatedEvent for order: {}", order.getId());
-
         OrderCreatedEvent event = new OrderCreatedEvent(
                 correlationId,
                 order.getId(),
@@ -250,19 +382,16 @@ public class OrderSagaService {
                 order.getStatus().getStatus().name()
         );
 
-        logger.info("📨 Publishing to event bus - Correlation: {}", correlationId);
         eventBus.publish(event);
-        logger.info("✅ OrderCreatedEvent published - Order: {}, Type: {}, Reservation: {}",
-                order.getId(), orderType, order.getReservationId());
+        logger.info("📤 Published OrderCreatedEvent - Order: {}, Type: {}",
+                order.getId(), orderType);
     }
 
     /**
-     * Publishes OrderCreationFailedEvent to Portfolio BC.
+     * Publishes OrderCreationFailedEvent.
      */
     public void publishOrderCreationFailed(String correlationId, String reservationId,
                                            String portfolioId, String reason) {
-        logger.info("📤 Creating OrderCreationFailedEvent - Reservation: {}", reservationId);
-
         OrderCreationFailedEvent event = new OrderCreationFailedEvent(
                 correlationId,
                 reservationId,
@@ -271,22 +400,17 @@ public class OrderSagaService {
                 reason
         );
 
-        logger.info("📨 Publishing failure event to event bus");
         eventBus.publish(event);
-        logger.info("✅ OrderCreationFailedEvent published - Reservation: {}, Reason: {}",
-                reservationId, reason);
+        logger.info("📤 Published OrderCreationFailedEvent - Reservation: {}", reservationId);
     }
 
     /**
-     * Publishes TransactionCreatedEvent to Portfolio BC and OrderBook BC.
+     * Publishes TransactionCreatedEvent.
      */
     private void publishTransactionCreated(String correlationId, ITransaction transaction,
                                            String buyerPortfolioId, String sellerPortfolioId,
                                            String buyerReservationId, String sellerReservationId,
-                                           java.math.BigDecimal buyOrderRemaining,
-                                           java.math.BigDecimal sellOrderRemaining) {
-        logger.info("📤 Creating TransactionCreatedEvent - Transaction: {}", transaction.getId());
-
+                                           BigDecimal buyOrderRemaining, BigDecimal sellOrderRemaining) {
         TransactionCreatedEvent event = new TransactionCreatedEvent(
                 correlationId,
                 transaction.getId(),
@@ -304,10 +428,8 @@ public class OrderSagaService {
                 sellOrderRemaining
         );
 
-        logger.info("📨 Publishing to event bus - Correlation: {}", correlationId);
         eventBus.publish(event);
-        logger.info("✅ TransactionCreatedEvent published - Transaction: {}, Buy: {}, Sell: {}",
-                transaction.getId(), transaction.getBuyOrder().getId(), transaction.getSellOrder().getId());
+        logger.info("📤 Published TransactionCreatedEvent - Transaction: {}", transaction.getId());
     }
 
     /**
@@ -315,9 +437,6 @@ public class OrderSagaService {
      */
     public void publishTransactionCreationFailed(String correlationId, String buyOrderId,
                                                  String sellOrderId, String reason) {
-        logger.info("📤 Creating TransactionCreationFailedEvent - Buy: {}, Sell: {}",
-                buyOrderId, sellOrderId);
-
         TransactionCreationFailedEvent event = new TransactionCreationFailedEvent(
                 correlationId,
                 buyOrderId,
@@ -326,9 +445,8 @@ public class OrderSagaService {
                 reason
         );
 
-        logger.info("📨 Publishing failure event to event bus");
         eventBus.publish(event);
-        logger.info("✅ TransactionCreationFailedEvent published - Reason: {}", reason);
+        logger.info("📤 Published TransactionCreationFailedEvent");
     }
 
     // Exception classes
@@ -341,6 +459,12 @@ public class OrderSagaService {
     public static class TransactionCreationException extends RuntimeException {
         public TransactionCreationException(String message, Throwable cause) {
             super(message, cause);
+        }
+    }
+
+    public static class LockAcquisitionException extends RuntimeException {
+        public LockAcquisitionException(String message) {
+            super(message);
         }
     }
 }

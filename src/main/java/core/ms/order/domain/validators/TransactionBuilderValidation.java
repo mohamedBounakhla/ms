@@ -19,10 +19,8 @@ public class TransactionBuilderValidation {
     private String id;
     private Symbol symbol;
 
-    @OrderNotFinal(message = "Buy order must be active (not FILLED or CANCELLED)")
     private IBuyOrder buyOrder;
 
-    @OrderNotFinal(message = "Sell order must be active (not FILLED or CANCELLED)")
     private ISellOrder sellOrder;
 
     private BigDecimal quantity;
@@ -63,41 +61,38 @@ public class TransactionBuilderValidation {
 
         // ===== STEP 3: BUY ORDER =====
         public TransactionBuilder withBuyOrder(IBuyOrder buyOrder) {
-
             if (buyOrder == null) {
                 throw new ValidationTransactionException("Buy order cannot be null");
             }
 
-            // Validate using annotations (individual order state) - need temp assignment for annotation validation
-            TransactionBuilderValidation tempTransaction = new TransactionBuilderValidation();
-            tempTransaction.buyOrder = buyOrder;
-            validator.validateAndThrow(tempTransaction);
+            if (buyOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ValidationTransactionException(
+                        "Buy order has no remaining quantity for transaction");
+            }
 
             if (transaction.symbol != null) {
-
                 if (!buyOrder.getSymbol().equals(transaction.symbol)) {
                     throw new ValidationTransactionException(
                             "Buy order symbol must match transaction symbol");
                 }
             }
+
             transaction.buyOrder = buyOrder;
             return this;
         }
 
         public TransactionBuilder withSellOrder(ISellOrder sellOrder) {
-            // 1. Validate SellOrder individually
             if (sellOrder == null) {
                 throw new ValidationTransactionException("Sell order cannot be null");
             }
 
 
-            TransactionBuilderValidation tempTransaction = new TransactionBuilderValidation();
-            tempTransaction.sellOrder = sellOrder;
-            validator.validateAndThrow(tempTransaction);
-
+            if (sellOrder.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+                throw new ValidationTransactionException(
+                        "Sell order has no remaining quantity for transaction");
+            }
 
             if (transaction.symbol != null) {
-                // Symbol + SellOrder: Symbol compatibility
                 if (!sellOrder.getSymbol().equals(transaction.symbol)) {
                     throw new ValidationTransactionException(
                             "Sell order symbol must match transaction symbol");
@@ -105,13 +100,11 @@ public class TransactionBuilderValidation {
             }
 
             if (transaction.buyOrder != null) {
-                // BuyOrder + SellOrder: Symbol compatibility
                 if (!transaction.buyOrder.getSymbol().equals(sellOrder.getSymbol())) {
                     throw new ValidationTransactionException(
                             "Buy and sell orders must have the same symbol");
                 }
 
-                // BuyOrder + SellOrder: Order matching (can they match?)
                 if (transaction.buyOrder.getPrice().isLessThan(sellOrder.getPrice())) {
                     throw new ValidationTransactionException(
                             "Buy order price must be greater than or equal to sell order price");

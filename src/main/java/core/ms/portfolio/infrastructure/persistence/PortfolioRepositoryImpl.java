@@ -7,6 +7,9 @@ import core.ms.portfolio.infrastructure.persistence.entities.CashBalanceEntity;
 import core.ms.portfolio.infrastructure.persistence.entities.PortfolioEntity;
 import core.ms.portfolio.infrastructure.persistence.mappers.PortfolioMapper;
 import core.ms.shared.money.Money;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,6 +28,9 @@ public class PortfolioRepositoryImpl implements PortfolioRepository {
 
     @Autowired
     private PortfolioMapper portfolioMapper;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Override
     public Portfolio save(Portfolio portfolio) {
@@ -69,9 +75,25 @@ public class PortfolioRepositoryImpl implements PortfolioRepository {
     }
 
     @Override
+    public Portfolio saveAndFlush(Portfolio portfolio) {
+        Portfolio saved = save(portfolio);
+        entityManager.flush();
+        return saved;
+    }
+
+    @Override
     public Optional<Portfolio> findById(String portfolioId) {
         return portfolioDAO.findById(portfolioId)
                 .map(portfolioMapper::toDomain);
+    }
+
+    @Override
+    public Optional<Portfolio> findByIdWithLock(String portfolioId, LockModeType lockMode) {
+        PortfolioEntity entity = entityManager.find(PortfolioEntity.class, portfolioId, lockMode);
+        if (entity != null) {
+            return Optional.of(portfolioMapper.toDomain(entity));
+        }
+        return Optional.empty();
     }
 
     @Override

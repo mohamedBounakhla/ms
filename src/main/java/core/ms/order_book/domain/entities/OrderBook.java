@@ -55,10 +55,15 @@ public class OrderBook {
     }
 
     public void addOrder(ISellOrder order) {
-        // Validate order state
+        // CRITICAL: Check order state BEFORE adding to book
         if (!order.isActive() || order.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0) {
             System.out.println("DEBUG: Rejecting inactive/fully executed sell order: " + order.getId());
             return;
+        }
+
+        // Remove any existing version first (in case of updates)
+        if (orderIndex.containsKey(order.getId())) {
+            removeOrderById(order.getId());
         }
 
         // Store reference in index
@@ -68,11 +73,7 @@ public class OrderBook {
         askSide.addOrder(order);
         lastUpdate = LocalDateTime.now();
 
-        System.out.println("DEBUG: Added sell order " + order.getId() +
-                " to book. Price: " + order.getPrice() +
-                ", Remaining qty: " + order.getRemainingQuantity() +
-                ", Status: " + order.getStatus().getStatus());
-
+        // Check for matches
         checkForMatches();
     }
 
@@ -91,27 +92,33 @@ public class OrderBook {
     // ============ MATCHING LOGIC ============
 
     private void checkForMatches() {
-        System.out.println("DEBUG: Checking for matches. Spread crossed: " + hasSpreadCrossed());
+        // Clean up inactive orders FIRST
+        removeInactiveOrders();
 
-        if (hasSpreadCrossed()) {
-            Optional<Money> bestBid = getBestBid();
-            Optional<Money> bestAsk = getBestAsk();
+        if (!hasSpreadCrossed()) {
+            return;
+        }
 
-            System.out.println("DEBUG: Best Bid: " + bestBid.orElse(null) +
-                    ", Best Ask: " + bestAsk.orElse(null));
+        List<OrderMatchedEvent> events = OrderMatchEventFactory.createMatchEvents(bidSide, askSide);
 
-            List<OrderMatchedEvent> events = OrderMatchEventFactory.createMatchEvents(bidSide, askSide);
+        // Only keep matches where BOTH orders are still active
+        List<OrderMatchedEvent> validEvents = events.stream()
+                .filter(Objects::nonNull)
+                .filter(event -> {
+                    IOrder buy = orderIndex.get(event.getBuyOrderId());
+                    IOrder sell = orderIndex.get(event.getSellOrderId());
 
-            System.out.println("DEBUG: Found " + events.size() + " potential matches");
+                    // Check both orders exist and are truly matchable
+                    return buy != null && sell != null &&
+                            buy.isActive() && sell.isActive() &&
+                            buy.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0 &&
+                            sell.getRemainingQuantity().compareTo(BigDecimal.ZERO) > 0 &&
+                            buy.getRemainingQuantity().compareTo(event.getMatchedQuantity()) >= 0 &&
+                            sell.getRemainingQuantity().compareTo(event.getMatchedQuantity()) >= 0;
+                })
+                .collect(Collectors.toList());
 
-            // Filter out null events and validate
-            List<OrderMatchedEvent> validEvents = events.stream()
-                    .filter(Objects::nonNull)
-                    .filter(this::isMatchStillValid)
-                    .collect(Collectors.toList());
-
-            System.out.println("DEBUG: " + validEvents.size() + " matches are valid");
-
+        if (!validEvents.isEmpty()) {
             recentMatchEvents.addAll(validEvents);
         }
     }
@@ -259,13 +266,20 @@ public class OrderBook {
     // ============ CLEANUP METHODS ============
 
     public void removeInactiveOrders() {
-        List<IOrder> inactiveOrders = orderIndex.values().stream()
-                .filter(order -> !order.isActive() ||
-                        order.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0)
-                .collect(Collectors.toList());
+        List<String> toRemove = new ArrayList<>();
 
-        for (IOrder inactiveOrder : inactiveOrders) {
-            removeOrderById(inactiveOrder.getId());
+        for (Map.Entry<String, IOrder> entry : orderIndex.entrySet()) {
+            IOrder order = entry.getValue();
+            // Remove if not active OR no remaining quantity OR status is terminal
+            if (!order.isActive() ||
+                    order.getRemainingQuantity().compareTo(BigDecimal.ZERO) <= 0 ||
+                    order.getStatus().isTerminal()) {
+                toRemove.add(entry.getKey());
+            }
+        }
+
+        for (String orderId : toRemove) {
+            removeOrderById(orderId);
         }
 
         bidSide.removeInactiveOrders();

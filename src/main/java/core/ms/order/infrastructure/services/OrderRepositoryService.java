@@ -10,8 +10,12 @@ import core.ms.order.infrastructure.persistence.entities.SellOrderEntity;
 import core.ms.order.infrastructure.persistence.mappers.BuyOrderMapper;
 import core.ms.order.infrastructure.persistence.mappers.SellOrderMapper;
 import core.ms.shared.money.Symbol;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.LockModeType;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -19,6 +23,7 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Service
+@Transactional
 public class OrderRepositoryService implements OrderRepository {
 
     @Autowired
@@ -32,6 +37,9 @@ public class OrderRepositoryService implements OrderRepository {
 
     @Autowired
     private SellOrderMapper sellOrderMapper;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     @Override
     public IOrder save(IOrder order) {
@@ -49,6 +57,11 @@ public class OrderRepositoryService implements OrderRepository {
     }
 
     @Override
+    public void flush() {
+        entityManager.flush();
+    }
+
+    @Override
     public Optional<IOrder> findById(String orderId) {
         // Try buy orders first
         Optional<BuyOrderEntity> buyEntity = buyOrderDAO.findById(orderId);
@@ -59,6 +72,29 @@ public class OrderRepositoryService implements OrderRepository {
         // Try sell orders
         Optional<SellOrderEntity> sellEntity = sellOrderDAO.findById(orderId);
         return sellEntity.map(sellOrderEntity -> sellOrderMapper.toDomain(sellOrderEntity));
+    }
+
+    @Override
+    public Optional<IOrder> findByIdWithLock(String orderId, LockModeType lockMode) {
+        // Try buy orders first
+        Optional<BuyOrderEntity> buyEntity = buyOrderDAO.findById(orderId);
+        if (buyEntity.isPresent()) {
+            BuyOrderEntity locked = entityManager.find(BuyOrderEntity.class, orderId, lockMode);
+            if (locked != null) {
+                return Optional.of(buyOrderMapper.toDomain(locked));
+            }
+        }
+
+        // Try sell orders
+        Optional<SellOrderEntity> sellEntity = sellOrderDAO.findById(orderId);
+        if (sellEntity.isPresent()) {
+            SellOrderEntity locked = entityManager.find(SellOrderEntity.class, orderId, lockMode);
+            if (locked != null) {
+                return Optional.of(sellOrderMapper.toDomain(locked));
+            }
+        }
+
+        return Optional.empty();
     }
 
     @Override

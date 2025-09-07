@@ -1,0 +1,81 @@
+Transaction & Threading Plan Per Bounded Context
+1. Portfolio BC - Critical Section
+Transaction Requirements:
+
+MUST ensure atomic reservation creation/release
+MUST prevent double-spending (two orders draining same balance)
+MUST maintain consistency between available and reserved balances
+SHOULD handle compensation in same transaction when possible
+
+Threading Concerns:
+Thread-1: User A places BUY order for $500
+Thread-2: User A places SELL order for $300
+Thread-3: User A cancels previous order
+All accessing same portfolio simultaneously!
+Strategy:
+
+Use pessimistic locking on Portfolio aggregate
+Single transaction boundary for reservation operations
+Row-level locks in database
+Synchronization on portfolio operations
+
+2. Order BC - State Management
+Transaction Requirements:
+
+MUST ensure order creation is atomic
+MUST maintain order state transitions consistency
+SHOULD be idempotent for duplicate events
+CAN use eventual consistency for non-critical updates
+
+Threading Concerns:
+Thread-1: Creates Order-123
+Thread-2: Updates Order-123 status
+Thread-3: Matches Order-123
+Potential state conflicts!
+Strategy:
+
+Use optimistic locking with version fields
+Separate read and write operations
+State machine pattern for valid transitions
+Event sourcing for audit trail
+
+3. OrderBook BC - Matching Engine
+Transaction Requirements:
+
+MUST ensure matching is deterministic
+MUST prevent double-matching
+SHOULD maintain price-time priority
+CAN batch matches for performance
+
+Threading Concerns:
+Thread-1: Adds BUY @ $100
+Thread-2: Adds SELL @ $99
+Thread-3: Running matching algorithm
+Critical race condition in price discovery!
+Strategy:
+
+Single-threaded matching per instrument
+Lock-free data structures for order book
+Partitioning by symbol if needed
+Sequential processing of match events
+
+Critical Considerations for Spring Events
+
+Transaction Participation:
+
+Spring events are synchronous by default
+Event handlers execute in the same thread
+They can participate in the same transaction
+
+
+ThreadLocal Correlation:
+
+Your EventContext ThreadLocal works perfectly with synchronous events
+Be careful if you switch to @Async - correlation will be lost
+
+
+Failure Handling:
+
+Exceptions in event handlers will rollback the entire transaction
+Use @TransactionalEventListener for after-commit events
+Consider REQUIRES_NEW for compensation handlers

@@ -1,5 +1,6 @@
 package core.ms.portfolio.domain.ports.inbound;
 
+import core.ms.portfolio.application.dto.command.WithdrawCashCommand;
 import core.ms.portfolio.domain.Portfolio;
 import core.ms.shared.money.Currency;
 import core.ms.shared.money.Money;
@@ -28,4 +29,6 @@ public interface PortfolioService {
     // ===== MAINTENANCE =====
     void cleanupExpiredReservations();
     int getActiveReservationsCount(String portfolioId);
+    PortfolioOperationResult withdrawCash(String portfolioId, BigDecimal amount, Currency currency);
+
 }
