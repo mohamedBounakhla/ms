@@ -5,9 +5,9 @@ import core.ms.portfolio.application.dto.query.PortfolioDTO;
 import core.ms.portfolio.application.dto.query.PortfolioOperationResultDTO;
 import core.ms.portfolio.domain.Portfolio;
 import core.ms.portfolio.domain.cash.CashManager;
-import core.ms.portfolio.domain.events.subscribe.OrderCreatedEvent;
-import core.ms.portfolio.domain.events.subscribe.OrderCreationFailedEvent;
-import core.ms.portfolio.domain.events.subscribe.TransactionCreatedEvent;
+import core.ms.order.domain.events.publish.OrderCreatedEvent;
+import core.ms.order.domain.events.publish.OrderCreationFailedEvent;
+import core.ms.order.domain.events.publish.TransactionCreatedEvent;
 import core.ms.portfolio.domain.ports.inbound.PortfolioSnapshot;
 import core.ms.portfolio.domain.ports.outbound.*;
 import core.ms.portfolio.domain.positions.PositionManager;
@@ -102,77 +102,49 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
 
     // ===== ORDER PLACEMENT WITH PESSIMISTIC LOCKING =====
 
-    @Transactional(isolation = Isolation.SERIALIZABLE, timeout = 10)
-    @Retryable(
-            value = {OptimisticLockingFailureException.class},
-            maxAttempts = MAX_RETRY_ATTEMPTS,
-            backoff = @Backoff(delay = 100, multiplier = 2)
-    )
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PortfolioOperationResultDTO placeBuyOrder(PlaceBuyOrderCommand command) {
         String portfolioId = command.getPortfolioId();
-        Lock lock = getPortfolioLock(portfolioId);
 
         try {
-            // Try to acquire lock with timeout
-            if (!lock.tryLock(LOCK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                logger.warn("Failed to acquire lock for portfolio: {} within timeout", portfolioId);
-                return PortfolioOperationResultDTO.error(
+            logger.info("Processing buy order for portfolio: {}", portfolioId);
+
+            // Simple load without lock - let optimistic locking handle conflicts
+            Portfolio portfolio = portfolioRepository.findById(portfolioId)
+                    .orElseThrow(() -> new IllegalArgumentException("Portfolio not found: " + portfolioId));
+
+            Symbol symbol = Symbol.createFromCode(command.getSymbolCode());
+            Money price = Money.of(command.getPrice(), Currency.valueOf(command.getCurrency()));
+
+            Portfolio.PlaceOrderCommand domainCommand = new Portfolio.PlaceOrderCommand(
+                    symbol, price, command.getQuantity(), OrderType.BUY
+            );
+
+            // Execute command on aggregate
+            portfolio.placeOrder(domainCommand);
+
+            // Get events before saving
+            List<DomainEvent> events = portfolio.getAndClearEvents();
+
+            // Save portfolio
+            portfolioRepository.save(portfolio);
+
+            // Publish events after successful save
+            if (!events.isEmpty()) {
+                eventPublisher.publishEvents(events);
+                logger.info("Buy order placed successfully for portfolio: {}", portfolioId);
+
+                return PortfolioOperationResultDTO.success(
                         portfolioId,
-                        "Portfolio is currently busy, please try again"
+                        "Buy order requested successfully"
                 );
             }
 
-            try {
-                logger.info("Acquired lock for portfolio: {}, processing buy order", portfolioId);
-
-                // Load portfolio with pessimistic write lock
-                Portfolio portfolio = portfolioRepository.findByIdWithLock(portfolioId, LockModeType.PESSIMISTIC_WRITE)
-                        .orElseThrow(() -> new IllegalArgumentException("Portfolio not found: " + portfolioId));
-
-                Symbol symbol = Symbol.createFromCode(command.getSymbolCode());
-                Money price = Money.of(command.getPrice(), Currency.valueOf(command.getCurrency()));
-
-                Portfolio.PlaceOrderCommand domainCommand = new Portfolio.PlaceOrderCommand(
-                        symbol, price, command.getQuantity(), OrderType.BUY
-                );
-
-                // Execute command on aggregate
-                portfolio.placeOrder(domainCommand);
-
-                // Get events before saving
-                List<DomainEvent> events = portfolio.getAndClearEvents();
-
-                // Save with immediate flush to detect conflicts
-                portfolioRepository.saveAndFlush(portfolio);
-
-                // Publish events after successful save
-                if (!events.isEmpty()) {
-                    eventPublisher.publishEvents(events);
-                    logger.info("Buy order placed successfully for portfolio: {}", portfolioId);
-
-                    return PortfolioOperationResultDTO.success(
-                            portfolioId,
-                            "Buy order requested successfully"
-                    );
-                }
-
-                return PortfolioOperationResultDTO.error(
-                        portfolioId,
-                        "Failed to generate order events"
-                );
-
-            } finally {
-                lock.unlock();
-                logger.info("Released lock for portfolio: {}", portfolioId);
-            }
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.error("Interrupted while waiting for lock on portfolio: {}", portfolioId);
             return PortfolioOperationResultDTO.error(
                     portfolioId,
-                    "Operation interrupted"
+                    "Failed to generate order events"
             );
+
         } catch (Portfolio.InsufficientFundsException e) {
             logger.warn("Insufficient funds for portfolio: {}", portfolioId);
             return PortfolioOperationResultDTO.error(
@@ -188,71 +160,43 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
         }
     }
 
-    @Transactional(isolation = Isolation.SERIALIZABLE, timeout = 10)
-    @Retryable(
-            value = {OptimisticLockingFailureException.class},
-            maxAttempts = MAX_RETRY_ATTEMPTS,
-            backoff = @Backoff(delay = 100, multiplier = 2)
-    )
+    @Transactional(isolation = Isolation.READ_COMMITTED)
     public PortfolioOperationResultDTO placeSellOrder(PlaceSellOrderCommand command) {
         String portfolioId = command.getPortfolioId();
-        Lock lock = getPortfolioLock(portfolioId);
 
         try {
-            if (!lock.tryLock(LOCK_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-                logger.warn("Failed to acquire lock for portfolio: {} within timeout", portfolioId);
-                return PortfolioOperationResultDTO.error(
+            logger.info("Processing sell order for portfolio: {}", portfolioId);
+
+            Portfolio portfolio = portfolioRepository.findById(portfolioId)
+                    .orElseThrow(() -> new IllegalArgumentException("Portfolio not found: " + portfolioId));
+
+            Symbol symbol = Symbol.createFromCode(command.getSymbolCode());
+            Money price = Money.of(command.getPrice(), Currency.valueOf(command.getCurrency()));
+
+            Portfolio.PlaceOrderCommand domainCommand = new Portfolio.PlaceOrderCommand(
+                    symbol, price, command.getQuantity(), OrderType.SELL
+            );
+
+            portfolio.placeOrder(domainCommand);
+
+            List<DomainEvent> events = portfolio.getAndClearEvents();
+            portfolioRepository.save(portfolio);
+
+            if (!events.isEmpty()) {
+                eventPublisher.publishEvents(events);
+                logger.info("Sell order placed successfully for portfolio: {}", portfolioId);
+
+                return PortfolioOperationResultDTO.success(
                         portfolioId,
-                        "Portfolio is currently busy, please try again"
+                        "Sell order requested successfully"
                 );
             }
 
-            try {
-                logger.info("Acquired lock for portfolio: {}, processing sell order", portfolioId);
-
-                // Load portfolio with pessimistic write lock
-                Portfolio portfolio = portfolioRepository.findByIdWithLock(portfolioId, LockModeType.PESSIMISTIC_WRITE)
-                        .orElseThrow(() -> new IllegalArgumentException("Portfolio not found: " + portfolioId));
-
-                Symbol symbol = Symbol.createFromCode(command.getSymbolCode());
-                Money price = Money.of(command.getPrice(), Currency.valueOf(command.getCurrency()));
-
-                Portfolio.PlaceOrderCommand domainCommand = new Portfolio.PlaceOrderCommand(
-                        symbol, price, command.getQuantity(), OrderType.SELL
-                );
-
-                portfolio.placeOrder(domainCommand);
-
-                List<DomainEvent> events = portfolio.getAndClearEvents();
-                portfolioRepository.saveAndFlush(portfolio);
-
-                if (!events.isEmpty()) {
-                    eventPublisher.publishEvents(events);
-                    logger.info("Sell order placed successfully for portfolio: {}", portfolioId);
-
-                    return PortfolioOperationResultDTO.success(
-                            portfolioId,
-                            "Sell order requested successfully"
-                    );
-                }
-
-                return PortfolioOperationResultDTO.error(
-                        portfolioId,
-                        "Failed to generate order events"
-                );
-
-            } finally {
-                lock.unlock();
-                logger.info("Released lock for portfolio: {}", portfolioId);
-            }
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.error("Interrupted while waiting for lock on portfolio: {}", portfolioId);
             return PortfolioOperationResultDTO.error(
                     portfolioId,
-                    "Operation interrupted"
+                    "Failed to generate order events"
             );
+
         } catch (Portfolio.InsufficientAssetsException e) {
             logger.warn("Insufficient assets for portfolio: {}", portfolioId);
             return PortfolioOperationResultDTO.error(
@@ -271,39 +215,73 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
     // ===== EVENT HANDLERS WITH SEPARATE TRANSACTIONS =====
 
     @EventListener
-    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED)
-    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 200))
-    public void handleOrderCreated(OrderCreatedEvent event) {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void handleOrderCreated(core.ms.order.domain.events.publish.OrderCreatedEvent event) {
         handleEvent(event, () -> {
             String portfolioId = event.getPortfolioId();
-            logger.info("[SAGA: {}] Processing OrderCreatedEvent for portfolio: {}",
-                    event.getCorrelationId(), portfolioId);
+            logger.info("[SAGA: {}] OrderCreatedEvent - Portfolio: {}, Reservation: {}",
+                    event.getCorrelationId(), portfolioId, event.getReservationId());
 
-            Portfolio portfolio = portfolioRepository.findByIdWithLock(portfolioId, LockModeType.PESSIMISTIC_READ)
-                    .orElseThrow(() -> new IllegalStateException("Portfolio not found: " + portfolioId));
+            Portfolio portfolio = portfolioRepository.findById(portfolioId)
+                    .orElse(null);
 
-            portfolio.handleOrderCreated(event);
-            portfolioRepository.saveAndFlush(portfolio);
+            if (portfolio == null) {
+                logger.warn("Portfolio not found: {}, skipping", portfolioId);
+                return;
+            }
 
-            logger.info("[SAGA: {}] Order creation confirmed for reservation: {}",
+            // Convert to internal event
+            core.ms.portfolio.domain.events.subscribe.OrderCreatedEvent internalEvent =
+                    new core.ms.portfolio.domain.events.subscribe.OrderCreatedEvent(
+                            event.getCorrelationId(),
+                            event.getSourceBC(),
+                            event.getOrderId(),
+                            event.getPortfolioId(),
+                            event.getReservationId(),
+                            event.getSymbol(),
+                            event.getPrice(),
+                            event.getQuantity(),
+                            event.getOrderType(),
+                            event.getStatus()
+                    );
+
+            portfolio.handleOrderCreated(internalEvent);
+            portfolioRepository.save(portfolio);
+
+            logger.info("[SAGA: {}] Reservation confirmed: {}",
                     event.getCorrelationId(), event.getReservationId());
         });
     }
 
     @EventListener
-    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED)
-    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 200))
-    public void handleOrderCreationFailed(OrderCreationFailedEvent event) {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void handleOrderCreationFailed(core.ms.order.domain.events.publish.OrderCreationFailedEvent event) {
         handleEvent(event, () -> {
             String portfolioId = event.getPortfolioId();
-            logger.warn("[SAGA: {}] Processing OrderCreationFailedEvent for portfolio: {}",
-                    event.getCorrelationId(), portfolioId);
+            logger.warn("[SAGA: {}] OrderCreationFailed - Portfolio: {}, Reservation: {}",
+                    event.getCorrelationId(), portfolioId, event.getReservationId());
 
-            Portfolio portfolio = portfolioRepository.findByIdWithLock(portfolioId, LockModeType.PESSIMISTIC_READ)
-                    .orElseThrow(() -> new IllegalStateException("Portfolio not found: " + portfolioId));
+            Portfolio portfolio = portfolioRepository.findById(portfolioId)
+                    .orElse(null);
 
-            portfolio.handleOrderCreationFailed(event);
-            portfolioRepository.saveAndFlush(portfolio);
+            if (portfolio == null) {
+                logger.warn("Portfolio not found: {}, skipping", portfolioId);
+                return;
+            }
+
+            // Convert to internal event (without OrderType since it's not in the source)
+            core.ms.portfolio.domain.events.subscribe.OrderCreationFailedEvent internalEvent =
+                    new core.ms.portfolio.domain.events.subscribe.OrderCreationFailedEvent(
+                            event.getCorrelationId(),
+                            event.getSourceBC(),
+                            event.getReservationId(),
+                            event.getPortfolioId(),
+                            null, // OrderType not available
+                            event.getReason()
+                    );
+
+            portfolio.handleOrderCreationFailed(internalEvent);
+            portfolioRepository.save(portfolio);
 
             logger.info("[SAGA: {}] Reservation released: {}",
                     event.getCorrelationId(), event.getReservationId());
@@ -311,43 +289,56 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
     }
 
     @EventListener
-    @Transactional(propagation = Propagation.REQUIRES_NEW, isolation = Isolation.READ_COMMITTED)
-    @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 200))
-    public void handleTransactionCreated(TransactionCreatedEvent event) {
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void handleTransactionCreated(core.ms.order.domain.events.publish.TransactionCreatedEvent event) {
         handleEvent(event, () -> {
-            logger.info("[SAGA: {}] Processing TransactionCreatedEvent - TX: {}",
+            logger.info("[SAGA: {}] TransactionCreatedEvent - TX: {}",
                     event.getCorrelationId(), event.getTransactionId());
 
-            // Handle buy side with lock
-            if (event.getBuyPortfolioId() != null) {
-                Portfolio buyPortfolio = portfolioRepository.findByIdWithLock(
-                        event.getBuyPortfolioId(),
-                        LockModeType.PESSIMISTIC_WRITE
-                ).orElseThrow(() -> new IllegalStateException(
-                        "Buy portfolio not found: " + event.getBuyPortfolioId()
-                ));
+            // Convert to internal event
+            Symbol symbol = Symbol.createFromCode(event.getSymbolCode());
+            Money executedPrice = Money.of(event.getExecutionPrice(), event.getCurrency());
 
-                buyPortfolio.handleTransactionCreated(event);
-                portfolioRepository.saveAndFlush(buyPortfolio);
+            core.ms.portfolio.domain.events.subscribe.TransactionCreatedEvent internalEvent =
+                    new core.ms.portfolio.domain.events.subscribe.TransactionCreatedEvent(
+                            event.getCorrelationId(),
+                            event.getSourceBC(),
+                            event.getTransactionId(),
+                            event.getBuyOrderId(),
+                            event.getSellOrderId(),
+                            event.getBuyerPortfolioId(),
+                            event.getSellerPortfolioId(),
+                            event.getBuyerReservationId(),
+                            event.getSellerReservationId(),
+                            symbol,
+                            event.getExecutedQuantity(),
+                            executedPrice
+                    );
 
-                logger.info("[SAGA: {}] Buy side updated for portfolio: {}",
-                        event.getCorrelationId(), event.getBuyPortfolioId());
+            // Handle buy side
+            if (event.getBuyerPortfolioId() != null) {
+                Portfolio buyPortfolio = portfolioRepository.findById(event.getBuyerPortfolioId())
+                        .orElse(null);
+
+                if (buyPortfolio != null) {
+                    buyPortfolio.handleTransactionCreated(internalEvent);
+                    portfolioRepository.save(buyPortfolio);
+                    logger.info("[SAGA: {}] Buy portfolio updated: {}",
+                            event.getCorrelationId(), event.getBuyerPortfolioId());
+                }
             }
 
-            // Handle sell side with lock
-            if (event.getSellPortfolioId() != null) {
-                Portfolio sellPortfolio = portfolioRepository.findByIdWithLock(
-                        event.getSellPortfolioId(),
-                        LockModeType.PESSIMISTIC_WRITE
-                ).orElseThrow(() -> new IllegalStateException(
-                        "Sell portfolio not found: " + event.getSellPortfolioId()
-                ));
+            // Handle sell side
+            if (event.getSellerPortfolioId() != null) {
+                Portfolio sellPortfolio = portfolioRepository.findById(event.getSellerPortfolioId())
+                        .orElse(null);
 
-                sellPortfolio.handleTransactionCreated(event);
-                portfolioRepository.saveAndFlush(sellPortfolio);
-
-                logger.info("[SAGA: {}] Sell side updated for portfolio: {}",
-                        event.getCorrelationId(), event.getSellPortfolioId());
+                if (sellPortfolio != null) {
+                    sellPortfolio.handleTransactionCreated(internalEvent);
+                    portfolioRepository.save(sellPortfolio);
+                    logger.info("[SAGA: {}] Sell portfolio updated: {}",
+                            event.getCorrelationId(), event.getSellerPortfolioId());
+                }
             }
         });
     }

@@ -1,7 +1,6 @@
 package core.ms.portfolio.infrastructure.persistence.entities;
 
 import jakarta.persistence.*;
-
 import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
@@ -29,6 +28,9 @@ public class PortfolioEntity {
     @OneToMany(mappedBy = "portfolio", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
     private Set<PositionEntity> positions = new HashSet<>();
 
+    @OneToMany(mappedBy = "portfolio", cascade = CascadeType.ALL, fetch = FetchType.LAZY)
+    private Set<ReservationEntity> reservations = new HashSet<>();
+
     // Constructors
     public PortfolioEntity() {}
 
@@ -50,17 +52,30 @@ public class PortfolioEntity {
         position.setPortfolio(this);
     }
 
+    public void addReservation(ReservationEntity reservation) {
+        reservations.add(reservation);
+        reservation.setPortfolio(this);
+    }
+
     // Getters and Setters
     public String getPortfolioId() { return portfolioId; }
     public void setPortfolioId(String portfolioId) { this.portfolioId = portfolioId; }
+
     public String getOwnerId() { return ownerId; }
     public void setOwnerId(String ownerId) { this.ownerId = ownerId; }
+
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
+
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
     public Set<CashBalanceEntity> getCashBalances() { return cashBalances; }
     public void setCashBalances(Set<CashBalanceEntity> cashBalances) { this.cashBalances = cashBalances; }
+
     public Set<PositionEntity> getPositions() { return positions; }
     public void setPositions(Set<PositionEntity> positions) { this.positions = positions; }
+
+    public Set<ReservationEntity> getReservations() { return reservations; }
+    public void setReservations(Set<ReservationEntity> reservations) { this.reservations = reservations; }
 }

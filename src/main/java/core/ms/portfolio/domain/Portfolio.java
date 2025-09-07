@@ -6,6 +6,8 @@ import core.ms.portfolio.domain.events.subscribe.OrderCreatedEvent;
 import core.ms.portfolio.domain.events.subscribe.OrderCreationFailedEvent;
 import core.ms.portfolio.domain.events.subscribe.TransactionCreatedEvent;
 import core.ms.portfolio.domain.positions.PositionManager;
+import core.ms.portfolio.infrastructure.persistence.entities.ReservationEntity;
+import core.ms.portfolio.infrastructure.persistence.entities.ReservationEntity.ReservationStatus;
 import core.ms.shared.OrderType;
 import core.ms.shared.events.DomainEvent;
 import core.ms.shared.events.EventContext;
@@ -17,11 +19,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.time.LocalDateTime;
+import java.util.*;
 
 public class Portfolio {
     private static final Logger logger = LoggerFactory.getLogger(Portfolio.class);
@@ -32,7 +31,7 @@ public class Portfolio {
     private final CashManager cashManager;
     private final PositionManager positionManager;
     private final List<DomainEvent> domainEvents;
-    private final Map<String, ReservationMetadata> activeReservations;
+    private final Map<String, ReservationEntity> reservations;
 
     public Portfolio(String portfolioId, String ownerId,
                      CashManager cashManager, PositionManager positionManager) {
@@ -41,30 +40,39 @@ public class Portfolio {
         this.cashManager = cashManager;
         this.positionManager = positionManager;
         this.domainEvents = new ArrayList<>();
-        this.activeReservations = new HashMap<>();
+        this.reservations = new HashMap<>();
     }
 
-    // ===== ORDER PLACEMENT (Saga Initiation) =====
+    public Portfolio(String portfolioId, String ownerId,
+                     CashManager cashManager, PositionManager positionManager,
+                     List<ReservationEntity> persistedReservations) {
+        this(portfolioId, ownerId, cashManager, positionManager);
+        // Load persisted reservations
+        for (ReservationEntity reservation : persistedReservations) {
+            this.reservations.put(reservation.getReservationId(), reservation);
+        }
+    }
 
-    public void placeOrder(PlaceOrderCommand command) {
+    // Order Placement
+    public ReservationEntity placeOrder(PlaceOrderCommand command) {
         logger.info("Starting placeOrder for symbol: {}, type: {}, quantity: {}",
                 command.getSymbol().getCode(), command.getOrderType(), command.getQuantity());
 
-        // Start new saga
         EventContext.startNewSaga();
         String correlationId = EventContext.getCurrentCorrelationId();
         String reservationId = IdGen.generate("reservation");
 
         logger.info("Generated correlation ID: {}, reservation ID: {}", correlationId, reservationId);
 
+        ReservationEntity reservation = null;
+
         try {
             if (command.getOrderType() == OrderType.BUY) {
-                handleBuyOrderReservation(command, reservationId, correlationId);
+                reservation = handleBuyOrderReservation(command, reservationId, correlationId);
             } else {
-                handleSellOrderReservation(command, reservationId, correlationId);
+                reservation = handleSellOrderReservation(command, reservationId, correlationId);
             }
 
-            // Create and queue the event
             OrderRequestedEvent orderEvent = new OrderRequestedEvent(
                     correlationId,
                     SOURCE_BC,
@@ -79,14 +87,21 @@ public class Portfolio {
             domainEvents.add(orderEvent);
             logger.info("Successfully created OrderRequestedEvent for correlation: {}", correlationId);
 
+            return reservation;
+
         } catch (Exception e) {
             logger.error("Exception in placeOrder: {}", e.getMessage(), e);
-            releaseReservation(reservationId);
+            if (reservation != null) {
+                reservation.fail();
+                releaseReservation(reservationId);
+            }
             throw e;
         }
     }
 
-    private void handleBuyOrderReservation(PlaceOrderCommand command, String reservationId, String correlationId) {
+    private ReservationEntity handleBuyOrderReservation(PlaceOrderCommand command,
+                                                        String reservationId,
+                                                        String correlationId) {
         Money totalValue = command.getPrice().multiply(command.getQuantity());
         Money availableCash = cashManager.getAvailable(totalValue.getCurrency());
 
@@ -101,13 +116,25 @@ public class Portfolio {
         }
 
         cashManager.createInternalReservation(reservationId, totalValue);
-        activeReservations.put(reservationId, new ReservationMetadata(
-                reservationId, command.getSymbol(), OrderType.BUY,
-                totalValue.getCurrency(), null, correlationId
-        ));
+
+        ReservationEntity reservation = new ReservationEntity(
+                reservationId,
+                null, // Portfolio will be set by repository
+                OrderType.BUY,
+                command.getSymbol().getCode(),
+                totalValue.getCurrency(),
+                totalValue.getAmount(),
+                command.getQuantity(),
+                correlationId
+        );
+
+        reservations.put(reservationId, reservation);
+        return reservation;
     }
 
-    private void handleSellOrderReservation(PlaceOrderCommand command, String reservationId, String correlationId) {
+    private ReservationEntity handleSellOrderReservation(PlaceOrderCommand command,
+                                                         String reservationId,
+                                                         String correlationId) {
         BigDecimal availableQuantity = positionManager.getAvailable(command.getSymbol());
 
         logger.info("Sell order - Required: {}, Available: {} {}",
@@ -121,23 +148,31 @@ public class Portfolio {
         }
 
         positionManager.createInternalReservation(reservationId, command.getSymbol(), command.getQuantity());
-        activeReservations.put(reservationId, new ReservationMetadata(
-                reservationId, command.getSymbol(), OrderType.SELL,
-                null, command.getSymbol(), correlationId
-        ));
+
+        ReservationEntity reservation = new ReservationEntity(
+                reservationId,
+                null, // Portfolio will be set by repository
+                OrderType.SELL,
+                command.getSymbol().getCode(),
+                null,
+                null,
+                command.getQuantity(),
+                correlationId
+        );
+
+        reservations.put(reservationId, reservation);
+        return reservation;
     }
 
-    // ===== EVENT HANDLERS (Saga Participants) =====
-
+    // Event Handlers
     public void handleOrderCreated(OrderCreatedEvent event) {
         if (!portfolioId.equals(event.getPortfolioId())) {
             return;
         }
 
-        ReservationMetadata metadata = activeReservations.get(event.getReservationId());
-        if (metadata != null) {
-            metadata.setOrderId(event.getOrderId());
-            metadata.setStatus(ReservationStatus.CONFIRMED);
+        ReservationEntity reservation = reservations.get(event.getReservationId());
+        if (reservation != null) {
+            reservation.confirm(event.getOrderId());
             logger.info("Order creation confirmed for reservation: {}", event.getReservationId());
         }
     }
@@ -148,11 +183,16 @@ public class Portfolio {
         }
 
         logger.warn("Order creation failed for reservation: {}, releasing", event.getReservationId());
+        ReservationEntity reservation = reservations.get(event.getReservationId());
+        if (reservation != null) {
+            reservation.fail();
+        }
         releaseReservation(event.getReservationId());
     }
 
     public void handleTransactionCreated(TransactionCreatedEvent event) {
         if (portfolioId.equals(event.getBuyPortfolioId())) {
+            logger.info("Executing buy transaction for reservation: {}", event.getBuyReservationId());
             executeBuyTransaction(
                     event.getBuyReservationId(),
                     event.getSymbol(),
@@ -162,6 +202,7 @@ public class Portfolio {
         }
 
         if (portfolioId.equals(event.getSellPortfolioId())) {
+            logger.info("Executing sell transaction for reservation: {}", event.getSellReservationId());
             executeSellTransaction(
                     event.getSellReservationId(),
                     event.getSymbol(),
@@ -170,64 +211,72 @@ public class Portfolio {
         }
     }
 
-    // ===== TRANSACTION EXECUTION =====
-
     private void executeBuyTransaction(String reservationId, Symbol symbol,
                                        BigDecimal quantity, Money price) {
-        ReservationMetadata metadata = activeReservations.get(reservationId);
-        if (metadata == null || metadata.getStatus() != ReservationStatus.CONFIRMED) {
-            throw new IllegalStateException("Invalid reservation state for execution: " + reservationId);
+        ReservationEntity reservation = reservations.get(reservationId);
+
+        if (reservation == null) {
+            logger.error("Reservation not found for buy execution: {}", reservationId);
+            return;
         }
 
-        cashManager.executeReservation(reservationId, metadata.getCurrency());
+        if (reservation.getStatus() == ReservationStatus.EXECUTED) {
+            logger.info("Buy reservation already executed: {}", reservationId);
+            return;
+        }
+
+        cashManager.executeReservation(reservationId, reservation.getCurrency());
         positionManager.addAssets(symbol, quantity, price);
 
-        metadata.setStatus(ReservationStatus.EXECUTED);
-        activeReservations.remove(reservationId);
-
+        reservation.execute();
         logger.info("Buy transaction executed for reservation: {}", reservationId);
     }
 
     private void executeSellTransaction(String reservationId, Symbol symbol, Money proceeds) {
-        ReservationMetadata metadata = activeReservations.get(reservationId);
-        if (metadata == null || metadata.getStatus() != ReservationStatus.CONFIRMED) {
-            throw new IllegalStateException("Invalid reservation state for execution: " + reservationId);
+        ReservationEntity reservation = reservations.get(reservationId);
+
+        if (reservation == null) {
+            logger.error("Reservation not found for sell execution: {}", reservationId);
+            return;
+        }
+
+        if (reservation.getStatus() == ReservationStatus.EXECUTED) {
+            logger.info("Sell reservation already executed: {}", reservationId);
+            return;
         }
 
         positionManager.executeReservation(reservationId, symbol);
         cashManager.deposit(proceeds);
 
-        metadata.setStatus(ReservationStatus.EXECUTED);
-        activeReservations.remove(reservationId);
-
-        logger.info("Sell transaction executed for reservation: {}", reservationId);
+        reservation.execute();
+        logger.info("Sell transaction executed for reservation: {} - proceeds: {}",
+                reservationId, proceeds.toDisplayString());
     }
 
-    // ===== RESERVATION MANAGEMENT =====
-
     private void releaseReservation(String reservationId) {
-        ReservationMetadata metadata = activeReservations.remove(reservationId);
-        if (metadata == null) {
+        ReservationEntity reservation = reservations.get(reservationId);
+        if (reservation == null) {
             return;
         }
 
-        if (metadata.getOrderType() == OrderType.BUY && metadata.getCurrency() != null) {
-            cashManager.releaseReservation(reservationId, metadata.getCurrency());
-        } else if (metadata.getOrderType() == OrderType.SELL && metadata.getSymbol() != null) {
-            positionManager.releaseReservation(reservationId, metadata.getSymbol());
+        if (reservation.getOrderType() == OrderType.BUY && reservation.getCurrency() != null) {
+            cashManager.releaseReservation(reservationId, reservation.getCurrency());
+        } else if (reservation.getOrderType() == OrderType.SELL && reservation.getSymbolCode() != null) {
+            Symbol symbol = Symbol.createFromCode(reservation.getSymbolCode());
+            positionManager.releaseReservation(reservationId, symbol);
         }
 
-        metadata.setStatus(ReservationStatus.RELEASED);
+        reservation.release();
         logger.info("Reservation released: {}", reservationId);
     }
 
     public void cleanupExpiredReservations() {
-        Instant cutoff = Instant.now().minusSeconds(300); // 5 minute timeout
+        LocalDateTime cutoff = LocalDateTime.now().minusMinutes(5);
         List<String> toRelease = new ArrayList<>();
 
-        for (Map.Entry<String, ReservationMetadata> entry : activeReservations.entrySet()) {
+        for (Map.Entry<String, ReservationEntity> entry : reservations.entrySet()) {
             if (entry.getValue().getCreatedAt().isBefore(cutoff)
-                    && entry.getValue().getStatus() == ReservationStatus.PENDING) {
+                    && entry.getValue().isActive()) {
                 toRelease.add(entry.getKey());
             }
         }
@@ -237,8 +286,7 @@ public class Portfolio {
         positionManager.cleanupExpired();
     }
 
-    // ===== CASH OPERATIONS =====
-
+    // Cash Operations
     public void depositCash(Money amount) {
         cashManager.deposit(amount);
     }
@@ -247,8 +295,11 @@ public class Portfolio {
         cashManager.withdraw(amount);
     }
 
-    // ===== QUERY METHODS =====
+    public void depositAsset(Symbol symbol, BigDecimal quantity) {
+        positionManager.deposit(symbol, quantity);
+    }
 
+    // Query Methods
     public Money getAvailableCash(Currency currency) {
         return cashManager.getAvailable(currency);
     }
@@ -273,12 +324,14 @@ public class Portfolio {
         return positionManager.getReserved(symbol);
     }
 
-    // ===== DOMAIN EVENTS =====
-
     public List<DomainEvent> getAndClearEvents() {
         List<DomainEvent> events = new ArrayList<>(domainEvents);
         domainEvents.clear();
         return events;
+    }
+
+    public Collection<ReservationEntity> getReservations() {
+        return new ArrayList<>(reservations.values());
     }
 
     public String getPortfolioId() {
@@ -290,11 +343,12 @@ public class Portfolio {
     }
 
     public int getActiveReservationsCount() {
-        return activeReservations.size();
+        return (int) reservations.values().stream()
+                .filter(ReservationEntity::isActive)
+                .count();
     }
 
-    // ===== COMMAND =====
-
+    // Command class
     public static class PlaceOrderCommand {
         private final Symbol symbol;
         private final Money price;
@@ -314,50 +368,7 @@ public class Portfolio {
         public OrderType getOrderType() { return orderType; }
     }
 
-    // ===== INNER CLASSES =====
-
-    private static class ReservationMetadata {
-        private final String reservationId;
-        private final Symbol symbol;
-        private final OrderType orderType;
-        private final Currency currency;
-        private final Symbol assetSymbol;
-        private final String correlationId;
-        private final Instant createdAt;
-        private String orderId;
-        private ReservationStatus status;
-
-        public ReservationMetadata(String reservationId, Symbol symbol, OrderType orderType,
-                                   Currency currency, Symbol assetSymbol, String correlationId) {
-            this.reservationId = reservationId;
-            this.symbol = symbol;
-            this.orderType = orderType;
-            this.currency = currency;
-            this.assetSymbol = assetSymbol;
-            this.correlationId = correlationId;
-            this.createdAt = Instant.now();
-            this.status = ReservationStatus.PENDING;
-        }
-
-        public String getReservationId() { return reservationId; }
-        public Symbol getSymbol() { return symbol; }
-        public OrderType getOrderType() { return orderType; }
-        public Currency getCurrency() { return currency; }
-        public Symbol getAssetSymbol() { return assetSymbol; }
-        public String getCorrelationId() { return correlationId; }
-        public Instant getCreatedAt() { return createdAt; }
-        public String getOrderId() { return orderId; }
-        public void setOrderId(String orderId) { this.orderId = orderId; }
-        public ReservationStatus getStatus() { return status; }
-        public void setStatus(ReservationStatus status) { this.status = status; }
-    }
-
-    private enum ReservationStatus {
-        PENDING, CONFIRMED, EXECUTED, RELEASED
-    }
-
-    // ===== EXCEPTIONS =====
-
+    // Exceptions
     public static class InsufficientFundsException extends RuntimeException {
         public InsufficientFundsException(String message) {
             super(message);
@@ -368,8 +379,5 @@ public class Portfolio {
         public InsufficientAssetsException(String message) {
             super(message);
         }
-    }
-    public void depositAsset(Symbol symbol, BigDecimal quantity) {
-        positionManager.deposit(symbol, quantity);
     }
 }
