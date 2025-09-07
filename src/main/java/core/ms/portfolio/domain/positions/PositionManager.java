@@ -6,9 +6,7 @@ import core.ms.shared.money.Symbol;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.TreeMap;
+import java.util.*;
 
 public class PositionManager {
     private final Map<Symbol, AssetWallet> wallets;
@@ -40,7 +38,14 @@ public class PositionManager {
     }
 
     // ===== INTERNAL RESERVATION METHODS =====
+    public void loadFromDatabase(Symbol symbol, BigDecimal quantity) {
+        if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
+            return; // No position to load
+        }
 
+        AssetWallet wallet = getWallet(symbol);
+        wallet.setQuantity(quantity); // Need to add this method to AssetWallet
+    }
     /**
      * Create an internal reservation for the saga pattern
      */
@@ -101,6 +106,14 @@ public class PositionManager {
     public void addAssets(Symbol symbol, BigDecimal quantity, Money price) {
         getWallet(symbol).addAssets(quantity, price);
     }
+    public void setPosition(Symbol symbol, BigDecimal quantity) {
+        if (quantity.compareTo(BigDecimal.ZERO) <= 0) {
+            return; // No position
+        }
+        AssetWallet wallet = getWallet(symbol);
+        wallet.quantity = quantity;  // Direct assignment
+        wallet.averageCost = Money.zero(symbol.getQuoteCurrency()); // Reset average cost
+    }
 
     // ===== MAINTENANCE =====
 
@@ -146,15 +159,22 @@ public class PositionManager {
                 throw new IllegalArgumentException("Quantity must be positive");
             }
 
+            System.out.println("DEDOUG AssetWallet.addAssets - BEFORE: quantity=" + this.quantity);
+            System.out.println("DEDOUG AssetWallet.addAssets - Adding qty=" + qty + ", price=" + price.getAmount());
+
             // Update average cost
-            Money currentTotal = averageCost.multiply(quantity);
+            Money currentTotal = averageCost.multiply(this.quantity);
             Money additionalCost = price.multiply(qty);
-            BigDecimal newQuantity = quantity.add(qty);
+            BigDecimal newQuantity = this.quantity.add(qty);
+
+            System.out.println("DEDOUG AssetWallet.addAssets - Calculated newQuantity=" + newQuantity);
 
             if (newQuantity.compareTo(BigDecimal.ZERO) > 0) {
                 averageCost = currentTotal.add(additionalCost).divide(newQuantity);
             }
-            quantity = newQuantity;
+            this.quantity = newQuantity;
+
+            System.out.println("DEDOUG AssetWallet.addAssets - AFTER: quantity=" + this.quantity);
         }
 
         public void deduct(BigDecimal qty) {
@@ -177,6 +197,9 @@ public class PositionManager {
 
         public Money getUnrealizedPnL(Money marketPrice) {
             return getCurrentValue(marketPrice).subtract(averageCost.multiply(quantity));
+        }
+        public void setQuantity(BigDecimal qty) {
+            this.quantity = qty;
         }
     }
 
@@ -215,5 +238,8 @@ public class PositionManager {
         AssetWallet wallet = getWallet(symbol);
 
         wallet.addAssets(quantity, Money.zero(symbol.getQuoteCurrency()));
+    }
+    public Set<Symbol> getAllSymbols() {
+        return new HashSet<>(wallets.keySet());
     }
 }

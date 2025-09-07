@@ -291,14 +291,29 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
     @EventListener
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void handleTransactionCreated(core.ms.order.domain.events.publish.TransactionCreatedEvent event) {
+        logger.info("DEBOUG handleTransactionCreated Received event - Symbol: {}, Quantity: {}, Price: {}",
+                event.getSymbolCode(),
+                event.getExecutedQuantity(),
+                event.getExecutionPrice());
         handleEvent(event, () -> {
-            logger.info("[SAGA: {}] TransactionCreatedEvent - TX: {}",
-                    event.getCorrelationId(), event.getTransactionId());
+            logger.info("========================================");
+            logger.info("STEP 1: EVENT RECEIVED IN PORTFOLIO BC!");
+            logger.info("Correlation ID: {}", event.getCorrelationId());
+            logger.info("Transaction ID: {}", event.getTransactionId());
+            logger.info("Buy Portfolio: {}", event.getBuyerPortfolioId());
+            logger.info("Sell Portfolio: {}", event.getSellerPortfolioId());
+            logger.info("Buy Reservation: {}", event.getBuyerReservationId());
+            logger.info("Sell Reservation: {}", event.getSellerReservationId());
+            logger.info("========================================");
 
             // Convert to internal event
+            logger.info("STEP 2: Converting to internal event format");
             Symbol symbol = Symbol.createFromCode(event.getSymbolCode());
             Money executedPrice = Money.of(event.getExecutionPrice(), event.getCurrency());
-
+            logger.info("DEBOUG Creating internal event - Symbol: {}, Quantity: {}, Price: {}",
+                    symbol.getCode(),
+                    event.getExecutedQuantity(),
+                    executedPrice.toDisplayString());
             core.ms.portfolio.domain.events.subscribe.TransactionCreatedEvent internalEvent =
                     new core.ms.portfolio.domain.events.subscribe.TransactionCreatedEvent(
                             event.getCorrelationId(),
@@ -317,29 +332,109 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
 
             // Handle buy side
             if (event.getBuyerPortfolioId() != null) {
+                logger.info("STEP 3A: Buy Portfolio ID is not null: {}", event.getBuyerPortfolioId());
+
                 Portfolio buyPortfolio = portfolioRepository.findById(event.getBuyerPortfolioId())
                         .orElse(null);
 
                 if (buyPortfolio != null) {
+                    logger.info("STEP 3B: Buy Portfolio loaded successfully");
+
+                    // Check balance BEFORE
+                    Money cashBefore = buyPortfolio.getTotalCash(event.getCurrency());
+                    logger.info("STEP 3C: Cash BEFORE handleTransactionCreated: {}", cashBefore.toDisplayString());
+
+                    // Call the handler
+                    logger.info("STEP 3D: Calling buyPortfolio.handleTransactionCreated()");
                     buyPortfolio.handleTransactionCreated(internalEvent);
-                    portfolioRepository.save(buyPortfolio);
-                    logger.info("[SAGA: {}] Buy portfolio updated: {}",
-                            event.getCorrelationId(), event.getBuyerPortfolioId());
+
+                    // Check balance AFTER (in memory)
+                    Money cashAfter = buyPortfolio.getTotalCash(event.getCurrency());
+                    logger.info("STEP 3E: Cash AFTER handleTransactionCreated (in memory): {}", cashAfter.toDisplayString());
+
+                    // Save
+                    logger.info("STEP 3F: Saving buy portfolio to repository");
+                    Portfolio saved = portfolioRepository.save(buyPortfolio);
+
+                    // Force flush to database
+                    logger.info("STEP 3G: Flushing to database");
+                    portfolioRepository.saveAndFlush(saved);
+
+                    // Reload from database to verify
+                    logger.info("STEP 3H: Reloading from database to verify");
+                    Portfolio reloaded = portfolioRepository.findById(event.getBuyerPortfolioId()).orElse(null);
+                    if (reloaded != null) {
+                        Money persistedCash = reloaded.getTotalCash(event.getCurrency());
+                        logger.info("STEP 3I: Cash in DATABASE after save: {}", persistedCash.toDisplayString());
+
+                        if (persistedCash.equals(cashBefore)) {
+                            logger.error("STEP 3J: ERROR - Database still has OLD value!");
+                        } else if (persistedCash.equals(cashAfter)) {
+                            logger.info("STEP 3J: SUCCESS - Database has NEW value!");
+                        } else {
+                            logger.error("STEP 3J: ERROR - Database has unexpected value!");
+                        }
+                    }
+                } else {
+                    logger.info("STEP 3B: Buy Portfolio NOT FOUND in database!");
                 }
+            } else {
+                logger.info("STEP 3A: Buy Portfolio ID is NULL");
             }
 
             // Handle sell side
             if (event.getSellerPortfolioId() != null) {
+                logger.info("STEP 4A: Sell Portfolio ID is not null: {}", event.getSellerPortfolioId());
+
                 Portfolio sellPortfolio = portfolioRepository.findById(event.getSellerPortfolioId())
                         .orElse(null);
 
                 if (sellPortfolio != null) {
+                    logger.info("STEP 4B: Sell Portfolio loaded successfully");
+
+                    // Check balance BEFORE
+                    Money cashBefore = sellPortfolio.getTotalCash(event.getCurrency());
+                    logger.info("STEP 4C: Cash BEFORE handleTransactionCreated: {}", cashBefore.toDisplayString());
+
+                    // Call the handler
+                    logger.info("STEP 4D: Calling sellPortfolio.handleTransactionCreated()");
                     sellPortfolio.handleTransactionCreated(internalEvent);
-                    portfolioRepository.save(sellPortfolio);
-                    logger.info("[SAGA: {}] Sell portfolio updated: {}",
-                            event.getCorrelationId(), event.getSellerPortfolioId());
+
+                    // Check balance AFTER (in memory)
+                    Money cashAfter = sellPortfolio.getTotalCash(event.getCurrency());
+                    logger.info("STEP 4E: Cash AFTER handleTransactionCreated (in memory): {}", cashAfter.toDisplayString());
+
+                    // Save
+                    logger.info("STEP 4F: Saving sell portfolio to repository");
+                    Portfolio saved = portfolioRepository.save(sellPortfolio);
+
+                    // Force flush to database
+                    logger.info("STEP 4G: Flushing to database");
+                    portfolioRepository.saveAndFlush(saved);
+
+                    // Reload from database to verify
+                    logger.info("STEP 4H: Reloading from database to verify");
+                    Portfolio reloaded = portfolioRepository.findById(event.getSellerPortfolioId()).orElse(null);
+                    if (reloaded != null) {
+                        Money persistedCash = reloaded.getTotalCash(event.getCurrency());
+                        logger.info("STEP 4I: Cash in DATABASE after save: {}", persistedCash.toDisplayString());
+
+                        if (persistedCash.equals(cashBefore)) {
+                            logger.error("STEP 4J: ERROR - Database still has OLD value!");
+                        } else if (persistedCash.equals(cashAfter)) {
+                            logger.info("STEP 4J: SUCCESS - Database has NEW value!");
+                        } else {
+                            logger.error("STEP 4J: ERROR - Database has unexpected value!");
+                        }
+                    }
+                } else {
+                    logger.info("STEP 4B: Sell Portfolio NOT FOUND in database!");
                 }
+            } else {
+                logger.info("STEP 4A: Sell Portfolio ID is NULL");
             }
+
+            logger.info("STEP 5: Event handler completed");
         });
     }
 

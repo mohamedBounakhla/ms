@@ -45,12 +45,10 @@ public class Portfolio {
 
     public Portfolio(String portfolioId, String ownerId,
                      CashManager cashManager, PositionManager positionManager,
-                     List<ReservationEntity> persistedReservations) {
+                     Map<String, ReservationEntity> persistedReservations) {
         this(portfolioId, ownerId, cashManager, positionManager);
-        // Load persisted reservations
-        for (ReservationEntity reservation : persistedReservations) {
-            this.reservations.put(reservation.getReservationId(), reservation);
-        }
+        // Load persisted reservations as a map
+        this.reservations.putAll(persistedReservations);
     }
 
     // Order Placement
@@ -192,7 +190,14 @@ public class Portfolio {
 
     public void handleTransactionCreated(TransactionCreatedEvent event) {
         if (portfolioId.equals(event.getBuyPortfolioId())) {
-            logger.info("Executing buy transaction for reservation: {}", event.getBuyReservationId());
+            logger.info("EXECUTING BUY TRANSACTION for portfolio: {}", portfolioId);
+            logger.info("DEBOUG Portfolio.handleTransactionCreated - Buy: {}, Sell: {}",
+                    event.getBuyPortfolioId(), event.getSellPortfolioId());
+            logger.info("DEBOUG Event details - Symbol: {}, Quantity: {}, Price: {}",
+                    event.getSymbol().getCode(),
+                    event.getExecutedQuantity(),
+                    event.getExecutedPrice().toDisplayString());
+
             executeBuyTransaction(
                     event.getBuyReservationId(),
                     event.getSymbol(),
@@ -202,7 +207,13 @@ public class Portfolio {
         }
 
         if (portfolioId.equals(event.getSellPortfolioId())) {
-            logger.info("Executing sell transaction for reservation: {}", event.getSellReservationId());
+            logger.info("EXECUTING SELL TRANSACTION for portfolio: {}", portfolioId);
+            logger.info("DEBOUG Calling executeBuyTransaction with quantity: {}",
+                    event.getExecutedQuantity());
+            logger.info("Sell reservation ID: {}", event.getSellReservationId());
+            logger.info("Symbol: {}", event.getSymbol().getCode());
+            logger.info("Proceeds should be: {}", event.getTotalValue().toDisplayString());
+
             executeSellTransaction(
                     event.getSellReservationId(),
                     event.getSymbol(),
@@ -213,6 +224,9 @@ public class Portfolio {
 
     private void executeBuyTransaction(String reservationId, Symbol symbol,
                                        BigDecimal quantity, Money price) {
+        logger.info("DEBUG executeBuyTransaction - Symbol: {}, Quantity: {}, Price: {}",
+                symbol.getCode(), quantity, price.toDisplayString());
+
         ReservationEntity reservation = reservations.get(reservationId);
 
         if (reservation == null) {
@@ -233,24 +247,39 @@ public class Portfolio {
     }
 
     private void executeSellTransaction(String reservationId, Symbol symbol, Money proceeds) {
+        logger.info("STEP SELL-1: Starting executeSellTransaction");
+        logger.info("  Reservation ID: {}", reservationId);
+        logger.info("  Proceeds to add: {}", proceeds.toDisplayString());
+
         ReservationEntity reservation = reservations.get(reservationId);
 
         if (reservation == null) {
-            logger.error("Reservation not found for sell execution: {}", reservationId);
+            logger.error("STEP SELL-2: ERROR - Reservation not found: {}", reservationId);
             return;
         }
+        logger.info("STEP SELL-2: Reservation found");
 
         if (reservation.getStatus() == ReservationStatus.EXECUTED) {
-            logger.info("Sell reservation already executed: {}", reservationId);
+            logger.info("STEP SELL-3: Reservation already executed, skipping");
             return;
         }
+        logger.info("STEP SELL-3: Reservation not yet executed, proceeding");
+
+        // Log cash BEFORE deposit
+        Money cashBefore = cashManager.getTotal(proceeds.getCurrency());
+        logger.info("STEP SELL-4: Cash BEFORE deposit: {}", cashBefore.toDisplayString());
 
         positionManager.executeReservation(reservationId, symbol);
+        logger.info("STEP SELL-5: Position reservation executed");
+
         cashManager.deposit(proceeds);
 
+        // Log cash AFTER deposit
+        Money cashAfter = cashManager.getTotal(proceeds.getCurrency());
+        logger.info("STEP SELL-6: Cash AFTER deposit: {}", cashAfter.toDisplayString());
+
         reservation.execute();
-        logger.info("Sell transaction executed for reservation: {} - proceeds: {}",
-                reservationId, proceeds.toDisplayString());
+        logger.info("STEP SELL-7: Reservation marked as executed");
     }
 
     private void releaseReservation(String reservationId) {
@@ -347,7 +376,9 @@ public class Portfolio {
                 .filter(ReservationEntity::isActive)
                 .count();
     }
-
+    public Set<Symbol> getPositionSymbols() {
+        return positionManager.getAllSymbols();
+    }
     // Command class
     public static class PlaceOrderCommand {
         private final Symbol symbol;

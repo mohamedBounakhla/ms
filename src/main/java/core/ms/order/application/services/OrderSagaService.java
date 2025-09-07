@@ -411,6 +411,11 @@ public class OrderSagaService {
                                            String buyerPortfolioId, String sellerPortfolioId,
                                            String buyerReservationId, String sellerReservationId,
                                            BigDecimal buyOrderRemaining, BigDecimal sellOrderRemaining) {
+        logger.info("DEBOUG publishTransactionCreated - Symbol: {}, Quantity: {}, Price: {}",
+                transaction.getSymbol().getCode(),
+                transaction.getQuantity(),
+                transaction.getPrice().toDisplayString());
+
         TransactionCreatedEvent event = new TransactionCreatedEvent(
                 correlationId,
                 transaction.getId(),
