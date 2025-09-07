@@ -234,8 +234,13 @@ public class BotService {
                 .collect(Collectors.toList());
     }
 
-    @Scheduled(fixedDelay = 2000) // Run every 2 seconds for more activity
+    @Scheduled(fixedDelay = 2000, initialDelay = 5000) // Add initial delay
     public void tickAllBots() {
+        if (activeBots.isEmpty()) {
+            logger.debug("No active bots to tick");
+            return;
+        }
+        logger.info("Ticking {} active bots", activeBots.size());
         List<TradingBot> botsToSave = new ArrayList<>();
 
         List<BotStatusDTO> allStatuses = activeBots.values().parallelStream()
@@ -318,7 +323,7 @@ public class BotService {
         webSocketService.broadcastBotStatus(mapToStatusDTOWithPnL(bot));
     }
 
-    private TradingStrategy createStrategy(String strategyName) {
+    /*private TradingStrategy createStrategy(String strategyName) {
         return switch (strategyName.toLowerCase()) {
             case "random" -> new RandomStrategy();
             case "momentum" -> new MomentumStrategy();
@@ -328,8 +333,31 @@ public class BotService {
             case "competitive" -> new CompetitiveStrategy(orderBookService); // Pass the service
             default -> new CompetitiveStrategy(orderBookService); // Default to competitive
         };
+    }*/
+    public void manualTickAllBots() {
+        logger.info("Manual tick triggered");
+        tickAllBots();
+    }
+    public String testMarketPrice(String symbolCode) {
+        Symbol symbol = Symbol.createFromCode(symbolCode);
+        Optional<Money> price = marketDataAdapter.getCurrentPrice(symbol);
+        if (price.isPresent()) {
+            return "Current price for " + symbolCode + ": " + price.get().getAmount();
+        } else {
+            return "No price available for " + symbolCode;
+        }
     }
 
+    private TradingStrategy createStrategy(String strategyName) {
+        // Temporarily always return RandomStrategy for testing
+        return new CompetitiveStrategy(orderBookService);
+    }
+    @PostConstruct
+    public void initializeOrderBook() {
+        Symbol btc = Symbol.createFromCode("BTC");
+        orderBookService.createOrderBook(btc);
+        logger.info("Created order book for BTC");
+    }
     private BotStatusDTO mapToStatusDTO(TradingBot bot) {
         BotStatusDTO dto = new BotStatusDTO();
         dto.setBotId(bot.getBotId());

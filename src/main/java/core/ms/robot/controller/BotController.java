@@ -3,6 +3,8 @@ package core.ms.robot.controller;
 import core.ms.robot.dto.BotStatusDTO;
 import core.ms.robot.config.BotConfig;
 import core.ms.robot.service.BotService;
+import core.ms.shared.money.Money;
+import core.ms.shared.money.Symbol;
 import core.ms.shared.web.ApiResponse;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -11,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @RequestMapping("/api/v1/bots")
@@ -36,7 +39,11 @@ public class BotController {
         List<BotStatusDTO> bots = botService.getAllBotStatuses();
         return ResponseEntity.ok(ApiResponse.success("Bots retrieved", bots));
     }
-
+    @PostMapping("/tick-all")
+    public ResponseEntity<String> tickAllBots() {
+        botService.tickAllBots();
+        return ResponseEntity.ok("Ticked all bots");
+    }
     @GetMapping("/{botId}")
     public ResponseEntity<ApiResponse<BotStatusDTO>> getBotStatus(@PathVariable String botId) {
         return botService.getBotStatus(botId)
@@ -55,7 +62,16 @@ public class BotController {
                     .body(ApiResponse.error("Failed to start bot: " + e.getMessage()));
         }
     }
-
+    @PostMapping("/tick")
+    public ResponseEntity<ApiResponse<String>> manualTick() {
+        botService.manualTickAllBots();
+        return ResponseEntity.ok(ApiResponse.success("Manually ticked all bots", "OK"));
+    }
+    @GetMapping("/test-price/{symbol}")
+    public ResponseEntity<String> testPrice(@PathVariable String symbol) {
+        // Call through to the service to test
+        return ResponseEntity.ok(botService.testMarketPrice(symbol));
+    }
     @PostMapping("/{botId}/stop")
     public ResponseEntity<ApiResponse<String>> stopBot(@PathVariable String botId) {
         try {
