@@ -261,16 +261,27 @@ public class TradingBot {
         command.setQuantity(decision.getQuantity());
 
         try {
-            portfolioService.placeBuyOrder(command);
-            tradesExecuted++;
-            String historyEntry = String.format("BUY %.4f %s @ %s (%s)",
-                    decision.getQuantity(), symbolCode, price.toDisplayString(), decision.getReason());
-            addToHistory(historyEntry);
+            var result = portfolioService.placeBuyOrder(command);
 
-            if (tradeEventCallback != null) {
-                tradeEventCallback.onTradeEvent(this, decision, price, true, null);
+            // Only increment if successful
+            if (result.isSuccess()) {
+                tradesExecuted++;
+                String historyEntry = String.format("BUY %.4f %s @ %s (%s)",
+                        decision.getQuantity(), symbolCode, price.toDisplayString(), decision.getReason());
+                addToHistory(historyEntry);
+
+                if (tradeEventCallback != null) {
+                    tradeEventCallback.onTradeEvent(this, decision, price, true, null);
+                }
+            } else {
+                // Order failed but don't increment trades
+                addToHistory("Failed to execute BUY: " + result.getMessage());
+                if (tradeEventCallback != null) {
+                    tradeEventCallback.onTradeEvent(this, decision, price, false, result.getMessage());
+                }
             }
         } catch (Exception e) {
+            // Don't increment trades on exception
             addToHistory("Failed to execute BUY: " + e.getMessage());
             if (tradeEventCallback != null) {
                 tradeEventCallback.onTradeEvent(this, decision, price, false, e.getMessage());
@@ -287,16 +298,27 @@ public class TradingBot {
         command.setQuantity(decision.getQuantity());
 
         try {
-            portfolioService.placeSellOrder(command);
-            tradesExecuted++;
-            String historyEntry = String.format("SELL %.4f %s @ %s (%s)",
-                    decision.getQuantity(), symbolCode, price.toDisplayString(), decision.getReason());
-            addToHistory(historyEntry);
+            var result = portfolioService.placeSellOrder(command);
 
-            if (tradeEventCallback != null) {
-                tradeEventCallback.onTradeEvent(this, decision, price, true, null);
+            // Only increment if successful
+            if (result.isSuccess()) {
+                tradesExecuted++;
+                String historyEntry = String.format("SELL %.4f %s @ %s (%s)",
+                        decision.getQuantity(), symbolCode, price.toDisplayString(), decision.getReason());
+                addToHistory(historyEntry);
+
+                if (tradeEventCallback != null) {
+                    tradeEventCallback.onTradeEvent(this, decision, price, true, null);
+                }
+            } else {
+                // Order failed but don't increment trades
+                addToHistory("Failed to execute SELL: " + result.getMessage());
+                if (tradeEventCallback != null) {
+                    tradeEventCallback.onTradeEvent(this, decision, price, false, result.getMessage());
+                }
             }
         } catch (Exception e) {
+            // Don't increment trades on exception
             addToHistory("Failed to execute SELL: " + e.getMessage());
             if (tradeEventCallback != null) {
                 tradeEventCallback.onTradeEvent(this, decision, price, false, e.getMessage());

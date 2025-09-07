@@ -555,6 +555,19 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
 
         Map<Symbol, BigDecimal> positions = new HashMap<>();
         Map<Symbol, BigDecimal> reservedAssets = new HashMap<>();
+        /** Load portfolio positions**/
+        for (Symbol symbol : portfolio.getPositionSymbols()) {
+            BigDecimal total = portfolio.getTotalAssets(symbol);
+            if (total.compareTo(BigDecimal.ZERO) > 0) {
+                positions.put(symbol, total);
+                BigDecimal reserved = portfolio.getReservedAssets(symbol);
+                if (reserved.compareTo(BigDecimal.ZERO) > 0) {
+                    reservedAssets.put(symbol, reserved);
+                }
+            }
+        }
+
+
 
         Money totalValue = calculatePortfolioValue(cashBalances, positions);
 
