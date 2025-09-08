@@ -15,6 +15,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.List;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
@@ -25,10 +27,38 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Autowired
     private MSUserService userService;
 
+    // List of paths that should skip authentication
+    private static final List<String> PUBLIC_PATHS = Arrays.asList(
+            "/login",
+            "/register",
+            "/validate",
+            "/refresh",
+            "/h2-console",
+            "/api/v1/market-data",
+            "/api/v1/charts",
+            "/api/v1/market",
+            "/api/v1/internal",
+            "/ws",
+            "/api/v1/bots",
+            "/app",
+            "/topic"
+    );
+
     @Override
     protected void doFilterInternal(HttpServletRequest request,
                                     HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
+
+        String requestPath = request.getRequestURI();
+
+        // Skip authentication for public paths
+        boolean isPublicPath = PUBLIC_PATHS.stream()
+                .anyMatch(path -> requestPath.contains(path));
+
+        if (isPublicPath) {
+            filterChain.doFilter(request, response);
+            return;
+        }
 
         final String authorizationHeader = request.getHeader("Authorization");
 
@@ -41,6 +71,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 username = tokenService.extractUsername(jwt);
             } catch (Exception e) {
                 // Invalid token, continue without authentication
+                logger.debug("Failed to extract username from token: " + e.getMessage());
             }
         }
 

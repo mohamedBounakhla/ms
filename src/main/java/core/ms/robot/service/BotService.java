@@ -260,6 +260,11 @@ public class BotService {
                             }
 
                             return mapToStatusDTOWithPnL(bot);
+                        }else {
+                            // No market price yet - use a default to bootstrap
+                            Money defaultPrice = new Money(new BigDecimal("45000"), Currency.USD);
+                            bot.tick(defaultPrice);
+                            logger.info("Using default price for {} as no market price exists", symbol);
                         }
                     } catch (Exception e) {
                         logger.error("Error ticking bot " + bot.getBotId() + ": " + e.getMessage());
@@ -323,7 +328,7 @@ public class BotService {
         webSocketService.broadcastBotStatus(mapToStatusDTOWithPnL(bot));
     }
 
-    /*private TradingStrategy createStrategy(String strategyName) {
+    private TradingStrategy createStrategy(String strategyName) {
         return switch (strategyName.toLowerCase()) {
             case "random" -> new RandomStrategy();
             case "momentum" -> new MomentumStrategy();
@@ -331,9 +336,9 @@ public class BotService {
             case "marketmaker" -> new MarketMakerStrategy();
             case "aggressive" -> new AggressiveStrategy();
             case "competitive" -> new CompetitiveStrategy(orderBookService); // Pass the service
-            default -> new CompetitiveStrategy(orderBookService); // Default to competitive
+            default -> new RandomStrategy(); // Default to competitive
         };
-    }*/
+    }
     public void manualTickAllBots() {
         logger.info("Manual tick triggered");
         tickAllBots();
@@ -348,10 +353,7 @@ public class BotService {
         }
     }
 
-    private TradingStrategy createStrategy(String strategyName) {
-        // Temporarily always return RandomStrategy for testing
-        return new CompetitiveStrategy(orderBookService);
-    }
+
     @PostConstruct
     public void initializeOrderBook() {
         Symbol btc = Symbol.createFromCode("BTC");
