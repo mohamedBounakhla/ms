@@ -215,3 +215,4 @@ Shared value objects (Money, Symbol, etc.)
 
 
 find . -name "*.java" -exec echo "=== {} ===" \; -exec cat {} \; > all_java_files.txt
+./gradlew bootRun -x test 2>&1 | tee output.log
