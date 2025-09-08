@@ -14,6 +14,8 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
     public void configureMessageBroker(MessageBrokerRegistry config) {
         config.enableSimpleBroker("/topic");
         config.setApplicationDestinationPrefixes("/app");
+        config.enableSimpleBroker("/topic", "/queue");
+        config.setApplicationDestinationPrefixes("/app");
     }
 
     @Override
@@ -25,6 +27,10 @@ public class WebSocketConfig implements WebSocketMessageBrokerConfigurer {
 
         // Add the general WebSocket endpoint for bots
         registry.addEndpoint("/ws")
+                .setAllowedOriginPatterns("*")
+                .withSockJS();
+        // Add portfolio-specific endpoint
+        registry.addEndpoint("/ws/portfolio")
                 .setAllowedOriginPatterns("*")
                 .withSockJS();
     }

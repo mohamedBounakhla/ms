@@ -48,7 +48,8 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
     private static final Logger logger = LoggerFactory.getLogger(PortfolioApplicationService.class);
     private static final int MAX_RETRY_ATTEMPTS = 3;
     private static final long LOCK_TIMEOUT_SECONDS = 5;
-
+    @Autowired
+    private PortfolioUpdateBroadcaster updateBroadcaster;
     // Portfolio-level locks for critical operations
     private final Map<String, ReentrantLock> portfolioLocks = new ConcurrentHashMap<>();
 
@@ -371,6 +372,17 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
                             logger.error("STEP 3J: ERROR - Database still has OLD value!");
                         } else if (persistedCash.equals(cashAfter)) {
                             logger.info("STEP 3J: SUCCESS - Database has NEW value!");
+
+                            // Broadcast updates only after successful persistence
+                            if (updateBroadcaster != null) {
+                                try {
+                                    updateBroadcaster.broadcastCashUpdate(event.getBuyerPortfolioId());
+                                    updateBroadcaster.broadcastPositionUpdate(event.getBuyerPortfolioId());
+                                } catch (Exception broadcastEx) {
+                                    logger.warn("Failed to broadcast buy portfolio update: {}", broadcastEx.getMessage());
+                                    // Don't fail the transaction if broadcasting fails
+                                }
+                            }
                         } else {
                             logger.error("STEP 3J: ERROR - Database has unexpected value!");
                         }
@@ -423,6 +435,17 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
                             logger.error("STEP 4J: ERROR - Database still has OLD value!");
                         } else if (persistedCash.equals(cashAfter)) {
                             logger.info("STEP 4J: SUCCESS - Database has NEW value!");
+
+                            // Broadcast updates only after successful persistence
+                            if (updateBroadcaster != null) {
+                                try {
+                                    updateBroadcaster.broadcastCashUpdate(event.getSellerPortfolioId());
+                                    updateBroadcaster.broadcastPositionUpdate(event.getSellerPortfolioId());
+                                } catch (Exception broadcastEx) {
+                                    logger.warn("Failed to broadcast sell portfolio update: {}", broadcastEx.getMessage());
+                                    // Don't fail the transaction if broadcasting fails
+                                }
+                            }
                         } else {
                             logger.error("STEP 4J: ERROR - Database has unexpected value!");
                         }
@@ -460,10 +483,22 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
             logger.info("Cash deposited: {} to portfolio: {}",
                     amount.toDisplayString(), command.getPortfolioId());
 
-            return PortfolioOperationResultDTO.success(
+            PortfolioOperationResultDTO result = PortfolioOperationResultDTO.success(
                     command.getPortfolioId(),
                     "Cash deposited successfully"
             );
+
+            // Broadcast update after successful deposit
+            if (updateBroadcaster != null) {
+                try {
+                    updateBroadcaster.broadcastCashUpdate(command.getPortfolioId());
+                } catch (Exception broadcastEx) {
+                    logger.warn("Failed to broadcast cash deposit update: {}", broadcastEx.getMessage());
+                    // Don't fail the operation if broadcasting fails
+                }
+            }
+
+            return result;
 
         } catch (Exception e) {
             logger.error("Failed to deposit cash", e);
@@ -489,10 +524,22 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
             portfolio.depositAsset(command.getSymbol(), command.getQuantity());
             portfolioRepository.save(portfolio);
 
-            return PortfolioOperationResultDTO.success(
+            PortfolioOperationResultDTO result = PortfolioOperationResultDTO.success(
                     command.getPortfolioId(),
                     "Asset deposited successfully"
             );
+
+            // Broadcast update after successful deposit
+            if (updateBroadcaster != null) {
+                try {
+                    updateBroadcaster.broadcastPositionUpdate(command.getPortfolioId());
+                } catch (Exception broadcastEx) {
+                    logger.warn("Failed to broadcast asset deposit update: {}", broadcastEx.getMessage());
+                    // Don't fail the operation if broadcasting fails
+                }
+            }
+
+            return result;
         } catch (Exception e) {
             logger.error("Failed to deposit asset", e);
             return PortfolioOperationResultDTO.error(
@@ -674,10 +721,22 @@ public class PortfolioApplicationService extends CorrelationAwareEventListener {
             portfolio.withdrawCash(amount);
             portfolioRepository.save(portfolio);
 
-            return PortfolioOperationResultDTO.success(
+            PortfolioOperationResultDTO result = PortfolioOperationResultDTO.success(
                     command.getPortfolioId(),
                     "Cash withdrawn successfully: " + amount.toDisplayString()
             );
+
+            // Broadcast update after successful withdrawal
+            if (updateBroadcaster != null) {
+                try {
+                    updateBroadcaster.broadcastCashUpdate(command.getPortfolioId());
+                } catch (Exception broadcastEx) {
+                    logger.warn("Failed to broadcast cash withdrawal update: {}", broadcastEx.getMessage());
+                    // Don't fail the operation if broadcasting fails
+                }
+            }
+
+            return result;
 
         } catch (Exception e) {
             logger.error("Failed to withdraw cash", e);
