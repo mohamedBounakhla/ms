@@ -6,10 +6,13 @@ import core.ms.order.domain.ports.outbound.TransactionRepository;
 import core.ms.order.infrastructure.persistence.dao.TransactionDAO;
 import core.ms.order.infrastructure.persistence.entities.TransactionEntity;
 import core.ms.order.infrastructure.persistence.mappers.TransactionMapper;
+import core.ms.order_book.application.services.CandlestickService;
 import core.ms.shared.money.Symbol;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.PersistenceContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -23,6 +26,7 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class TransactionRepositoryService implements TransactionRepository {
+    private static final Logger logger = LoggerFactory.getLogger(TransactionRepositoryService.class);
 
     @Autowired
     private TransactionDAO transactionDAO;
@@ -116,7 +120,22 @@ public class TransactionRepositoryService implements TransactionRepository {
 
     @Override
     public List<ITransaction> findByDateRange(LocalDateTime startDate, LocalDateTime endDate) {
+
+        /*Debug*/
+        List<TransactionEntity> allEntities = transactionDAO.findAll();
+        logger.info("Total transactions in DB: {}", allEntities.size());
+
+        if (!allEntities.isEmpty()) {
+            TransactionEntity first = allEntities.get(0);
+            logger.info("Sample transaction date: {}", first.getCreatedAt());
+        }
+
+
+        /**/
         List<TransactionEntity> entities = transactionDAO.findByCreatedAtBetween(startDate, endDate);
+
+        logger.info("Transactions in date range: {}", entities.size());
+
         return mapToDomain(entities);
     }
 

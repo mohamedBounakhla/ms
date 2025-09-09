@@ -2,6 +2,8 @@ package core.ms.order_book.application.services;
 
 import core.ms.order.domain.entities.ITransaction;
 import core.ms.order.domain.ports.inbound.TransactionService;
+import core.ms.order.infrastructure.persistence.dao.TransactionDAO;
+import core.ms.order.infrastructure.persistence.entities.TransactionEntity;
 import core.ms.order_book.application.dto.query.CandlestickDTO;
 import core.ms.order_book.application.dto.query.CandlestickUpdate;
 import core.ms.shared.money.Symbol;
@@ -16,6 +18,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -26,6 +29,9 @@ public class CandlestickService {
 
     private static final Logger logger = LoggerFactory.getLogger(CandlestickService.class);
 
+
+    @Autowired
+    private TransactionDAO transactionDAO;  // Add this injection
     @Autowired
     private TransactionService transactionService;
 
@@ -43,55 +49,63 @@ public class CandlestickService {
      */
     public List<CandlestickDTO> getCandlesticks(String symbol, TimeInterval interval,
                                                 LocalDateTime from, LocalDateTime to) {
-        logger.debug("Fetching candlesticks for {} from {} to {} with interval {}",
-                symbol, from, to, interval);
+        logger.info("getCandlesticks START: symbol={}, interval={}, from={}, to={}",
+                symbol, interval, from, to);
 
         // Validate inputs
         if (to == null) {
             to = LocalDateTime.now();
         }
         if (from == null) {
-            from = to.minusDays(1); // Default to last 24 hours
+            from = to.minusDays(1);
         }
 
         // Check cache first
         String cacheKey = buildCacheKey(symbol, interval, from, to);
+        logger.info("Cache key: {}", cacheKey);
+
         List<CandlestickDTO> cached = candleCache.get(cacheKey);
         if (cached != null && !cached.isEmpty()) {
-            logger.debug("Returning {} cached candles for {}", cached.size(), symbol);
+            logger.info("RETURNING {} CACHED candles", cached.size());
             return cached;
         }
 
+        logger.info("Cache miss, fetching transactions");
+
         // Fetch historical transactions
         List<TransactionData> transactions = fetchHistoricalTransactions(symbol, from, to);
+        logger.info("fetchHistoricalTransactions returned {} transactions", transactions.size());
 
         if (transactions.isEmpty()) {
             logger.info("No transactions found for {} between {} and {}", symbol, from, to);
+            // This might be returning empty candles with same price
             return new ArrayList<>();
         }
 
         // Aggregate into candlesticks
-        List<CandlestickDTO> candles = aggregateToCandles(transactions, interval, from, to);
+        logger.info("Calling aggregateToCandles with {} transactions", transactions.size());
+        List<CandlestickDTO> candles = aggregateToCandles(transactions, interval, from, to, symbol);
+
+        logger.info("aggregateToCandles returned {} candles", candles.size());
 
         // Add current forming candle if exists
         String builderKey = symbol + "-" + interval;
         CurrentCandleBuilder currentBuilder = activeCandles.get(builderKey);
         if (currentBuilder != null && currentBuilder.hasData()) {
+            logger.info("Adding current candle from builder");
             CandlestickDTO currentCandle = currentBuilder.getCurrentCandle();
-            // Only add if it's within our time range
             if (!currentCandle.getTime().isBefore(from) && !currentCandle.getTime().isAfter(to)) {
                 candles.add(currentCandle);
             }
         }
 
-        // Cache the results (with short TTL)
+        // Cache the results
         if (!candles.isEmpty()) {
+            logger.info("Caching {} candles", candles.size());
             candleCache.put(cacheKey, candles);
-            // Schedule cache cleanup
-            scheduleCacheCleanup(cacheKey, 60000); // 1 minute TTL
         }
 
-        logger.debug("Returning {} candles for {}", candles.size(), symbol);
+        logger.info("getCandlesticks END: returning {} candles", candles.size());
         return candles;
     }
 
@@ -134,10 +148,27 @@ public class CandlestickService {
             }
         }
 
-        // Clear cache for this symbol as we have new data
-        clearCacheForSymbol(symbol);
+        // Clear cache AND notify clients to refetch if needed
+        clearCacheAndNotify(symbol);
     }
+    private void clearCacheAndNotify(String symbol) {
+        // Clear cache
+        candleCache.entrySet().removeIf(entry -> entry.getKey().startsWith(symbol + "-"));
 
+        // Send cache invalidation notice via WebSocket
+        if (messagingTemplate != null) {
+            try {
+                // Notify clients that they should refresh their data
+                messagingTemplate.convertAndSend(
+                        "/topic/ohlc/cache-invalidated/" + symbol,
+                        LocalDateTime.now()
+                );
+                logger.debug("Cache cleared and invalidation notice sent for {}", symbol);
+            } catch (Exception e) {
+                logger.error("Failed to send cache invalidation notice", e);
+            }
+        }
+    }
     /**
      * Close candles at interval boundaries and create new ones
      */
@@ -191,21 +222,24 @@ public class CandlestickService {
                                                               LocalDateTime from,
                                                               LocalDateTime to) {
         try {
-            Symbol symbol = Symbol.createFromCode(symbolCode);
+            logger.info("Fetching transactions for {} from {} to {}", symbolCode, from, to);
 
-            // Fetch transactions from service
-            List<ITransaction> transactions = transactionService.findTransactionsByDateRange(from, to);
+            // Tiche !!!!!
+            List<TransactionEntity> allEntities = transactionDAO.findByCreatedAtBetween(from, to);
+            logger.info("Found {} transaction entities in date range", allEntities.size());
 
-            // Filter by symbol and convert
-            return transactions.stream()
-                    .filter(tx -> tx.getSymbol().equals(symbol))
-                    .map(tx -> new TransactionData(
-                            tx.getPrice().getAmount(),
-                            tx.getQuantity(),
-                            tx.getCreatedAt()
+            List<TransactionData> filtered = allEntities.stream()
+                    .filter(entity -> symbolCode.equals(entity.getSymbolCode()))
+                    .map(entity -> new TransactionData(
+                            entity.getPrice(),
+                            entity.getQuantity(),
+                            entity.getCreatedAt()
                     ))
                     .sorted(Comparator.comparing(TransactionData::timestamp))
                     .collect(Collectors.toList());
+
+            logger.info("After filtering: {} transactions for {}", filtered.size(), symbolCode);
+            return filtered;
 
         } catch (Exception e) {
             logger.error("Failed to fetch historical transactions for {}", symbolCode, e);
@@ -219,9 +253,13 @@ public class CandlestickService {
     private List<CandlestickDTO> aggregateToCandles(List<TransactionData> transactions,
                                                     TimeInterval interval,
                                                     LocalDateTime from,
-                                                    LocalDateTime to) {
+                                                    LocalDateTime to,
+                                                    String symbol) {
+        logger.info("aggregateToCandles: {} transactions for {}", transactions.size(), symbol);
+
         if (transactions.isEmpty()) {
-            return fillEmptyCandles(from, to, interval);
+            logger.info("No transactions, returning empty list");
+            return new ArrayList<>();  // Just return empty instead of filling
         }
 
         // Group by time interval
@@ -230,20 +268,27 @@ public class CandlestickService {
                         tx -> truncateToInterval(tx.timestamp, interval)
                 ));
 
+        logger.info("Grouped into {} time intervals", grouped.size());
+
         // Convert to candlesticks
         List<CandlestickDTO> candles = grouped.entrySet().stream()
                 .map(entry -> buildCandlestick(entry.getKey(), entry.getValue()))
                 .sorted(Comparator.comparing(CandlestickDTO::getTime))
                 .collect(Collectors.toList());
 
-        // Fill gaps with empty candles if needed
-        return fillGaps(candles, from, to, interval);
+        logger.info("Built {} candles", candles.size());
+        return candles;  // Return actual candles only
     }
-
     /**
      * Build a single candlestick from transactions
      */
     private CandlestickDTO buildCandlestick(LocalDateTime time, List<TransactionData> txs) {
+        // ADD THIS DEBUG LOG
+        logger.debug("Building candle for {} with {} transactions", time, txs.size());
+        for (TransactionData tx : txs) {
+            logger.debug("  - Transaction at {} price: {}", tx.timestamp, tx.price);
+        }
+
         txs.sort(Comparator.comparing(t -> t.timestamp));
 
         BigDecimal open = txs.get(0).price;
@@ -252,26 +297,45 @@ public class CandlestickService {
         BigDecimal low = txs.stream().map(t -> t.price).min(BigDecimal::compareTo).orElse(open);
         BigDecimal volume = txs.stream().map(t -> t.quantity).reduce(BigDecimal.ZERO, BigDecimal::add);
 
+        // ADD THIS DEBUG LOG
+        logger.debug("Candle OHLC - O:{} H:{} L:{} C:{} V:{}", open, high, low, close, volume);
+
         return new CandlestickDTO(time, open, high, low, close, volume);
     }
 
     /**
      * Fill gaps in candle data with empty candles
-     */
+
     private List<CandlestickDTO> fillGaps(List<CandlestickDTO> candles,
                                           LocalDateTime from,
                                           LocalDateTime to,
-                                          TimeInterval interval) {
+                                          TimeInterval interval,
+                                          String symbol) {
         if (candles.isEmpty()) {
-            return fillEmptyCandles(from, to, interval);
+            return fillEmptyCandles(from, to, interval, symbol);
         }
 
         List<CandlestickDTO> filled = new ArrayList<>();
         LocalDateTime current = truncateToInterval(from, interval);
         LocalDateTime end = truncateToInterval(to, interval);
 
+        BigDecimal lastClose = null;
+        if (!candles.isEmpty() && candles.get(0).getTime().isAfter(current)) {
+            // There's a gap at the beginning - get last known price before 'from'
+            lastClose = getLastKnownPrice(symbol, from);
+        }
+
+        // If still no price, use first candle's open
+        if (lastClose == null && !candles.isEmpty()) {
+            lastClose = candles.get(0).getOpen();
+        }
+
+        // If still no price, we can't fill gaps
+        if (lastClose == null) {
+            return candles; // Return as-is
+        }
+
         int candleIndex = 0;
-        BigDecimal lastClose = candles.get(0).getOpen(); // Default price
 
         while (!current.isAfter(end)) {
             if (candleIndex < candles.size() &&
@@ -279,10 +343,10 @@ public class CandlestickService {
                 // We have data for this period
                 CandlestickDTO candle = candles.get(candleIndex);
                 filled.add(candle);
-                lastClose = candle.getClose();
+                lastClose = candle.getClose(); // Update lastClose with actual close
                 candleIndex++;
             } else {
-                // Create empty candle with last known price
+                // Create empty candle with last known close price
                 filled.add(new CandlestickDTO(
                         current, lastClose, lastClose, lastClose, lastClose, BigDecimal.ZERO
                 ));
@@ -291,31 +355,77 @@ public class CandlestickService {
         }
 
         return filled;
+    } */
+    private List<CandlestickDTO> fillGaps(List<CandlestickDTO> candles,
+                                          LocalDateTime from,
+                                          LocalDateTime to,
+                                          TimeInterval interval,
+                                          String symbol) {
+        // Just return the actual candles without filling gaps
+        return candles;
     }
-
     /**
      * Create empty candles for periods with no data
      */
     private List<CandlestickDTO> fillEmptyCandles(LocalDateTime from,
                                                   LocalDateTime to,
-                                                  TimeInterval interval) {
+                                                  TimeInterval interval,
+                                                  String symbolCode) {
         List<CandlestickDTO> candles = new ArrayList<>();
         LocalDateTime current = truncateToInterval(from, interval);
         LocalDateTime end = truncateToInterval(to, interval);
 
-        // Use a default price (could be fetched from last known price)
-        BigDecimal defaultPrice = new BigDecimal("45000"); // Default BTC price
+        // Get last known price from transactions
+        BigDecimal lastKnownPrice = getLastKnownPrice(symbolCode, from);
+
+        // If no historical price exists at all, return empty list
+        if (lastKnownPrice == null) {
+            logger.debug("No historical price found for {} before {}", symbolCode, from);
+            return candles;
+        }
 
         while (!current.isAfter(end)) {
             candles.add(new CandlestickDTO(
-                    current, defaultPrice, defaultPrice, defaultPrice, defaultPrice, BigDecimal.ZERO
+                    current, lastKnownPrice, lastKnownPrice, lastKnownPrice, lastKnownPrice, BigDecimal.ZERO
             ));
             current = nextInterval(current, interval);
         }
 
         return candles;
     }
+    private BigDecimal getLastKnownPrice(String symbolCode, LocalDateTime beforeTime) {
+        try {
+            Symbol symbol = Symbol.createFromCode(symbolCode);
 
+            // Get the most recent transaction before the requested time
+            List<ITransaction> recentTransactions = transactionService
+                    .findTransactionsByDateRange(beforeTime.minusDays(30), beforeTime);
+
+            // Filter by symbol and get the last one
+            Optional<ITransaction> lastTransaction = recentTransactions.stream()
+                    .filter(tx -> tx.getSymbol().getCode().equals(symbolCode))
+                    .max(Comparator.comparing(ITransaction::getCreatedAt));
+
+            if (lastTransaction.isPresent()) {
+                return lastTransaction.get().getPrice().getAmount();
+            }
+
+            // If no recent transaction, try to get ANY transaction for this symbol
+            List<ITransaction> allTransactions = transactionService.findTransactionsBySymbol(symbol);
+            if (!allTransactions.isEmpty()) {
+                // Sort by date and get the most recent
+                return allTransactions.stream()
+                        .max(Comparator.comparing(ITransaction::getCreatedAt))
+                        .map(tx -> tx.getPrice().getAmount())
+                        .orElse(null);
+            }
+
+            return null;
+        } catch (Exception e) {
+            logger.error("Failed to get last known price for {}", symbolCode, e);
+            return null;
+        }
+    }
     /**
      * Truncate time to interval boundary
      */
@@ -358,7 +468,7 @@ public class CandlestickService {
      * Clear cache for a symbol
      */
     private void clearCacheForSymbol(String symbol) {
-        candleCache.entrySet().removeIf(entry -> entry.getKey().startsWith(symbol + "-"));
+        clearCacheAndNotify(symbol);
     }
 
     /**
@@ -398,30 +508,40 @@ public class CandlestickService {
         CurrentCandleBuilder(String symbol, TimeInterval interval) {
             this.symbol = symbol;
             this.interval = interval;
-            this.startTime = truncateToInterval(LocalDateTime.now(), interval);
+            this.startTime = truncateToInterval(LocalDateTime.now(ZoneOffset.UTC), interval);
         }
 
         synchronized void addTransaction(BigDecimal price, BigDecimal quantity) {
-            if (open == null) {
+            // Check if we should have rolled over to a new interval
+            LocalDateTime currentInterval = truncateToInterval(LocalDateTime.now(ZoneOffset.UTC), interval);
+            if (currentInterval.isAfter(startTime)) {
+                startTime = currentInterval;
                 open = high = low = close = price;
-                startTime = truncateToInterval(LocalDateTime.now(), interval);
+                volume = quantity;
+                transactionCount = 1;
             } else {
-                high = high.max(price);
-                low = low.min(price);
-                close = price;
+                // Add to current interval
+                if (open == null) {
+                    open = high = low = close = price;
+                } else {
+                    high = high.max(price);
+                    low = low.min(price);
+                    close = price;
+                }
+                volume = volume.add(quantity);
+                transactionCount++;
             }
-            volume = volume.add(quantity);
-            transactionCount++;
-        }
-
-        boolean hasData() {
-            return open != null && transactionCount > 0;
         }
 
         boolean shouldClose() {
             if (!hasData()) return false;
             LocalDateTime currentInterval = truncateToInterval(LocalDateTime.now(), interval);
             return currentInterval.isAfter(startTime);
+        }
+
+        // Keep other methods unchanged
+        boolean hasData() {
+            return open != null && transactionCount > 0;
         }
 
         CandlestickDTO getCurrentCandle() {
@@ -439,6 +559,7 @@ public class CandlestickService {
             return candle;
         }
 
+        // Include the truncateToInterval method here for consistency
         private LocalDateTime truncateToInterval(LocalDateTime time, TimeInterval interval) {
             return switch (interval) {
                 case ONE_MINUTE -> time.truncatedTo(ChronoUnit.MINUTES);

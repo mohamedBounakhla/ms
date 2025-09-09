@@ -45,6 +45,8 @@ public class OHLCWebSocketController {
         logger.info("Client subscribed to OHLC updates: {} {}", symbol, interval);
 
         try {
+            logger.info("WebSocket: subscribeToOHLC called for {} {}", symbol, interval);
+
             TimeInterval timeInterval = parseInterval(interval);
 
             // Get the most recent candle to send immediately

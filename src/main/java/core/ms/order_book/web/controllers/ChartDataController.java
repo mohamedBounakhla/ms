@@ -65,6 +65,8 @@ public class ChartDataController {
             LocalDateTime to) {
 
         try {
+            logger.info("REST: getOHLCData called for {} {} from {} to {}", symbol, interval, from, to);
+
             // Set defaults
             if (to == null) {
                 to = LocalDateTime.now();
