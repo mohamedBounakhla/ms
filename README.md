@@ -7,9 +7,9 @@ Gradle
 
 Installation et Démarrage
 1. Builder le projet
-bashgradle build
+gradle build
 2. Lancer l'application
-bashgradle bootRun
+gradle bootRun
 L'application sera disponible sur http://localhost:8080
 Base de données
 H2 (base de données en mémoire)
